@@ -33,6 +33,7 @@ import uk.co.caprica.vlcj.factory.discovery.NativeDiscovery
 import uk.co.caprica.vlcj.player.base.MediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer
+import uk.co.caprica.vlcj.player.embedded.videosurface.VideoSurface
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormat
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.BufferFormatCallback
 import uk.co.caprica.vlcj.player.embedded.videosurface.callback.RenderCallback
@@ -65,6 +66,14 @@ actual class PlayerEngine actual constructor() {
     @Volatile private var dead = false
     private var factory: MediaPlayerFactory? = null
     private var media: EmbeddedMediaPlayer? = null
+
+    // vlcj/JNA 不会替我们强引用这些回调；只把对象传给 native 的话，
+    // 播放一段时间后 JVM GC 掉回调，native 再调就会 SIGTRAP。
+    // 必须持有到 release() 为止。
+    private var bufferFormatCallback: BufferFormatCallback? = null
+    private var renderCallback: RenderCallback? = null
+    private var videoSurface: VideoSurface? = null
+    private var eventAdapter: MediaPlayerEventAdapter? = null
 
     actual val currentPosition: Long get() = clock.positionMs
     actual val duration: Long get() = clock.durationMs
@@ -196,6 +205,10 @@ actual class PlayerEngine actual constructor() {
             runCatching { factory?.release() }
             media = null
             factory = null
+            bufferFormatCallback = null
+            renderCallback = null
+            videoSurface = null
+            eventAdapter = null
             pump.release()
         }
     }
@@ -230,29 +243,30 @@ actual class PlayerEngine actual constructor() {
     private fun openPlayer(): Pair<MediaPlayerFactory, EmbeddedMediaPlayer> {
         val created = openFactory()
         val player = created.mediaPlayers().newEmbeddedMediaPlayer()
-        val surface = created.videoSurfaces().newVideoSurface(
-            object : BufferFormatCallback {
-                override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
-                    val (width, height) = pump.sizeFor(sourceWidth, sourceHeight)
-                    return RV32BufferFormat(width, height)
-                }
+        val formatCallback = object : BufferFormatCallback {
+            override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
+                val (width, height) = pump.sizeFor(sourceWidth, sourceHeight)
+                return RV32BufferFormat(width, height)
+            }
 
-                override fun allocatedBuffers(buffers: Array<out ByteBuffer>) = Unit
-            },
-            object : RenderCallback {
-                override fun display(mediaPlayer: MediaPlayer, nativeBuffers: Array<out ByteBuffer>, bufferFormat: BufferFormat) {
-                    val source = nativeBuffers.firstOrNull() ?: return
-                    val width = bufferFormat.width
-                    val height = bufferFormat.height
-                    if (width <= 0 || height <= 0) return
-                    val pitch = bufferFormat.pitches.firstOrNull()?.takeIf { it >= width * 4 } ?: (width * 4)
-                    pump.publish(source, width, height, pitch)
-                }
-            },
-            true,
-        )
+            override fun allocatedBuffers(buffers: Array<out ByteBuffer>) = Unit
+        }
+        val render = object : RenderCallback {
+            override fun display(mediaPlayer: MediaPlayer, nativeBuffers: Array<out ByteBuffer>, bufferFormat: BufferFormat) {
+                val source = nativeBuffers.firstOrNull() ?: return
+                val width = bufferFormat.width
+                val height = bufferFormat.height
+                if (width <= 0 || height <= 0) return
+                val pitch = bufferFormat.pitches.firstOrNull()?.takeIf { it >= width * 4 } ?: (width * 4)
+                pump.publish(source, width, height, pitch)
+            }
+        }
+        val surface = created.videoSurfaces().newVideoSurface(formatCallback, render, true)
+        bufferFormatCallback = formatCallback
+        renderCallback = render
+        videoSurface = surface
         player.videoSurface().set(surface)
-        player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
+        val events = object : MediaPlayerEventAdapter() {
             override fun error(mediaPlayer: MediaPlayer) {
                 clearPendingSeek()
                 notify { it.onError() }
@@ -318,7 +332,9 @@ actual class PlayerEngine actual constructor() {
             override fun backward(mediaPlayer: MediaPlayer) {
                 notify { it.onPositionJump() }
             }
-        })
+        }
+        eventAdapter = events
+        player.events().addMediaPlayerEventListener(events)
         return created to player
     }
 
