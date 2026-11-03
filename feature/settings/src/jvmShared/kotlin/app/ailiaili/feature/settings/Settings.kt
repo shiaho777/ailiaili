@@ -23,6 +23,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -53,6 +54,7 @@ import app.ailiaili.core.model.ShellLayout
 import app.ailiaili.core.model.ThemeMode
 import app.ailiaili.core.model.qnLabel
 import app.ailiaili.core.model.ioDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import app.ailiaili.core.network.JSONObject
@@ -405,9 +407,17 @@ fun SettingsRoute(
                             label = { Text("高级") },
                         )
                     }
+                    var keywordDraft by remember(settings.danmakuBlockKeywords) {
+                        mutableStateOf(settings.danmakuBlockKeywords)
+                    }
+                    LaunchedEffect(keywordDraft) {
+                        if (keywordDraft == settings.danmakuBlockKeywords) return@LaunchedEffect
+                        delay(500)
+                        AppGraph.repo.updateSettings { it.copy(danmakuBlockKeywords = keywordDraft) }
+                    }
                     OutlinedTextField(
-                        value = settings.danmakuBlockKeywords,
-                        onValueChange = { text -> AppGraph.repo.updateSettings { it.copy(danmakuBlockKeywords = text) } },
+                        value = keywordDraft,
+                        onValueChange = { keywordDraft = it },
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         label = { Text("弹幕关键词") },
                         placeholder = { Text("逗号、分号或换行分隔，re: 开头是正则") },
@@ -454,14 +464,19 @@ fun SettingsRoute(
                         supportingContent = { Text("缓存在这台设备上，不上传账号") },
                         trailingContent = { TextButton(onClick = onOpenCache) { Text("打开") } },
                     )
-                    var coverCache by remember { mutableStateOf(coverCacheSize()) }
+                    var coverCache by remember { mutableStateOf("计算中…") }
+                    LaunchedEffect(Unit) {
+                        coverCache = withContext(ioDispatcher) { coverCacheSize() }
+                    }
                     ListItem(
                         headlineContent = { Text("封面缓存") },
                         supportingContent = { Text(coverCache) },
                         trailingContent = {
                             TextButton(onClick = {
-                                clearCoverCache()
-                                coverCache = coverCacheSize()
+                                scope.launch {
+                                    withContext(ioDispatcher) { clearCoverCache() }
+                                    coverCache = withContext(ioDispatcher) { coverCacheSize() }
+                                }
                             }) { Text("清除") }
                         },
                     )

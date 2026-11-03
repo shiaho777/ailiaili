@@ -336,14 +336,20 @@ class BiliClient(
         }.filter { it.cid > 0 }
     }
 
-    suspend fun playUrl(bvid: String, cid: Long, settings: AppSettings): Result<PlayInfo> = api {
+    suspend fun playUrl(
+        bvid: String,
+        cid: Long,
+        settings: AppSettings,
+        forceDash: Boolean = false,
+    ): Result<PlayInfo> = api {
         ensureBuvid()
         val qn = settings.defaultQn
 
         // 720P 及以下优先走 durl 合流单流：桌面 VLC 对 DASH 双流的远距离
         // seek 不可靠，而 durl 是普通 MP4，拖动进度条一次到位。
         // 1080P 及以上继续走 DASH，避免被 durl 的 720P 上限锁死画质。
-        if (app.ailiaili.core.model.shouldPreferDurl(qn)) {
+        // 听视频模式需要独立音轨，必须强制 DASH（durl 没有 audioUrl）。
+        if (!forceDash && app.ailiaili.core.model.shouldPreferDurl(qn)) {
             parseDurl(bvid, cid, qn)?.let { return@api it }
             // durl 取不到（多段切片/大会员/该档无源）时回落到 DASH，行为与旧版一致。
         }

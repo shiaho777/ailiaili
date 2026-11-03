@@ -88,25 +88,26 @@ class HomeViewModel : ViewModel() {
 
     fun loadMore() {
         if (loading || !hasMore || tab == HomeTab.Ranking) return
-        page += 1
         load(reset = false)
     }
 
     private fun load(reset: Boolean) {
         val current = tab
+        val requestPage = if (reset) 1 else page + 1
         loading = true
         error = null
         viewModelScope.launch {
             val result = when (current) {
-                HomeTab.Recommend -> AppGraph.repo.recommend(page)
-                HomeTab.Popular -> AppGraph.repo.popular(page)
+                HomeTab.Recommend -> AppGraph.repo.recommend(requestPage)
+                HomeTab.Popular -> AppGraph.repo.popular(requestPage)
                 HomeTab.Ranking -> AppGraph.repo.ranking()
-                HomeTab.Live -> AppGraph.repo.liveList(page)
+                HomeTab.Live -> AppGraph.repo.liveList(requestPage)
             }
             if (tab != current) return@launch
             loading = false
             refreshing = false
             result.onSuccess { list ->
+                page = requestPage
                 val merged = if (reset) list else (items + list).distinctBy { it.stableKey }
                 val grew = reset || merged.size > items.size
                 items = merged

@@ -212,14 +212,21 @@ class OfflineCache(private val root: AppFile) {
         }.sortedByDescending { AppFile(it.videoPath).lastModified() }
     }
 
-    fun download(bvid: String, title: String, cover: String, info: PlayInfo, client: HttpEngine): CacheEntry {
+    fun download(
+        bvid: String,
+        title: String,
+        cover: String,
+        info: PlayInfo,
+        client: HttpEngine,
+        onProgress: (downloaded: Long, total: Long) -> Unit = { _, _ -> },
+    ): CacheEntry {
         val folder = AppFile(root, bvid.ifBlank { "local" })
         folder.mkdirs()
         val video = AppFile(folder, "video.m4s")
         val audio = AppFile(folder, "audio.m4s")
-        fetch(client, info.videoUrl, video)
+        fetch(client, info.videoUrl, video, onProgress)
         val audioUrl = info.audioUrl
-        if (audioUrl != null) fetch(client, audioUrl, audio)
+        if (audioUrl != null) fetch(client, audioUrl, audio, onProgress)
         val meta = JSONObject()
             .put("bvid", bvid)
             .put("title", title)
@@ -235,16 +242,21 @@ class OfflineCache(private val root: AppFile) {
         AppFile(root, bvid).deleteRecursively()
     }
 
-    private fun fetch(client: HttpEngine, url: String, dest: AppFile) {
-        val resp = client.get(
+    private fun fetch(
+        client: HttpEngine,
+        url: String,
+        dest: AppFile,
+        onProgress: (downloaded: Long, total: Long) -> Unit,
+    ) {
+        client.downloadTo(
             url,
             mapOf(
                 "Referer" to "https://www.bilibili.com/",
                 "User-Agent" to app.ailiaili.core.model.USER_AGENT,
             ),
+            dest.absolutePath,
+            onProgress,
         )
-        if (!resp.isSuccessful) error("下载失败 ${resp.code}")
-        dest.writeBytes(resp.body)
     }
 }
 

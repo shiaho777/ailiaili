@@ -56,7 +56,7 @@ interface BiliRepository {
     suspend fun related(bvid: String): Result<List<VideoItem>>
     suspend fun tags(bvid: String): Result<List<String>>
     suspend fun pages(bvid: String): Result<List<VideoPage>>
-    suspend fun play(bvid: String, cid: Long): Result<PlayInfo>
+    suspend fun play(bvid: String, cid: Long, forceDash: Boolean = false): Result<PlayInfo>
     suspend fun danmakuSegment(cid: Long, segmentIndex: Int): Result<List<Danmaku>>
     suspend fun chapters(bvid: String, cid: Long): Result<List<ViewChapter>>
     suspend fun videoShot(bvid: String, cid: Long): Result<VideoShot?>
@@ -135,7 +135,8 @@ class BiliRepositoryImpl(
     override suspend fun related(bvid: String) = client.related(bvid)
     override suspend fun tags(bvid: String) = client.tags(bvid)
     override suspend fun pages(bvid: String) = client.pages(bvid)
-    override suspend fun play(bvid: String, cid: Long) = client.playUrl(bvid, cid, settingsStore.current)
+    override suspend fun play(bvid: String, cid: Long, forceDash: Boolean) =
+        client.playUrl(bvid, cid, settingsStore.current, forceDash)
     override suspend fun danmakuSegment(cid: Long, segmentIndex: Int) = client.danmakuSegment(cid, segmentIndex)
     override suspend fun chapters(bvid: String, cid: Long) = client.chapters(bvid, cid)
     override suspend fun videoShot(bvid: String, cid: Long) = client.videoShot(bvid, cid)

@@ -117,21 +117,22 @@ class SearchViewModel(initial: String) : ViewModel() {
 
     fun loadMore() {
         if (loading || !hasMore) return
-        page += 1
         load(reset = false)
     }
 
     private fun load(reset: Boolean) {
         val token = ++loadGen
+        val requestPage = if (reset) 1 else page + 1
         loading = true
         error = null
         val q = keyword
         val searchKind = kind
         viewModelScope.launch {
-            val result = AppGraph.repo.search(q, page, searchKind)
+            val result = AppGraph.repo.search(q, requestPage, searchKind)
             if (token != loadGen) return@launch
             loading = false
             result.onSuccess { pageData ->
+                page = requestPage
                 when (searchKind) {
                     ContentKind.Bangumi -> {
                         bangumiItems = if (reset) {

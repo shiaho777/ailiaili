@@ -31,6 +31,20 @@ expect class HttpEngine(connectTimeoutMs: Long, readTimeoutMs: Long) {
         json: String,
         headers: Map<String, String>,
     ): HttpResponse
+
+    /**
+     * 流式下载到文件，不把整个响应读进内存。
+     * 先写 `<filePath>.part`，成功后再原子改名；失败会清掉临时文件。
+     */
+    fun downloadTo(
+        url: String,
+        headers: Map<String, String>,
+        filePath: String,
+        onProgress: (downloaded: Long, total: Long) -> Unit,
+    )
+
+    /** 打开一个流式响应。调用方负责 close；关闭流会同时释放底层响应。 */
+    fun openStream(url: String, headers: Map<String, String>): java.io.InputStream
 }
 
 fun HttpEngine.get(

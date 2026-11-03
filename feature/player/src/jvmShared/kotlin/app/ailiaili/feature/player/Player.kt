@@ -80,6 +80,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -147,7 +148,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -205,6 +206,7 @@ fun PlayerRoute(
     var commentTotal by remember { mutableIntStateOf(0) }
     var commentMode by remember { mutableIntStateOf(3) }
     var commentLoading by remember { mutableStateOf(false) }
+    var commentError by remember { mutableStateOf<String?>(null) }
     var replyExtra by remember { mutableStateOf<Map<Long, List<Comment>>>(emptyMap()) }
     var replyPage by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
     var replyDone by remember { mutableStateOf(setOf<Long>()) }
@@ -259,6 +261,7 @@ fun PlayerRoute(
     var draft by remember { mutableStateOf("") }
     var composerExpanded by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableFloatStateOf(-1f) }
     var attempt by remember { mutableIntStateOf(0) }
     val form = LocalWindowForm.current
     val desktop = isDesktopHost()
@@ -283,7 +286,7 @@ fun PlayerRoute(
         val cid = reportCid.value
         val id = reportBvid.value
         val sec = runCatching { engine.currentPosition / 1000 }.getOrDefault(0L)
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch(ioDispatcher) {
             if (now) HistorySync.reportNow(aid, cid, sec, id)
             else HistorySync.report(aid, cid, sec, id)
         }
@@ -335,6 +338,7 @@ fun PlayerRoute(
         }
         engine.addListener(listener)
         onDispose {
+            PlayMemory.flush()
             fireHistory(now = true)
             engine.removeListener(listener)
             engine.freeze()
@@ -353,7 +357,13 @@ fun PlayerRoute(
 
     fun playingCid(): Long = page?.cid?.takeIf { it > 0 } ?: detail?.cid ?: 0L
 
-    fun start(targetBvid: String, cid: Long, seek: Long = 0, durationSec: Int = 0) {
+    fun start(
+        targetBvid: String,
+        cid: Long,
+        seek: Long = 0,
+        durationSec: Int = 0,
+        forceDash: Boolean = false,
+    ) {
         ended = false
         skippedStarts = emptySet()
         undoAt = -1L
@@ -363,7 +373,7 @@ fun PlayerRoute(
         shot = null
         scope.launch {
             error = null
-            val play = AppGraph.repo.play(targetBvid, cid)
+            val play = AppGraph.repo.play(targetBvid, cid, forceDash)
             play.onSuccess { got ->
                 info = got
                 val audioOnly = listening && !got.audioUrl.isNullOrBlank()
@@ -418,13 +428,15 @@ fun PlayerRoute(
     fun loadComments(aid: Long, pageNum: Int, mode: Int, append: Boolean) {
         if (aid <= 0) return
         commentLoading = true
+        commentError = null
         scope.launch {
             AppGraph.repo.comments(aid, pageNum, mode).onSuccess { got ->
                 comments = if (append) (comments + got.items).distinctBy { it.rpid } else got.items
                 commentPage = got.page
                 commentsMore = got.hasMore
                 if (got.total > 0) commentTotal = got.total
-            }.onFailure { error = it.message }
+                commentError = null
+            }.onFailure { commentError = it.message ?: "评论加载失败" }
             commentLoading = false
         }
     }
@@ -447,6 +459,7 @@ fun PlayerRoute(
         onlineText = null
         comments = emptyList()
         commentTotal = 0
+        commentError = null
         page = d.pages.firstOrNull { it.cid == d.cid } ?: d.pages.firstOrNull()
         val cid = page?.cid ?: d.cid
         if (cid > 0) start(d.bvid, cid, durationSec = page?.durationSec?.takeIf { it > 0 } ?: d.durationSec)
@@ -1255,7 +1268,7 @@ fun PlayerRoute(
                         }
                     }
                 }
-                if (liveRoom == null && local == null && !info?.audioUrl.isNullOrBlank()) {
+                if (liveRoom == null && local == null && info != null) {
                     TextButton(onClick = {
                         val pos = engine.currentPosition
                         if (listening) {
@@ -1264,7 +1277,23 @@ fun PlayerRoute(
                         } else if (engine.playAudioOnly(pos)) {
                             listening = true
                         } else {
-                            toast = "这条视频没有可用的音轨"
+                            // durl 合流单流没有独立音轨；切回 DASH 再取一次 audioUrl。
+                            val id = bvid ?: detail?.bvid
+                            val cidNow = page?.cid ?: detail?.cid ?: 0L
+                            if (id.isNullOrBlank() || cidNow <= 0) {
+                                toast = "这条视频没有可用的音轨"
+                            } else {
+                                listening = true
+                                start(
+                                    id,
+                                    cidNow,
+                                    seek = pos,
+                                    durationSec = page?.durationSec
+                                        ?: detail?.durationSec
+                                        ?: 0,
+                                    forceDash = true,
+                                )
+                            }
                         }
                     }) {
                         Text(
@@ -1524,20 +1553,49 @@ fun PlayerRoute(
                             val play = info ?: return@Act
                             val d = detail ?: return@Act
                             downloading = true
+                            downloadProgress = -1f
+                            var lastProgressAt = 0L
                             scope.launch {
                                 runCatching {
                                     kotlinx.coroutines.withContext(app.ailiaili.core.model.ioDispatcher) {
-                                        AppGraph.cache.download(d.bvid, d.title, d.pic, play, AppGraph.http)
+                                        AppGraph.cache.download(
+                                            d.bvid,
+                                            d.title,
+                                            d.pic,
+                                            play,
+                                            AppGraph.http,
+                                        ) { done, total ->
+                                            // 每 512KB 或结束时更新一次，避免每 64KB 触发一次重组。
+                                            if (done - lastProgressAt >= 512 * 1024 || done == total) {
+                                                lastProgressAt = done
+                                                val ratio = if (total > 0) {
+                                                    (done.toFloat() / total).coerceIn(0f, 1f)
+                                                } else {
+                                                    -1f
+                                                }
+                                                scope.launch { downloadProgress = ratio }
+                                            }
+                                        }
                                     }
                                     toast = "已缓存到离线缓存"
                                     haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                                 }.onFailure { toast = it.message ?: "缓存失败" }
                                 downloading = false
+                                downloadProgress = -1f
                             }
                         }
                     }
                 }
-                if (downloading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (downloading) {
+                    if (downloadProgress >= 0f) {
+                        LinearProgressIndicator(
+                            progress = { downloadProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                }
                 val pages = detail?.pages.orEmpty()
                 if (pages.size > 1) {
                     Text("分P · ${pages.size}", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
@@ -1730,8 +1788,22 @@ fun PlayerRoute(
                         } else if (comments.isEmpty()) {
                             Text("还没有评论", color = MaterialTheme.colorScheme.onSurface)
                         }
+                        commentError?.let { message ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    message,
+                                    modifier = Modifier.weight(1f),
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontSize = 13.sp,
+                                )
+                                TextButton(onClick = {
+                                    detail?.aid?.let { loadComments(it, 1, commentMode, append = false) }
+                                }) { Text("重试") }
+                            }
+                        }
                         comments.forEach { c ->
                             val shown = replyExtra[c.rpid] ?: c.replies
+                            key(c.rpid) {
                             CommentBlock(
                                 comment = c,
                                 replies = shown,
@@ -1762,13 +1834,14 @@ fun PlayerRoute(
                                                 if (got.isEmpty() || merged.size >= c.replyCount) {
                                                     replyDone = replyDone + rootId
                                                 }
-                                            }.onFailure { error = it.message }
+                                            }.onFailure { commentError = it.message ?: "回复加载失败" }
                                         }
                                     }
                                 } else {
                                     null
                                 },
                             )
+                            }
                         }
                         if (commentsMore) {
                             TextButton(onClick = {
@@ -2176,18 +2249,20 @@ private fun CommentBlock(
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
                     replies.forEach { reply ->
-                        CommentBlock(
-                            reply,
-                            emptyList(),
-                            rootRpid,
-                            onSpace,
-                            onLike,
-                            onDislike,
-                            onReply,
-                            onExpand = null,
-                            onPreviewImage = onPreviewImage,
-                            nested = true,
-                        )
+                        key(reply.rpid) {
+                            CommentBlock(
+                                reply,
+                                emptyList(),
+                                rootRpid,
+                                onSpace,
+                                onLike,
+                                onDislike,
+                                onReply,
+                                onExpand = null,
+                                onPreviewImage = onPreviewImage,
+                                nested = true,
+                            )
+                        }
                     }
                     if (onExpand != null) {
                         Text(

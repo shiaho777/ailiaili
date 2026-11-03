@@ -30,10 +30,12 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.model.ioDispatcher
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
@@ -48,6 +51,7 @@ import app.ailiaili.core.model.CacheEntry
 import app.ailiaili.core.model.FavFolder
 import app.ailiaili.core.model.VideoItem
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class ListViewModel(private val loader: suspend () -> Result<List<VideoItem>>) : ViewModel() {
     var items by mutableStateOf<List<VideoItem>>(emptyList())
@@ -439,10 +443,20 @@ private fun EditBar(
 
 @Composable
 fun CacheRoute(onBack: () -> Unit, onPlay: (CacheEntry) -> Unit) {
-    var entries by androidx.compose.runtime.remember { mutableStateOf(AppGraph.cache.list()) }
+    var entries by remember { mutableStateOf<List<CacheEntry>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var reload by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(reload) {
+        loading = true
+        entries = withContext(ioDispatcher) { AppGraph.cache.list() }
+        loading = false
+    }
     Scaffold(topBar = { BackTitle("离线缓存", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (entries.isEmpty()) {
+            if (loading) {
+                Text("加载中…", modifier = Modifier.padding(24.dp))
+            } else if (entries.isEmpty()) {
                 Text("还没有缓存。播放页可以把当前视频下载到这里。", modifier = Modifier.padding(24.dp))
             } else {
                 LazyColumn {
@@ -453,8 +467,10 @@ fun CacheRoute(onBack: () -> Unit, onPlay: (CacheEntry) -> Unit) {
                             modifier = Modifier.clickable { onPlay(entry) },
                             trailingContent = {
                                 Text("删除", modifier = Modifier.clickable {
-                                    AppGraph.cache.delete(entry.bvid)
-                                    entries = AppGraph.cache.list()
+                                    scope.launch {
+                                        withContext(ioDispatcher) { AppGraph.cache.delete(entry.bvid) }
+                                        reload++
+                                    }
                                 })
                             },
                         )
