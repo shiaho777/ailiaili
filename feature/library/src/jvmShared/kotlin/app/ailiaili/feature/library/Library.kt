@@ -1,7 +1,6 @@
 package app.ailiaili.feature.library
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,14 +17,12 @@ import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Schedule
 import app.ailiaili.core.designsystem.BiliBackHeader
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
@@ -38,7 +35,6 @@ import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricTone
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,6 +58,19 @@ import app.ailiaili.core.model.FavFolder
 import app.ailiaili.core.model.VideoItem
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import app.ailiaili.core.designsystem.BiliAssistChip
+import app.ailiaili.core.designsystem.VideoListRow
 
 class ListViewModel(private val loader: suspend () -> Result<List<VideoItem>>) : ViewModel() {
     var items by mutableStateOf<List<VideoItem>>(emptyList())
@@ -179,11 +188,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                 vm::reload,
             ) {
                 if (shown.isEmpty()) {
-                    Text(
-                        "这些内容已被屏蔽",
-                        modifier = Modifier.padding(24.dp),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+                    FilteredEmptyState()
                 } else LazyColumn(Modifier.fillMaxSize()) {
                     items(shown, key = { it.stableKey }) { item ->
                         val state = rememberSwipeToDismissBoxState(
@@ -212,37 +217,45 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                                 }
                             },
                         ) {
-                            ListItem(
-                                headlineContent = { Text(item.title) },
-                                supportingContent = {
+                            val isPicked = item.stableKey in picked
+                            VideoListRow(
+                                title = item.title,
+                                cover = item.cover,
+                                badge = item.durationText,
+                                selected = editing && isPicked,
+                                modifier = Modifier.background(MaterialTheme.colorScheme.background),
+                                onClick = {
+                                    if (editing) {
+                                        picked = if (isPicked) picked - item.stableKey else picked + item.stableKey
+                                    } else {
+                                        onVideo(item)
+                                    }
+                                },
+                                onLongClick = if (editing) null else {
+                                    {
+                                        editing = true
+                                        picked = picked + item.stableKey
+                                    }
+                                },
+                                leading = if (!editing) null else {
+                                    {
+                                        Checkbox(
+                                            checked = isPicked,
+                                            onCheckedChange = {
+                                                picked = if (isPicked) picked - item.stableKey else picked + item.stableKey
+                                            },
+                                        )
+                                    }
+                                },
+                                meta = {
                                     MetaRow(
                                         items = listOfNotNull(
                                             item.author.takeIf { it.isNotBlank() }?.let {
                                                 MetaSpec(Icons.Filled.Person, it, MetricTone.Neutral)
                                             },
-                                            item.durationText.takeIf { it.isNotBlank() }?.let {
-                                                MetaSpec(Icons.Filled.Schedule, it, MetricTone.Neutral)
-                                            },
                                         ),
-                                        maxItems = 2,
+                                        maxItems = 1,
                                     )
-                                },
-                                leadingContent = if (!editing) null else {
-                                    {
-                                        Checkbox(
-                                            checked = item.stableKey in picked,
-                                            onCheckedChange = {
-                                                picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
-                                            },
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.clickable {
-                                    if (editing) {
-                                        picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
-                                    } else {
-                                        onVideo(item)
-                                    }
                                 },
                             )
                         }
@@ -270,16 +283,28 @@ fun FavoritesRoute(onBack: () -> Unit, onOpen: (FavFolder) -> Unit) {
             LoadBox(loading, error, folders.isEmpty(), "没有收藏夹", { attempt++ }) {
                 LazyColumn {
                     items(folders, key = { it.id }) { folder ->
-                        ListItem(
-                            headlineContent = { Text(folder.title) },
-                            supportingContent = {
-                                BiliBadge(
-                                    text = "${folder.count} 个视频",
-                                    tone = BiliBadgeTone.Neutral,
-                                    style = BiliBadgeStyle.Soft,
-                                )
+                        VideoListRow(
+                            title = folder.title.ifBlank { "收藏夹" },
+                            cover = folder.cover,
+                            onClick = { onOpen(folder) },
+                            modifier = Modifier.animateItem(),
+                            coverWidth = 112.dp,
+                            meta = {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    BiliBadge(
+                                        text = "${folder.count} 个视频",
+                                        tone = BiliBadgeTone.Neutral,
+                                        style = BiliBadgeStyle.Soft,
+                                    )
+                                    if (folder.privateFolder) {
+                                        BiliBadge(
+                                            text = "私密",
+                                            tone = BiliBadgeTone.Warning,
+                                            style = BiliBadgeStyle.Soft,
+                                        )
+                                    }
+                                }
                             },
-                            modifier = Modifier.clickable { onOpen(folder) }.animateItem(),
                         )
                     }
                 }
@@ -324,17 +349,27 @@ fun FavVideosRoute(
             )
             LoadBox(vm.loading, vm.error, vm.items.isEmpty(), "这个收藏夹是空的", vm::reload) {
                 if (shown.isEmpty()) {
-                    Text(
-                        "这些内容已被屏蔽",
-                        modifier = Modifier.padding(24.dp),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+                    FilteredEmptyState()
                 } else if (editing) {
-                    LazyColumn {
+                    LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
                         items(shown, key = { it.stableKey }) { item ->
-                            ListItem(
-                                headlineContent = { Text(item.title) },
-                                supportingContent = {
+                            val toggle = {
+                                picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
+                            }
+                            VideoListRow(
+                                title = item.title,
+                                cover = item.cover,
+                                onClick = toggle,
+                                modifier = Modifier.animateItem(),
+                                badge = item.durationText,
+                                selected = item.stableKey in picked,
+                                leading = {
+                                    Checkbox(
+                                        checked = item.stableKey in picked,
+                                        onCheckedChange = { toggle() },
+                                    )
+                                },
+                                meta = {
                                     MetaRow(
                                         items = listOfNotNull(
                                             item.author.takeIf { it.isNotBlank() }?.let {
@@ -343,17 +378,6 @@ fun FavVideosRoute(
                                         ),
                                         maxItems = 1,
                                     )
-                                },
-                                leadingContent = {
-                                    Checkbox(
-                                        checked = item.stableKey in picked,
-                                        onCheckedChange = {
-                                            picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
-                                        },
-                                    )
-                                },
-                                modifier = Modifier.clickable {
-                                    picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
                                 },
                             )
                         }
@@ -411,12 +435,27 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
             )
             LoadBox(vm.loading, vm.error, vm.items.isEmpty(), "稍后再看是空的", vm::reload) {
                 if (shown.isEmpty() && ContentFilter.active) {
-                    Text("这些内容已被屏蔽", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurface)
-                } else LazyColumn {
+                    FilteredEmptyState()
+                } else LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
                     items(shown, key = { it.stableKey }) { item ->
-                        ListItem(
-                            headlineContent = { Text(item.title) },
-                            supportingContent = {
+                        val toggle = {
+                            picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
+                        }
+                        VideoListRow(
+                            title = item.title,
+                            cover = item.cover,
+                            badge = item.durationText,
+                            selected = editing && item.stableKey in picked,
+                            onClick = { if (editing) toggle() else onVideo(item) },
+                            onLongClick = {
+                                if (!editing) editing = true
+                                toggle()
+                            },
+                            modifier = Modifier.animateItem(),
+                            leading = if (!editing) null else {
+                                { Checkbox(checked = item.stableKey in picked, onCheckedChange = { toggle() }) }
+                            },
+                            meta = {
                                 MetaRow(
                                     items = listOfNotNull(
                                         item.author.takeIf { it.isNotBlank() }?.let {
@@ -426,31 +465,17 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
                                     maxItems = 1,
                                 )
                             },
-                            leadingContent = if (!editing) null else {
+                            trailing = if (editing) null else {
                                 {
-                                    Checkbox(
-                                        checked = item.stableKey in picked,
-                                        onCheckedChange = {
-                                            picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
-                                        },
-                                    )
-                                }
-                            },
-                            modifier = Modifier.clickable {
-                                if (editing) {
-                                    picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
-                                } else {
-                                    onVideo(item)
-                                }
-                            }.animateItem(),
-                            trailingContent = if (editing) null else {
-                                {
-                                    Text(
-                                        "移除",
-                                        modifier = Modifier.clickable {
-                                            vm.delete(item) { if (item.aid > 0) AppGraph.repo.removeWatchLater(item.aid) }
-                                        },
-                                    )
+                                    IconButton(onClick = {
+                                        vm.delete(item) { if (item.aid > 0) AppGraph.repo.removeWatchLater(item.aid) }
+                                    }) {
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = "移除",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                 }
                             },
                         )
@@ -471,13 +496,68 @@ private fun EditBar(
     onDelete: () -> Unit,
     onClear: (() -> Unit)? = null,
 ) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        TextButton(onClick = onEdit) { Text(if (editing) "完成" else "编辑") }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BiliFilterChip(
+            selected = editing,
+            onClick = onEdit,
+            label = { Text(if (editing) "完成" else "编辑") },
+            leadingIcon = {
+                Icon(
+                    if (editing) Icons.Filled.Check else Icons.Filled.Edit,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            },
+        )
         if (editing) {
-            TextButton(onClick = onToggleAll) { Text(if (allSelected) "取消全选" else "全选") }
-            TextButton(onClick = onDelete, enabled = canDelete) { Text("删除所选") }
-            if (onClear != null) TextButton(onClick = onClear) { Text("清空") }
+            BiliAssistChip(
+                label = if (allSelected) "取消全选" else "全选",
+                onClick = onToggleAll,
+                leadingIcon = {
+                    Icon(Icons.Filled.DoneAll, contentDescription = null, modifier = Modifier.size(18.dp))
+                },
+            )
+            if (onClear != null) {
+                BiliAssistChip(
+                    label = "清空",
+                    onClick = onClear,
+                    leadingIcon = {
+                        Icon(Icons.Filled.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                )
+            }
+            Box(Modifier.weight(1f))
+            FilledTonalButton(
+                onClick = onDelete,
+                enabled = canDelete,
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp),
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("删除所选", modifier = Modifier.padding(start = 6.dp))
+            }
         }
+    }
+}
+
+@Composable
+private fun FilteredEmptyState() {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        BiliEmptyState(
+            title = "这些内容已被屏蔽",
+            message = "当前屏蔽词：${ContentFilter.summary()}",
+            icon = Icons.Filled.FilterList,
+            action = {
+                FilledTonalButton(onClick = { ContentFilter.clear() }) { Text("清除屏蔽") }
+            },
+        )
     }
 }
 
@@ -506,25 +586,33 @@ fun CacheRoute(onBack: () -> Unit, onPlay: (CacheEntry) -> Unit) {
                     )
                 }
             } else {
-                LazyColumn {
+                LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
                     items(entries, key = { it.bvid }) { entry ->
-                        ListItem(
-                            headlineContent = { Text(entry.title) },
-                            supportingContent = {
+                        VideoListRow(
+                            title = entry.title,
+                            cover = entry.cover,
+                            onClick = { onPlay(entry) },
+                            modifier = Modifier.animateItem(),
+                            meta = {
                                 BiliBadge(
                                     text = app.ailiaili.core.model.qnLabel(entry.qn),
-                                    tone = BiliBadgeTone.Neutral,
+                                    tone = BiliBadgeTone.Accent,
                                     style = BiliBadgeStyle.Soft,
                                 )
                             },
-                            modifier = Modifier.clickable { onPlay(entry) },
-                            trailingContent = {
-                                Text("删除", modifier = Modifier.clickable {
+                            trailing = {
+                                IconButton(onClick = {
                                     scope.launch {
                                         withContext(ioDispatcher) { AppGraph.cache.delete(entry.bvid) }
                                         reload++
                                     }
-                                })
+                                }) {
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "删除缓存",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             },
                         )
                     }
