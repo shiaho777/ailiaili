@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -62,7 +61,9 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
-import app.ailiaili.core.designsystem.BiliPageTitle
+import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.BiliLoadingState
+import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.MetricChip
 import app.ailiaili.core.designsystem.MetricChipSize
 import app.ailiaili.core.designsystem.MetricSpec
@@ -144,50 +145,29 @@ fun MineRoute(
         refreshing = false
     }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().shellBottomPadding()) {
-        Row(
-            Modifier.padding(start = 20.dp, top = 8.dp, end = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Filled.Person,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(end = 10.dp).size(22.dp),
-            )
-            BiliPageTitle("我的")
-        }
+    Column(Modifier.fillMaxSize().shellBottomPadding()) {
+        BiliPageHeader("我的")
         val profile = user
         if (awaitingProfile && profile == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+                BiliLoadingState(label = "正在加载个人信息…")
             }
         } else if (profile == null) {
-            Column(
-                Modifier.fillMaxSize().padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
-            ) {
-                Box(
-                    Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.11f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Filled.Person,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(34.dp),
-                    )
-                }
-                Text(
-                    if (session.loggedIn) "登录状态已过期" else "登录后查看你的收藏、历史与硬币经验",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                BiliEmptyState(
+                    title = if (session.loggedIn) "登录状态已过期" else "登录后查看你的主页",
+                    message = if (session.loggedIn) {
+                        "重新登录后即可同步收藏、历史与硬币经验"
+                    } else {
+                        "收藏、历史、硬币和经验会同步到这里"
+                    },
+                    icon = Icons.Filled.Person,
+                    action = {
+                        Button(onClick = onLogin, modifier = Modifier.padding(top = 6.dp)) {
+                            Text(if (session.loggedIn) "重新登录" else "登录哔哩哔哩")
+                        }
+                    },
                 )
-                Button(onClick = onLogin) { Text("去登录") }
             }
         } else {
             PullToRefreshBox(

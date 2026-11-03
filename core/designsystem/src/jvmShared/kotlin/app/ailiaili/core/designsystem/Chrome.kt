@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.GridView
 
 /**
  * 壳层有两种导航，页内的下划线、胶囊、简介/评论页签不走这里。
@@ -138,16 +139,10 @@ private fun RailFrame(
                 Modifier
                     .width(if (wide) 96.dp else 72.dp)
                     .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                    .background(MaterialTheme.colorScheme.surfaceContainer),
             ) {
                 rail(wide)
             }
-            Box(
-                Modifier
-                    .width(1.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.outlineVariant),
-            )
             Box(Modifier.weight(1f).fillMaxHeight()) { page() }
         }
     }
@@ -196,15 +191,9 @@ fun BiliBottomBar(
         } else {
             ShortNavigationBarArrangement.EqualWeight
         }
-        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant),
-            )
+        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)) {
             ShortNavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 contentColor = muted,
                 arrangement = arrangement,
             ) {
@@ -214,7 +203,7 @@ fun BiliBottomBar(
                         haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
                         onLogo()
                     },
-                    icon = { BrandMark(24.dp, 8.dp) },
+                    icon = { Icon(Icons.Filled.GridView, contentDescription = null) },
                     label = { Text("分区") },
                     iconPosition = NavigationItemIconPosition.Top,
                     colors = colors,
@@ -319,15 +308,19 @@ private fun RailButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.11f) else Color.Transparent
-    val fg = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    val indicator by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        label = "rail-indicator",
+    )
+    val primary = MaterialTheme.colorScheme.primary
+    val fg = if (selected) primary else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp)
-            .height(58.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(bg)
+            .padding(horizontal = 6.dp)
+            .height(64.dp)
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
             .semantics {
                 role = Role.Tab
@@ -337,13 +330,33 @@ private fun RailButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(item.icon, contentDescription = null, tint = fg, modifier = Modifier.size(20.dp))
+        Box(
+            Modifier.size(width = 52.dp, height = 30.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        scaleX = 0.6f + 0.4f * indicator
+                        alpha = indicator
+                    }
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(primary.copy(alpha = 0.16f)),
+            )
+            Icon(
+                item.icon,
+                contentDescription = null,
+                tint = fg,
+                modifier = Modifier.size(22.dp),
+            )
+        }
         Text(
             item.label,
             color = fg,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Normal,
-            modifier = Modifier.padding(top = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            modifier = Modifier.padding(top = 4.dp),
         )
     }
 }
@@ -354,10 +367,69 @@ fun BiliPageTitle(text: String, modifier: Modifier = Modifier) {
         text,
         modifier = modifier,
         color = MaterialTheme.colorScheme.onBackground,
-        fontSize = 28.sp,
-        fontWeight = FontWeight.SemiBold,
-        lineHeight = 34.sp,
+        style = MaterialTheme.typography.headlineMedium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
+}
+
+/** 一级页面顶栏：大标题 + 右侧操作。所有 tab 页统一用它，不要再各自拼 Row。 */
+@Composable
+fun BiliPageHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: (@Composable () -> Unit)? = null,
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .heightIn(min = 64.dp)
+            .padding(start = 20.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            BiliPageTitle(title)
+            if (subtitle != null) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant,
+                    androidx.compose.material3.LocalTextStyle provides MaterialTheme.typography.bodySmall,
+                ) {
+                    subtitle()
+                }
+            }
+        }
+        actions()
+    }
+}
+
+/** 顶栏操作按钮：tonal 圆底，深浅色下都看得清。 */
+@Composable
+fun BiliHeaderAction(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val haptic = LocalHapticFeedback.current
+    Surface(
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+            onClick()
+        },
+        modifier = modifier.size(40.dp),
+        enabled = enabled,
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(20.dp))
+        }
+    }
 }
 
 @Composable
@@ -384,23 +456,31 @@ fun BiliSectionTitle(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun BiliBackHeader(title: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun BiliBackHeader(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+) {
     Row(
-        modifier.fillMaxWidth().statusBarsPadding(),
+        modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .heightIn(min = 56.dp)
+            .padding(start = 8.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-        }
+        BiliHeaderAction(Icons.AutoMirrored.Filled.ArrowBack, "返回", onBack)
         Text(
             title,
-            modifier = Modifier.weight(1f).padding(end = 16.dp),
+            modifier = Modifier.weight(1f).padding(start = 4.dp),
             color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.titleLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        actions()
     }
 }
 

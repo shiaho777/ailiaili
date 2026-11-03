@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,7 +48,7 @@ import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.BiliFloatButton
 import app.ailiaili.core.designsystem.ContentFilter
-import app.ailiaili.core.designsystem.BiliPageTitle
+import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.BiliUnderlineTabs
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.shellBottomPadding
@@ -145,25 +144,20 @@ fun HomeRoute(
     }
     val navBottom = shellNavigationBottom()
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(
-                Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                BiliPageTitle("首页")
-                Text(
-                    greeting.first,
-                    modifier = Modifier.padding(start = 14.dp, bottom = 6.dp),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 13.sp,
-                )
-                Text(
-                    greeting.second,
-                    modifier = Modifier.padding(start = 6.dp, bottom = 6.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 13.sp,
-                )
-            }
+        Column(Modifier.fillMaxSize()) {
+            BiliPageHeader(
+                title = "首页",
+                subtitle = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(greeting.first)
+                        Text(
+                            greeting.second,
+                            modifier = Modifier.padding(start = 6.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
+            )
             BoxWithConstraints(
                 Modifier
                     .fillMaxWidth()

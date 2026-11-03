@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -47,7 +46,7 @@ import app.ailiaili.core.model.SponsorCategories
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Photo
-import app.ailiaili.core.designsystem.BiliPageTitle
+import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.BiliPillTabs
 import app.ailiaili.core.designsystem.BiliSectionTitle
 import app.ailiaili.core.designsystem.BiliSurfaceCard
@@ -89,12 +88,11 @@ fun SettingsRoute(
     Column(
         Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .shellBottomPadding()
             .verticalScroll(rememberScrollState())
             .padding(bottom = 24.dp),
     ) {
-        BiliPageTitle("应用设置", Modifier.padding(start = 20.dp, top = 8.dp, end = 20.dp))
+        BiliPageHeader("应用设置")
         Box(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
             BiliPillTabs(settingsTabs, tab, onSelect = { tab = it })
         }

@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -31,7 +30,6 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -61,7 +59,9 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
-import app.ailiaili.core.designsystem.BiliPageTitle
+import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.BiliHeaderAction
+import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.MetaRow
 import app.ailiaili.core.designsystem.MetaSpec
@@ -238,34 +238,24 @@ fun DynamicRoute(
                 if (total > 0 && last >= total - 3) vm.loadMoreUsers()
             }
     }
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Row(
-            Modifier.padding(start = 20.dp, end = 8.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BiliPageTitle("动态", Modifier.weight(1f))
-            IconButton(onClick = vm::refresh, enabled = session.loggedIn) {
-                Icon(Icons.Filled.Refresh, contentDescription = "刷新")
+    Column(Modifier.fillMaxSize()) {
+        BiliPageHeader("动态") {
+            if (session.loggedIn) {
+                BiliHeaderAction(Icons.Filled.Refresh, "刷新", vm::refresh)
             }
         }
         if (!session.loggedIn) {
-            Column(
-                Modifier.fillMaxSize().padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
-            ) {
-                Icon(
-                    Icons.Filled.Person,
-                    contentDescription = null,
-                    modifier = Modifier.size(44.dp),
-                    tint = MaterialTheme.colorScheme.primary,
+            Box(Modifier.fillMaxSize().padding(bottom = navBottom), contentAlignment = Alignment.Center) {
+                BiliEmptyState(
+                    title = "登录后查看关注动态",
+                    message = "你关注的 UP 主发布的视频、直播都会出现在这里",
+                    icon = Icons.Filled.Person,
+                    action = {
+                        Button(onClick = onLogin, modifier = Modifier.padding(top = 6.dp)) {
+                            Text("登录哔哩哔哩")
+                        }
+                    },
                 )
-                Text(
-                    "登录后可查看你关注的 UP 主的动态",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 15.sp,
-                )
-                Button(onClick = onLogin) { Text("登录哔哩哔哩") }
             }
         } else {
             BoxWithConstraints(Modifier.fillMaxSize()) {
