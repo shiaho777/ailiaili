@@ -1,6 +1,7 @@
 package app.ailiaili.feature.player
 
 import androidx.compose.ui.backhandler.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -41,12 +42,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
@@ -54,6 +58,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ButtonDefaults
@@ -1447,29 +1452,12 @@ fun PlayerRoute(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(title, style = MaterialTheme.typography.titleLarge)
+                VideoHeader(title = title, detail = detail, onlineText = onlineText)
                 val owner = detail?.owner?.ifBlank { null } ?: seedAuthor
                 val mid = detail?.ownerMid?.takeIf { it > 0 } ?: seedOwnerMid
                 val face = detail?.ownerFace?.ifBlank { null } ?: seedOwnerFace
                 val mine = AppGraph.repo.session.collectAsState().value.dedeUserId?.toLongOrNull()
                 val self = mine != null && mine == mid
-                detail?.let { d ->
-                    val watching = onlineText?.takeIf { it.isNotBlank() }?.let { raw ->
-                        if (raw.any { ch -> ch == '人' || ch == '看' }) raw else "$raw\u00A0人在看"
-                    }
-                    val stats = listOfNotNull(
-                        formatCount(d.viewCount).takeIf { it.isNotBlank() }?.let { "$it 播放" },
-                        formatCount(d.danmakuCount).takeIf { it.isNotBlank() }?.let { "$it 弹幕" },
-                        formatCount(d.likeCount).takeIf { it.isNotBlank() }?.let { "$it 点赞" },
-                        formatCount(d.coinCount).takeIf { it.isNotBlank() }?.let { "$it 投币" },
-                        formatCount(d.favoriteCount).takeIf { it.isNotBlank() }?.let { "$it 收藏" },
-                        watching,
-                        formatDay(d.pubdate).takeIf { it.isNotBlank() },
-                    )
-                    if (stats.isNotEmpty()) {
-                        Text(stats.joinToString(" · "), color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
-                    }
-                }
                 if (owner.isNotBlank()) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -2127,6 +2115,149 @@ private fun clock(ms: Long): String {
 
 private fun speedLabel(value: Float): String =
     if (value == value.toInt().toFloat()) "${value.toInt()}x" else "${value}x"
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun VideoHeader(
+    title: String,
+    detail: VideoDetail?,
+    onlineText: String?,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Box(
+                    Modifier
+                        .padding(top = 4.dp)
+                        .width(4.dp)
+                        .height(22.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 28.sp,
+                    ),
+                )
+            }
+            if (detail != null) {
+                val watching = onlineText?.takeIf { it.isNotBlank() }?.let { raw ->
+                    raw.trim()
+                        .removeSuffix("人在看")
+                        .removeSuffix("人")
+                        .trim()
+                        .ifBlank { raw.trim() }
+                }
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    StatChip(
+                        Icons.Filled.PlayArrow,
+                        formatCount(detail.viewCount).ifBlank { "0" },
+                        "播放",
+                        MaterialTheme.colorScheme.primary,
+                    )
+                    StatChip(
+                        Icons.AutoMirrored.Filled.Comment,
+                        formatCount(detail.danmakuCount).ifBlank { "0" },
+                        "弹幕",
+                        Color(0xFF4FC3F7),
+                    )
+                    StatChip(
+                        Icons.Filled.ThumbUp,
+                        formatCount(detail.likeCount).ifBlank { "0" },
+                        "点赞",
+                        Color(0xFFFF6B81),
+                    )
+                    StatChip(
+                        Icons.Filled.MonetizationOn,
+                        formatCount(detail.coinCount).ifBlank { "0" },
+                        "投币",
+                        Color(0xFFFFB74D),
+                    )
+                    StatChip(
+                        Icons.Filled.Star,
+                        formatCount(detail.favoriteCount).ifBlank { "0" },
+                        "收藏",
+                        Color(0xFF4DD0E1),
+                    )
+                    if (!watching.isNullOrBlank()) {
+                        StatChip(
+                            Icons.Filled.Visibility,
+                            watching,
+                            "人在看",
+                            Color(0xFF81C784),
+                        )
+                    }
+                    val day = formatDay(detail.pubdate)
+                    if (day.isNotBlank()) {
+                        StatChip(
+                            Icons.Filled.CalendarMonth,
+                            day,
+                            "发布",
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatChip(
+    icon: ImageVector,
+    value: String,
+    label: String,
+    tint: Color,
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(14.dp),
+                tint = tint,
+            )
+            Text(
+                value,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp,
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
