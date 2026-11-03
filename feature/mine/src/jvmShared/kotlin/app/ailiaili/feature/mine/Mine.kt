@@ -1,6 +1,16 @@
 package app.ailiaili.feature.mine
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.ui.graphics.Color
+import app.ailiaili.core.designsystem.BiliErrorState
+import app.ailiaili.core.designsystem.BiliHeaderAction
+import app.ailiaili.core.designsystem.BiliSurfaceCard
+import app.ailiaili.core.designsystem.biliPressScale
+import app.ailiaili.core.designsystem.metricToneColor
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,9 +42,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -277,30 +285,35 @@ fun MineRoute(
                     }
                 }
 
-                Row(Modifier.fillMaxWidth().padding(top = 28.dp)) {
-                    MetricStat(counts.dynamic, "动态", Modifier.weight(1f)) {
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        onOpenDynamic()
+                BiliSurfaceCard(
+                    Modifier.fillMaxWidth().padding(top = 20.dp),
+                    contentPadding = PaddingValues(vertical = 12.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth()) {
+                        MetricStat(counts.dynamic, "动态", Modifier.weight(1f)) {
+                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                            onOpenDynamic()
+                        }
+                        MetricStat(counts.following, "关注", Modifier.weight(1f))
+                        MetricStat(counts.follower, "粉丝", Modifier.weight(1f))
                     }
-                    MetricStat(counts.following, "关注", Modifier.weight(1f))
-                    MetricStat(counts.follower, "粉丝", Modifier.weight(1f))
                 }
 
-                BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 22.dp)) {
+                BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 16.dp)) {
                     val columns = if (maxWidth >= 520.dp) 4 else 2
                     val entries = listOf(
-                        Triple(Icons.Filled.Download, "离线缓存", onCache),
-                        Triple(Icons.Filled.History, "观看记录", onHistory),
-                        Triple(Icons.Filled.Star, "我的收藏", onFavorites),
-                        Triple(Icons.Filled.Schedule, "稍后再看", onWatchLater),
+                        ShortcutSpec(Icons.Filled.Download, "离线缓存", MetricTone.Online, onCache),
+                        ShortcutSpec(Icons.Filled.History, "观看记录", MetricTone.Danmaku, onHistory),
+                        ShortcutSpec(Icons.Filled.Star, "我的收藏", MetricTone.Coin, onFavorites),
+                        ShortcutSpec(Icons.Filled.Schedule, "稍后再看", MetricTone.Accent, onWatchLater),
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         entries.chunked(columns).forEach { row ->
                             Row(Modifier.fillMaxWidth()) {
-                                row.forEach { (icon, label, action) ->
-                                    Shortcut(icon, label, Modifier.weight(1f)) {
+                                row.forEach { spec ->
+                                    Shortcut(spec.icon, spec.label, metricToneColor(spec.tone), Modifier.weight(1f)) {
                                         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                        action()
+                                        spec.action()
                                     }
                                 }
                                 repeat(columns - row.size) { Box(Modifier.weight(1f)) }
@@ -309,64 +322,53 @@ fun MineRoute(
                     }
                 }
 
-                HorizontalDivider(Modifier.padding(top = 18.dp))
-
                 Row(
-                    Modifier.fillMaxWidth().padding(top = 4.dp),
+                    Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
                         Modifier
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(CircleShape)
                             .clickable {
                                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                                 onFavorites()
                             }
-                            .padding(vertical = 8.dp),
+                            .padding(horizontal = 4.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("我的收藏", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "我的收藏",
+                            color = MaterialTheme.colorScheme.onBackground,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                         if (folders.isNotEmpty()) {
-                            Text(
-                                folders.size.toString(),
-                                modifier = Modifier.padding(start = 8.dp),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                            BiliBadge(folders.size.toString(), tone = BiliBadgeTone.Accent)
                         }
                         Icon(
                             Icons.AutoMirrored.Filled.KeyboardArrowRight,
                             contentDescription = "打开收藏",
-                            modifier = Modifier.padding(start = 2.dp).size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Box(Modifier.weight(1f))
                     if (folderLoading && folders.isNotEmpty()) {
-                        CircularProgressIndicator(Modifier.padding(end = 14.dp).size(18.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(Modifier.padding(end = 12.dp).size(18.dp), strokeWidth = 2.dp)
                     } else {
-                        IconButton(onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                            refreshTick++
-                        }) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                        }
+                        BiliHeaderAction(Icons.Filled.Refresh, "刷新收藏夹", onClick = { refreshTick++ })
                     }
                 }
 
                 if (folderLoading && folders.isEmpty()) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.padding(top = 24.dp).size(26.dp).align(Alignment.CenterHorizontally),
-                        strokeWidth = 2.dp,
-                    )
+                    BiliLoadingState(Modifier.fillMaxWidth().padding(top = 24.dp), label = "正在加载收藏夹…")
                 }
                 folderError?.let {
-                    Text(
-                        it,
-                        modifier = Modifier.padding(top = 16.dp).align(Alignment.CenterHorizontally),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
+                    BiliErrorState(
+                        message = it,
+                        onRetry = { refreshTick++ },
+                        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                     )
                 }
                 if (folders.isNotEmpty()) {
@@ -399,63 +401,121 @@ private data class MineCounts(
     val follower: String = "--",
 )
 
+private data class ShortcutSpec(
+    val icon: ImageVector,
+    val label: String,
+    val tone: MetricTone,
+    val action: () -> Unit,
+)
+
 @Composable
-private fun Shortcut(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Column(
+private fun Shortcut(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    Row(
         modifier
             .padding(horizontal = 4.dp)
-            .height(76.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .biliPressScale(interaction)
+            .height(64.dp)
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = tint)
+        }
         Text(
             label,
-            modifier = Modifier.padding(top = 6.dp),
+            modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
 @Composable
 private fun FolderCard(folder: FavFolder, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Column(modifier.clickable(onClick = onClick)) {
-        if (folder.cover.isNotBlank()) {
-            AsyncImage(
-                folder.cover,
-                folder.title,
-                Modifier
-                    .fillMaxWidth()
-                    .height(104.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                contentScale = ContentScale.Crop,
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        modifier
+            .biliPressScale(interaction)
+            .clip(MaterialTheme.shapes.large)
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(104.dp)
+                .clip(MaterialTheme.shapes.large)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) {
+            if (folder.cover.isNotBlank()) {
+                AsyncImage(
+                    folder.cover,
+                    folder.title,
+                    Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Icon(
+                    Icons.Filled.Star,
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.Center).size(32.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                )
+            }
+            BiliBadge(
+                text = "${folder.count} 个视频",
+                modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                tone = BiliBadgeTone.Dark,
+                style = BiliBadgeStyle.Solid,
             )
-        } else {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(104.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-            )
+            if (folder.privateFolder) {
+                Icon(
+                    Icons.Filled.Lock,
+                    contentDescription = "私密",
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .padding(4.dp),
+                    tint = Color.White,
+                )
+            }
         }
         Text(
             folder.title.ifBlank { "收藏夹" },
-            modifier = Modifier.padding(start = 2.dp, top = 8.dp),
+            modifier = Modifier.padding(start = 4.dp, top = 8.dp, end = 4.dp, bottom = 4.dp),
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            fontSize = 13.sp,
-        )
-        Text(
-            "共${folder.count}条视频 · ${if (folder.privateFolder) "私密" else "公开"}",
-            modifier = Modifier.padding(start = 2.dp, top = 3.dp),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 12.sp,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
         )
     }
 }
