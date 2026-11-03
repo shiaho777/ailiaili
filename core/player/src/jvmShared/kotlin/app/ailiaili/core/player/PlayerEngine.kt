@@ -18,6 +18,7 @@ expect class PlayerEngine() {
     val currentPosition: Long
     val duration: Long
     val isPlaying: Boolean
+    val isBuffering: Boolean
     val playbackSpeed: Float
     var volume: Float
 

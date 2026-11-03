@@ -55,6 +55,7 @@ actual class PlayerEngine actual constructor() {
     /** seek 看门狗：目标位置、确认截止时间、已重试次数。 */
     @Volatile private var pendingSeekMs = -1L
     @Volatile private var seekDeadline = 0L
+    @Volatile private var seeking = false
     private var seekRetries = 0
 
     @Volatile var statusMessage: String? = null
@@ -78,6 +79,7 @@ actual class PlayerEngine actual constructor() {
     actual val currentPosition: Long get() = clock.positionMs
     actual val duration: Long get() = clock.durationMs
     actual val isPlaying: Boolean get() = clock.playing
+    actual val isBuffering: Boolean get() = clock.buffering || seeking
     actual val playbackSpeed: Float get() = clock.speed
     actual var volume: Float
         get() = volumeLevel
@@ -110,6 +112,7 @@ actual class PlayerEngine actual constructor() {
         val target = positionMs.coerceAtLeast(0L)
         clock.acceptSeek(target)
         pendingSeekMs = target
+        seeking = true
         seekDeadline = System.currentTimeMillis() + 2_500
         seekRetries = 0
         runCatching { media?.controls()?.setTime(target) }
@@ -220,6 +223,7 @@ actual class PlayerEngine actual constructor() {
         if (url.isBlank()) return
         pendingSeekMs = -1L
         seekRetries = 0
+        seeking = false
         statusMessage = null
         val options = buildList {
             add(":http-referrer=https://www.bilibili.com/")
@@ -268,6 +272,7 @@ actual class PlayerEngine actual constructor() {
         player.videoSurface().set(surface)
         val events = object : MediaPlayerEventAdapter() {
             override fun error(mediaPlayer: MediaPlayer) {
+                clock.acceptPlaying(false)
                 clearPendingSeek()
                 notify { it.onError() }
             }
@@ -279,6 +284,7 @@ actual class PlayerEngine actual constructor() {
             }
 
             override fun playing(mediaPlayer: MediaPlayer) {
+                clock.acceptBuffering(false)
                 clock.acceptPlaying(true)
                 clock.acceptTime(mediaPlayer.status().time())
                 clock.acceptLength(mediaPlayer.status().length())
@@ -286,6 +292,10 @@ actual class PlayerEngine actual constructor() {
                     it.onEnded(false)
                     it.onIsPlayingChanged(true)
                 }
+            }
+
+            override fun buffering(mediaPlayer: MediaPlayer, newCache: Float) {
+                clock.acceptBuffering(newCache < 100f)
             }
 
             override fun paused(mediaPlayer: MediaPlayer) {
@@ -341,6 +351,7 @@ actual class PlayerEngine actual constructor() {
     private fun clearPendingSeek() {
         pendingSeekMs = -1L
         seekRetries = 0
+        seeking = false
     }
 }
 

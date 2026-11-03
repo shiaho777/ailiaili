@@ -75,6 +75,7 @@ actual class PlayerEngine actual constructor() {
     actual val currentPosition: Long get() = player.currentPosition
     actual val duration: Long get() = player.duration
     actual val isPlaying: Boolean get() = player.isPlaying
+    actual val isBuffering: Boolean get() = player.playbackState == Player.STATE_BUFFERING
     actual val playbackSpeed: Float get() = player.playbackParameters.speed
     actual var volume: Float
         get() = player.volume

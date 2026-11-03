@@ -115,9 +115,20 @@ internal class DanmakuRuntime {
         val predicted = clockSec + elapsed * clockSpeed
         clockNanos = nowNanos
         clockSpeed = rate
-        if (!sample.isNaN() && abs(sample - predicted) > SNAP_SEC) {
-            clockSec = sample
-            return sample
+        if (!sample.isNaN()) {
+            val diff = sample - predicted
+            if (diff > SNAP_SEC) {
+                // 采样明显跑到墙钟前面：真正的跳转（seek / 换片），硬对齐。
+                clockSec = sample
+                return sample
+            }
+            if (diff > 0.0) {
+                // 采样略微领先：向它靠一半，避免弹幕比视频慢半拍。
+                clockSec = predicted + diff * 0.5
+                return clockSec
+            }
+            // 采样落后（VLC timeChanged 稀疏或正在缓冲）：
+            // 保持墙钟外推，不能往回拉，否则弹幕会一顿一顿。
         }
         clockSec = predicted
         return predicted
@@ -316,7 +327,6 @@ internal class DanmakuRuntime {
                 constraints = Constraints(),
                 layoutDirection = direction,
                 density = density,
-                skipCache = true,
             )
             cachedLineH = sample.size.height.toFloat().coerceAtLeast(1f)
             cachedLineKey = key
@@ -346,7 +356,6 @@ internal class DanmakuRuntime {
             constraints = Constraints(),
             layoutDirection = direction,
             density = density,
-            skipCache = true,
         )
         val textW = layout.size.width.toFloat().coerceAtLeast(1f)
         val textH = layout.size.height.toFloat().coerceAtLeast(1f)
@@ -618,7 +627,7 @@ private class KeywordRules(private val plain: List<String>, private val regex: L
     }
 }
 
-private const val SNAP_SEC = 0.4
+private const val SNAP_SEC = 1.2
 private const val SCROLL_SEC = 8.0
 private const val HOLD_SEC = 4.0
 private const val FADE_SEC = 0.6

@@ -779,8 +779,10 @@ fun PlayerRoute(
 
     LaunchedEffect(page?.cid, detail?.cid, detail?.bvid) {
         val cid = page?.cid?.takeIf { it > 0 } ?: detail?.cid?.takeIf { it > 0 } ?: return@LaunchedEffect
-        val loaded = HashSet<Int>()
+        var loaded = HashSet<Int>()
         var merged = emptyList<Danmaku>()
+        var activeSeg = -1
+        var generation = 0
         danmaku = emptyList()
         while (isActive) {
             if (playingCid() != cid) return@LaunchedEffect
@@ -792,18 +794,32 @@ fun PlayerRoute(
             }
             val posSec = runCatching { engine.currentPosition / 1000.0 }.getOrDefault(0.0)
             val seg = (posSec.toInt() / 360).coerceAtLeast(0)
+            if (seg != activeSeg) {
+                // 换段就换一代请求。旧段在途的响应回来时直接丢掉，
+                // 避免连续拖进度条后旧弹幕覆盖新位置。
+                activeSeg = seg
+                generation++
+                loaded = HashSet()
+                merged = emptyList()
+            }
+            val requestGen = generation
             val maxSeg = if (dur > 0) ((dur + 359) / 360).coerceIn(1, 120) else 20
             for (index in intArrayOf(seg, seg + 1)) {
                 if (index !in 0 until maxSeg || !loaded.add(index)) continue
                 AppGraph.repo.danmakuSegment(cid, index + 1)
                     .onSuccess { items ->
-                        if (playingCid() != cid) return@onSuccess
+                        if (playingCid() != cid ||
+                            requestGen != generation ||
+                            activeSeg != seg
+                        ) {
+                            return@onSuccess
+                        }
                         merged = mergeDanmaku(merged, items)
                         danmaku = merged
                     }
                     .onFailure { loaded.remove(index) }
             }
-            delay(800)
+            delay(500)
         }
     }
 

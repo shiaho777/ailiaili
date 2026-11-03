@@ -10,6 +10,8 @@ internal class PlaybackClock {
         private set
     @Volatile var playing: Boolean = false
         private set
+    @Volatile var buffering: Boolean = false
+        private set
     @Volatile var speed: Float = 1f
         private set
 
@@ -23,6 +25,11 @@ internal class PlaybackClock {
 
     fun acceptPlaying(value: Boolean) {
         playing = value
+        if (!value) buffering = false
+    }
+
+    fun acceptBuffering(value: Boolean) {
+        buffering = value
     }
 
     fun acceptSpeed(value: Float) {

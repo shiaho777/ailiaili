@@ -36,7 +36,7 @@ internal fun DanmakuOverlay(
     settings: AppSettings,
     modifier: Modifier = Modifier,
 ) {
-    val measurer = rememberTextMeasurer()
+    val measurer = rememberTextMeasurer(cacheSize = 256)
     val runtime = remember { DanmakuRuntime() }
     SideEffect {
         runtime.apply(settings)
@@ -91,7 +91,9 @@ private class DanmakuNode(
         }
 
         override fun onPositionJump() {
-            if (!player.isPlaying) pinNow()
+            // 无论暂停还是播放中，seek 后都立即把弹幕钟钉到新位置。
+            // 播放中不钉的话，墙钟会从旧位置继续外推，和视频缓存冲突。
+            pinNow()
             invalidateDraw()
         }
     }
@@ -142,7 +144,9 @@ private class DanmakuNode(
         } else {
             runCatching { player.currentPosition / 1000.0 }.getOrDefault(0.0)
         }
-        val playing = runCatching { player.isPlaying }.getOrDefault(false)
+        // 缓冲中即使 VLC 还报 isPlaying=true，也不能让弹幕按墙钟继续跑。
+        val playing = runCatching { player.isPlaying }.getOrDefault(false) &&
+            !runCatching { player.isBuffering }.getOrDefault(false)
         val speed = runCatching { player.playbackSpeed }.getOrDefault(1f)
         val now = frameNanos.takeIf { it > 0L } ?: System.nanoTime()
         val videoSec = runtime.presentedSec(sample, playing, now, speed)
