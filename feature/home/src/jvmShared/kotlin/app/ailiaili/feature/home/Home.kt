@@ -1,7 +1,5 @@
 package app.ailiaili.feature.home
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -10,18 +8,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -38,7 +32,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
@@ -49,6 +42,7 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.BiliFloatButton
 import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.BiliPageHeader
+import app.ailiaili.core.designsystem.BiliSearchEntry
 import app.ailiaili.core.designsystem.BiliUnderlineTabs
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.shellBottomPadding
@@ -163,25 +157,13 @@ fun HomeRoute(
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp, vertical = 10.dp),
             ) {
-                Row(
-                    Modifier
+                BiliSearchEntry(
+                    placeholder = "搜索你感兴趣的视频",
+                    onClick = onSearch,
+                    modifier = Modifier
                         .width(minOf(maxWidth, 440.dp))
-                        .align(Alignment.Center)
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-                        .clickable(onClick = onSearch)
-                        .padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "搜索你感兴趣的视频",
-                        modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.tertiary,
-                        fontSize = 14.sp,
-                    )
-                    Icon(Icons.Filled.Search, contentDescription = "搜索", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                        .align(Alignment.Center),
+                )
             }
             BiliUnderlineTabs(
                 labels = HomeTab.entries.map { it.label },

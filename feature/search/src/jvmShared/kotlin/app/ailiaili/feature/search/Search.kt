@@ -20,8 +20,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
@@ -33,11 +31,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import app.ailiaili.core.designsystem.BiliBackHeader
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import app.ailiaili.core.designsystem.BiliHeaderAction
+import app.ailiaili.core.designsystem.BiliSearchField
+import app.ailiaili.core.designsystem.BiliSectionHeader
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -50,7 +51,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -194,20 +194,28 @@ fun SearchRoute(
     }
     Scaffold(
         topBar = {
-            BiliBackHeader("搜索", onBack)
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .heightIn(min = 56.dp)
+                    .padding(start = 8.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BiliHeaderAction(Icons.AutoMirrored.Filled.ArrowBack, "返回", onBack)
+                BiliSearchField(
+                    value = vm.keyword,
+                    onValueChange = { vm.keyword = it },
+                    onSearch = { submit(vm.keyword) },
+                    placeholder = "视频、UP 主、直播，也可以粘贴链接",
+                    modifier = Modifier.weight(1f),
+                    autoFocus = !vm.searched,
+                )
+            }
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            OutlinedTextField(
-                value = vm.keyword,
-                onValueChange = { vm.keyword = it },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                singleLine = true,
-                label = { Text("视频、UP 主、直播，也可以粘贴链接") },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { submit(vm.keyword) }),
-                trailingIcon = { TextButton(onClick = { submit(vm.keyword) }) { Text("搜索") } },
-            )
             FlowRow(
                 Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -237,7 +245,11 @@ fun SearchRoute(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (history.isNotEmpty()) {
-                        Text("最近搜索")
+                        BiliSectionHeader(
+                            title = "最近搜索",
+                            action = "清空",
+                            onAction = { AppGraph.searchHistory.clear() },
+                        )
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             history.forEach { word ->
                                 BiliAssistChip(
@@ -254,10 +266,9 @@ fun SearchRoute(
                                 )
                             }
                         }
-                        TextButton(onClick = { AppGraph.searchHistory.clear() }) { Text("清空") }
                     }
                     if (vm.hot.isNotEmpty()) {
-                        Text("热搜")
+                        BiliSectionHeader(title = "热搜", modifier = Modifier.padding(top = 8.dp))
                         vm.hot.forEachIndexed { index, word ->
                             Row(
                                 modifier = Modifier
