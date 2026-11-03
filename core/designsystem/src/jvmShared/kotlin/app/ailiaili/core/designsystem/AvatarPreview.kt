@@ -70,6 +70,17 @@ fun AvatarPreviewDialog(
         offset = Offset.Zero
     }
 
+    fun applyScale(nextRaw: Float) {
+        val next = nextRaw.coerceIn(1f, 5f)
+        val maxX = ((next - 1f) * container.width / 2f).coerceAtLeast(0f)
+        val maxY = ((next - 1f) * container.height / 2f).coerceAtLeast(0f)
+        scale = next
+        offset = Offset(
+            x = offset.x.coerceIn(-maxX, maxX),
+            y = offset.y.coerceIn(-maxY, maxY),
+        )
+    }
+
     val transformable = rememberTransformableState { zoomChange, panChange, _ ->
         val next = (scale * zoomChange).coerceIn(1f, 5f)
         val maxX = ((next - 1f) * container.width / 2f).coerceAtLeast(0f)
@@ -101,14 +112,13 @@ fun AvatarPreviewDialog(
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onDoubleTap = {
-                                if (scale > 1f) {
-                                    scale = 1f
-                                    offset = Offset.Zero
-                                } else {
-                                    scale = 2f
-                                }
+                                applyScale(if (scale > 1f) 1f else 2f)
+                                if (scale == 1f) offset = Offset.Zero
                             },
                         )
+                    }
+                    .zoomOnScroll { dy ->
+                        applyScale(scale * if (dy < 0f) 1.12f else 0.89f)
                     }
                     .transformable(transformable),
                 contentScale = ContentScale.Fit,

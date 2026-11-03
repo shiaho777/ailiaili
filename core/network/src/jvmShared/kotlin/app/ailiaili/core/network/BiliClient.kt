@@ -181,7 +181,7 @@ class BiliClient(
         kind: ContentKind = ContentKind.Video,
     ): Result<SearchPage> = api {
         ensureBuvid()
-        val extraFt = if (kind == ContentKind.Bangumi) mediaFt(keyword, page) else emptyList()
+        var extraFt = if (kind == ContentKind.Bangumi) mediaFt(keyword, page) else emptyList()
         val params = mutableMapOf(
             "search_type" to kind.searchType(),
             "keyword" to keyword,
@@ -220,6 +220,8 @@ class BiliClient(
 
         // ② 换一对全新 buvid 再试一次。只轮换一次：每次失败都换身份反而更像脚本。
         rotateBuvid()
+        // 番剧的 media_ft 是补充结果，换指纹后重新问一次，避免纪录片被旧指纹的失败静默丢掉。
+        if (kind == ContentKind.Bangumi) extraFt = mediaFt(keyword, page)
         attempt(kind.signed(), kind.searchReferer() ?: REFERER)
     }
 

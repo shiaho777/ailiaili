@@ -605,6 +605,7 @@ fun PlayerRoute(
                             userMs = settings.networkCachingMs,
                             auto = settings.bufferAuto,
                             measuredBytesPerSecond = CdnPicker.lastMeasuredBytesPerSecond,
+                            stallBoostMs = CdnPicker.stallBoostMs(it),
                         )
                         engine.playLive(it)
                     }.onFailure { error = it.message }
