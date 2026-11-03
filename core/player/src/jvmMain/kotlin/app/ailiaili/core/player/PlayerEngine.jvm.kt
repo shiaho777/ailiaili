@@ -103,7 +103,7 @@ actual class PlayerEngine actual constructor() {
         pendingSeekMs = target
         seekDeadline = System.currentTimeMillis() + 2_500
         seekRetries = 0
-        media?.controls()?.setTime(target)
+        runCatching { media?.controls()?.setTime(target) }
         notify { it.onPositionJump() }
     }
 
@@ -296,14 +296,14 @@ actual class PlayerEngine actual constructor() {
                 if (seekRetries < 1) {
                     seekRetries++
                     seekDeadline = System.currentTimeMillis() + 2_000
-                    mediaPlayer.controls().setTime(target)
+                    runCatching { mediaPlayer.controls().setTime(target) }
                     return
                 }
                 // 重发一次仍不到位：用 :start-time 重建 Media，跳到目标位置。
                 // 只对网络流做；本地文件 seek 是可靠的，重建反而会闪一下。
                 clearPendingSeek()
                 if (!live && videoUrl?.startsWith("http") == true) {
-                    start(videoUrl.orEmpty(), audioUrl, target)
+                    runCatching { start(videoUrl.orEmpty(), audioUrl, target) }
                 }
             }
 
