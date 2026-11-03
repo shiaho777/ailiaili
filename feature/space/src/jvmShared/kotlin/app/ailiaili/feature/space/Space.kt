@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,22 +26,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import app.ailiaili.core.designsystem.BiliFilterChip
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -54,11 +54,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,6 +70,10 @@ import app.ailiaili.core.designsystem.BiliBackHeader
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
+import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.BiliErrorState
+import app.ailiaili.core.designsystem.BiliLoadingState
+import app.ailiaili.core.designsystem.BiliPillTabs
 import app.ailiaili.core.designsystem.BiliSectionHeader
 import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.MetaRow
@@ -417,7 +421,6 @@ fun SpaceRoute(
 ) {
     val snackbar = remember { SnackbarHostState() }
     val gridState = rememberLazyGridState()
-    val haptic = LocalHapticFeedback.current
     val session by AppGraph.repo.session.collectAsState()
     val self = session.dedeUserId?.toLongOrNull() == mid
     var avatarPreview by remember { mutableStateOf<String?>(null) }
@@ -459,19 +462,14 @@ fun SpaceRoute(
         ) {
             when {
                 vm.loading && vm.info == null -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        LoadingIndicator()
-                    }
+                    BiliLoadingState(Modifier.align(Alignment.Center), label = "正在加载空间")
                 }
                 vm.info == null && vm.items.isEmpty() && !vm.loading -> {
-                    Column(
-                        Modifier.align(Alignment.Center).padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(vm.error ?: "空间信息获取失败", color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp)
-                        Button(onClick = vm::reload) { Text("重试") }
-                    }
+                    BiliErrorState(
+                        message = vm.error ?: "空间信息获取失败",
+                        onRetry = vm::reload,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
                 }
                 else -> {
                     LazyVerticalGrid(
@@ -494,31 +492,11 @@ fun SpaceRoute(
                             )
                         }
                         item(key = "tabs", span = { GridItemSpan(maxLineSpan) }) {
-                            PrimaryScrollableTabRow(
-                                selectedTabIndex = vm.section.ordinal,
-                                edgePadding = 0.dp,
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                contentColor = MaterialTheme.colorScheme.onSurface,
-                            ) {
-                                SpaceSection.entries.forEach { section ->
-                                    Tab(
-                                        selected = vm.section == section,
-                                        onClick = {
-                                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                            vm.select(section)
-                                        },
-                                        selectedContentColor = MaterialTheme.colorScheme.onSurface,
-                                        unselectedContentColor = MaterialTheme.colorScheme.onSurface,
-                                        text = {
-                                            Text(
-                                                section.label,
-                                                fontSize = 15.sp,
-                                                fontWeight = if (vm.section == section) FontWeight.SemiBold else FontWeight.Normal,
-                                            )
-                                        },
-                                    )
-                                }
-                            }
+                            BiliPillTabs(
+                                labels = SpaceSection.entries.map { it.label },
+                                selected = vm.section.ordinal,
+                                onSelect = { vm.select(SpaceSection.entries[it]) },
+                            )
                         }
                         when (vm.section) {
                             SpaceSection.Home -> homeSections(vm, onVideo, onOpenFolder)
@@ -810,7 +788,14 @@ private fun FolderRow(folder: FavFolder, onClick: () -> Unit) {
                 Box(
                     Modifier.width(112.dp).aspectRatio(16f / 10f).clip(RoundedCornerShape(8.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                )
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.Folder,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             } else {
                 AsyncImage(
                     folder.cover,
@@ -841,32 +826,38 @@ private fun FolderRow(folder: FavFolder, onClick: () -> Unit) {
 
 @Composable
 private fun CenterProgress() {
-    Box(Modifier.fillMaxWidth().padding(vertical = 20.dp), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+    Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+        BiliLoadingState()
     }
 }
 
 @Composable
 private fun EmptyLine(text: String, onRetry: (() -> Unit)? = null) {
-    Column(
-        Modifier.fillMaxWidth().padding(vertical = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Text(text, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, textAlign = TextAlign.Center)
-        if (onRetry != null) Button(onClick = onRetry) { Text("重试") }
+    Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+        if (onRetry != null) {
+            BiliErrorState(message = text, onRetry = onRetry)
+        } else {
+            BiliEmptyState(title = text)
+        }
     }
 }
 
 @Composable
 private fun EndLine() {
-    Text(
-        "已经到底啦",
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        color = MaterialTheme.colorScheme.onSurface,
-        fontSize = 13.sp,
-        textAlign = TextAlign.Center,
-    )
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(24.dp).height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+        Text(
+            "已经到底啦",
+            modifier = Modifier.padding(horizontal = 10.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+        )
+        Box(Modifier.width(24.dp).height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+    }
 }
 
 @Composable
@@ -887,7 +878,19 @@ private fun ProfileHeader(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(
+            Modifier
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                            MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
+                    ),
+                )
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (info?.face.isNullOrBlank()) {
                     Box(
@@ -922,25 +925,22 @@ private fun ProfileHeader(
                             overflow = TextOverflow.Ellipsis,
                         )
                         if (level > 0) {
-                            Text(
-                                "LV$level",
-                                modifier = Modifier
-                                    .padding(start = 8.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                    .padding(horizontal = 5.dp, vertical = 1.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
+                            BiliBadge(
+                                text = "LV$level",
+                                modifier = Modifier.padding(start = 8.dp),
+                                tone = BiliBadgeTone.Accent,
+                                style = BiliBadgeStyle.Soft,
                             )
                         }
                     }
                     Text(
                         sign,
                         modifier = Modifier.padding(top = 6.dp),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -957,7 +957,10 @@ private fun ProfileHeader(
                     },
                     enabled = !followBusy,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) { Text("已关注") }
+                ) {
+                    Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("已关注", Modifier.padding(start = 6.dp))
+                }
             } else if (showFollow) {
                 Button(
                     onClick = {
@@ -966,7 +969,10 @@ private fun ProfileHeader(
                     },
                     enabled = !followBusy,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                ) { Text("+ 关注") }
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("关注", Modifier.padding(start = 6.dp))
+                }
             }
         }
     }

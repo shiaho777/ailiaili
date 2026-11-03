@@ -676,7 +676,7 @@ class BiliClient(
             emptyList()
         }
         if (fromSearch.isNotEmpty()) return@api fromSearch
-        if (sort != "pubdate") error(signed.message ?: "这个排序暂时拿不到")
+        if (sort != "pubdate") error(friendly(signed.code, signed.message ?: "这个排序暂时拿不到"))
         val fallback = get(
             "https://api.bilibili.com/x/series/recArchivesByKeywords",
             mapOf(
@@ -688,7 +688,8 @@ class BiliClient(
             referer = referer,
         )
         if (fallback.code != 0) {
-            error(fallback.message ?: signed.message ?: "投稿加载失败")
+            val code = if (fallback.code == -999) signed.code else fallback.code
+            error(friendly(code, "投稿加载失败"))
         }
         fallback.data?.arr("archives")?.objects().orEmpty().mapNotNull { parseSpaceVideo(it, mid) }
     }
@@ -1652,6 +1653,7 @@ class BiliClient(
         -101 -> "请先登录"
         -111 -> "登录状态已失效，请重新登录"
         -403, -401 -> "B 站风控拦截：请在手机 App 或网页版用同一账号完成一次验证后重试"
+        -352 -> "请求被 B 站风控拦截，请稍后重试或登录后再试"
         -412, -509 -> "操作太频繁，请稍后再试"
         else -> fallback
     }
