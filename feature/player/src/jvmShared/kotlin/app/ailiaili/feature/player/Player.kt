@@ -48,7 +48,9 @@ import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Schedule
@@ -66,7 +68,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
+import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -116,7 +118,12 @@ import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.setFullscreen
 import app.ailiaili.core.designsystem.BiliActionPill
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliSurfaceCard
+import app.ailiaili.core.designsystem.MetaRow
+import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricFlow
 import app.ailiaili.core.designsystem.MetricSpec
 import app.ailiaili.core.designsystem.MetricTone
@@ -1622,18 +1629,17 @@ fun PlayerRoute(
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         pages.forEach { p ->
                             val on = page?.cid == p.cid
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = on,
                                 onClick = {
                                     page = p
-                                    val id = detail?.bvid ?: bvid ?: return@FilterChip
+                                    val id = detail?.bvid ?: bvid ?: return@BiliFilterChip
                                     start(id, p.cid, durationSec = p.durationSec)
                                 },
                                 label = {
                                     Text(
                                         p.part.ifBlank { "P${p.page}" },
                                         maxLines = 1,
-                                        color = MaterialTheme.colorScheme.onSurface,
                                     )
                                 },
                             )
@@ -1722,13 +1728,18 @@ fun PlayerRoute(
                                     }
                                     Column(Modifier.padding(start = 10.dp).weight(1f)) {
                                         Text(item.title, color = ink, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        val meta = listOfNotNull(
-                                            item.author.takeIf { it.isNotBlank() },
-                                            formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let { "$it 播放" },
-                                        ).joinToString(" · ")
-                                        if (meta.isNotBlank()) {
-                                            Text(meta, modifier = Modifier.padding(top = 4.dp), color = ink, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        }
+                                        MetaRow(
+                                            items = listOfNotNull(
+                                                item.author.takeIf { it.isNotBlank() }?.let {
+                                                    MetaSpec(Icons.Filled.Person, it, MetricTone.Neutral)
+                                                },
+                                                formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
+                                                    MetaSpec(Icons.Filled.Visibility, "$it 播放", MetricTone.Online)
+                                                },
+                                            ),
+                                            maxItems = 2,
+                                            modifier = Modifier.padding(top = 4.dp),
+                                        )
                                     }
                                 }
                             }
@@ -1740,7 +1751,7 @@ fun PlayerRoute(
                                 if (commentTotal > 0) "共 $commentTotal 条" else "评论",
                                 style = MaterialTheme.typography.labelLarge,
                             )
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = commentMode == 3,
                                 onClick = {
                                     commentMode = 3
@@ -1751,7 +1762,7 @@ fun PlayerRoute(
                                 },
                                 label = { Text("热门") },
                             )
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = commentMode == 2,
                                 onClick = {
                                     commentMode = 2
@@ -2299,28 +2310,31 @@ private fun CommentBlock(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (comment.level > 0) {
-                    Text("LV${comment.level}", color = ink, fontSize = 11.sp)
+                    BiliBadge(
+                        text = "LV${comment.level}",
+                        tone = BiliBadgeTone.Neutral,
+                        style = BiliBadgeStyle.Soft,
+                    )
                 }
                 if (comment.up) {
-                    Text(
-                        "UP",
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(accent)
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
+                    BiliBadge(
+                        text = "UP",
+                        tone = BiliBadgeTone.Accent,
+                        style = BiliBadgeStyle.Solid,
                     )
                 }
             }
-            val meta = listOfNotNull(
-                comment.timeText.takeIf { it.isNotBlank() },
-                comment.location.takeIf { it.isNotBlank() },
+            MetaRow(
+                items = listOfNotNull(
+                    comment.timeText.takeIf { it.isNotBlank() }?.let {
+                        MetaSpec(Icons.Filled.Schedule, it, MetricTone.Neutral)
+                    },
+                    comment.location.takeIf { it.isNotBlank() }?.let {
+                        MetaSpec(Icons.Filled.LocationOn, it, MetricTone.Neutral)
+                    },
+                ),
+                maxItems = 2,
             )
-            if (meta.isNotEmpty()) {
-                Text(meta.joinToString(" · "), color = ink, fontSize = 12.sp)
-            }
             if (comment.message.isNotBlank()) {
                 SelectionContainer {
                     CommentRichText(

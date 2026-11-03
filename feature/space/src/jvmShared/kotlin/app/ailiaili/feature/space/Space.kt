@@ -28,7 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -619,10 +619,10 @@ private fun LazyGridScope.videoSections(vm: SpaceViewModel, onVideo: (VideoItem)
     item(key = "order", span = { GridItemSpan(maxLineSpan) }) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("pubdate" to "最新", "click" to "最多播放", "stow" to "最多收藏").forEach { (id, label) ->
-                FilterChip(
+                BiliFilterChip(
                     selected = vm.order == id,
                     onClick = { vm.chooseOrder(id) },
-                    label = { Text(label, color = MaterialTheme.colorScheme.onSurface) },
+                    label = { Text(label) },
                 )
             }
         }

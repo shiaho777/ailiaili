@@ -14,7 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.IconButton
@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.Schedule
 import app.ailiaili.core.designsystem.BiliBackHeader
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.BiliLoadingState
 import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.MetaRow
@@ -132,7 +134,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FilterChip(
+                BiliFilterChip(
                     selected = !live,
                     onClick = {
                         live = false
@@ -141,7 +143,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                     },
                     label = { Text("视频") },
                 )
-                FilterChip(
+                BiliFilterChip(
                     selected = live,
                     onClick = {
                         live = true
@@ -270,7 +272,13 @@ fun FavoritesRoute(onBack: () -> Unit, onOpen: (FavFolder) -> Unit) {
                     items(folders, key = { it.id }) { folder ->
                         ListItem(
                             headlineContent = { Text(folder.title) },
-                            supportingContent = { Text("${folder.count} 个") },
+                            supportingContent = {
+                                BiliBadge(
+                                    text = "${folder.count} 个视频",
+                                    tone = BiliBadgeTone.Neutral,
+                                    style = BiliBadgeStyle.Soft,
+                                )
+                            },
                             modifier = Modifier.clickable { onOpen(folder) }.animateItem(),
                         )
                     }
@@ -326,7 +334,16 @@ fun FavVideosRoute(
                         items(shown, key = { it.stableKey }) { item ->
                             ListItem(
                                 headlineContent = { Text(item.title) },
-                                supportingContent = { Text(item.author) },
+                                supportingContent = {
+                                    MetaRow(
+                                        items = listOfNotNull(
+                                            item.author.takeIf { it.isNotBlank() }?.let {
+                                                MetaSpec(Icons.Filled.Person, it, MetricTone.Neutral)
+                                            },
+                                        ),
+                                        maxItems = 1,
+                                    )
+                                },
                                 leadingContent = {
                                     Checkbox(
                                         checked = item.stableKey in picked,
@@ -399,7 +416,16 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
                     items(shown, key = { it.stableKey }) { item ->
                         ListItem(
                             headlineContent = { Text(item.title) },
-                            supportingContent = { Text(item.author) },
+                            supportingContent = {
+                                MetaRow(
+                                    items = listOfNotNull(
+                                        item.author.takeIf { it.isNotBlank() }?.let {
+                                            MetaSpec(Icons.Filled.Person, it, MetricTone.Neutral)
+                                        },
+                                    ),
+                                    maxItems = 1,
+                                )
+                            },
                             leadingContent = if (!editing) null else {
                                 {
                                     Checkbox(
@@ -469,9 +495,16 @@ fun CacheRoute(onBack: () -> Unit, onPlay: (CacheEntry) -> Unit) {
     Scaffold(topBar = { BackTitle("离线缓存", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (loading) {
-                Text("加载中…", modifier = Modifier.padding(24.dp))
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    BiliLoadingState(label = "读取缓存…")
+                }
             } else if (entries.isEmpty()) {
-                Text("还没有缓存。播放页可以把当前视频下载到这里。", modifier = Modifier.padding(24.dp))
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    BiliEmptyState(
+                        title = "还没有缓存",
+                        message = "播放页可以把当前视频下载到这里。",
+                    )
+                }
             } else {
                 LazyColumn {
                     items(entries, key = { it.bvid }) { entry ->

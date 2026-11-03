@@ -114,6 +114,14 @@ class BiliRepositoryImpl(
     private val settingsStore: SettingsStore,
     sessionStore: SessionStore,
 ) : BiliRepository {
+    // 只缓存只读详情，返回上一页再进来时不用整页重新请求。失败不缓存。
+    private val videoCache = TtlCache<String, VideoDetail>(ttlMs = 60_000)
+    private val pagesCache = TtlCache<String, List<VideoPage>>(ttlMs = 5 * 60_000)
+    private val descriptionCache = TtlCache<String, String>(ttlMs = 10 * 60_000)
+    private val relatedCache = TtlCache<String, List<VideoItem>>(ttlMs = 3 * 60_000)
+    private val tagsCache = TtlCache<String, List<String>>(ttlMs = 10 * 60_000)
+    private val spaceCache = TtlCache<Long, SpaceInfo>(ttlMs = 60_000)
+
     override val session = sessionStore.session
     override val settings = settingsStore.settings
     override val cdnReport = CdnStatus.report
@@ -130,11 +138,11 @@ class BiliRepositoryImpl(
     override suspend fun search(keyword: String, page: Int, kind: ContentKind) = client.search(keyword, page, kind)
     override suspend fun bangumiDetail(seasonId: Long) = client.bangumiDetail(seasonId)
     override suspend fun hotSearch() = client.hotSearch()
-    override suspend fun video(bvid: String) = client.video(bvid)
-    override suspend fun description(bvid: String) = client.description(bvid)
-    override suspend fun related(bvid: String) = client.related(bvid)
-    override suspend fun tags(bvid: String) = client.tags(bvid)
-    override suspend fun pages(bvid: String) = client.pages(bvid)
+    override suspend fun video(bvid: String) = videoCache.get(bvid) { client.video(bvid) }
+    override suspend fun description(bvid: String) = descriptionCache.get(bvid) { client.description(bvid) }
+    override suspend fun related(bvid: String) = relatedCache.get(bvid) { client.related(bvid) }
+    override suspend fun tags(bvid: String) = tagsCache.get(bvid) { client.tags(bvid) }
+    override suspend fun pages(bvid: String) = pagesCache.get(bvid) { client.pages(bvid) }
     override suspend fun play(bvid: String, cid: Long, forceDash: Boolean) =
         client.playUrl(bvid, cid, settingsStore.current, forceDash)
     override suspend fun danmakuSegment(cid: Long, segmentIndex: Int) = client.danmakuSegment(cid, segmentIndex)
@@ -150,7 +158,7 @@ class BiliRepositoryImpl(
     override suspend fun commentDislike(aid: Long, rpid: Long, dislike: Boolean) =
         client.commentDislike(aid, rpid, dislike)
     override suspend fun dynamics(offset: String?) = client.dynamics(offset)
-    override suspend fun space(mid: Long) = client.space(mid)
+    override suspend fun space(mid: Long) = spaceCache.get(mid) { client.space(mid) }
     override suspend fun spaceVideos(mid: Long, page: Int, order: String) = client.spaceVideos(mid, page, order)
     override suspend fun videoStats(bvid: String) = client.videoStats(bvid)
     override suspend fun spaceDynamics(mid: Long, offset: String?) = client.spaceDynamics(mid, offset)

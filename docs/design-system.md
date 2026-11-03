@@ -78,6 +78,29 @@ BiliBadge("1080P", tone = BiliBadgeTone.Neutral, style = BiliBadgeStyle.Outline)
 - `BiliBadgeSize`：`Small` / `Medium`
 - 叠在封面上的时长、清晰度用 `Dark + Solid`。
 
+### BiliFilterChip / BiliAssistChip
+
+统一筛选胶囊。所有“视频/直播/番剧、热门/时间、清晰度、线路、分P、用户筛选”都走这一套，不再直接用 Material3 `FilterChip`。
+
+```kotlin
+BiliFilterChip(
+    selected = kind == ContentKind.Video,
+    onClick = { select(ContentKind.Video) },
+    label = { Text("视频") },
+)
+
+BiliAssistChip(
+    label = "最近搜索词",
+    onClick = { search(word) },
+    leadingIcon = { Icon(Icons.Filled.History, null, Modifier.size(15.dp)) },
+)
+```
+
+- 选中：主题色 16% 浅底 + 主题色文字 + 35% 细边框
+- 未选中：`surfaceContainerHigh` + `onSurfaceVariant`
+- 统一 999dp 圆角；文字颜色交给组件，业务侧不要在 `label` 里再写 `color`
+- 宽屏动态页的用户筛选改用 `UserFilterRow`（头像 + 名称 + 选中浅底），不再竖排 chip
+
 ### BiliActionPill
 
 用于详情页/播放器的操作按钮：点赞、投币、收藏、稍后、分享、缓存。
@@ -193,5 +216,7 @@ Modifier
 - [x] 设置页缓存摘要：已下载数量 + 封面缓存
 - [x] 搜索热搜：排名角标 + 火焰图标
 - [x] 空间页动态时间 / 合集数量 / 收藏夹数量
-- [ ] 搜索历史 chip 的进一步结构化
-- [ ] 动态页用户筛选列表
+- [x] 搜索历史 chip：历史图标 + 统一胶囊
+- [x] 动态页用户筛选列表：头像 + 选中态
+- [x] 全站筛选 chip 统一为 `BiliFilterChip`
+- [x] 收藏夹/稍后再看/缓存空态统一

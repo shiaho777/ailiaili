@@ -23,14 +23,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AssistChip
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.designsystem.BiliAssistChip
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
@@ -212,17 +213,17 @@ fun SearchRoute(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                FilterChip(
+                BiliFilterChip(
                     selected = vm.kind == ContentKind.Video,
                     onClick = { vm.selectKind(ContentKind.Video) },
                     label = { Text("视频") },
                 )
-                FilterChip(
+                BiliFilterChip(
                     selected = vm.kind == ContentKind.Live,
                     onClick = { vm.selectKind(ContentKind.Live) },
                     label = { Text("直播") },
                 )
-                FilterChip(
+                BiliFilterChip(
                     selected = vm.kind == ContentKind.Bangumi,
                     onClick = { vm.selectKind(ContentKind.Bangumi) },
                     label = { Text("番剧") },
@@ -239,7 +240,18 @@ fun SearchRoute(
                         Text("最近搜索")
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             history.forEach { word ->
-                                AssistChip(onClick = { vm.search(word) }, label = { Text(word) })
+                                BiliAssistChip(
+                                    label = word,
+                                    onClick = { vm.search(word) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.History,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    },
+                                )
                             }
                         }
                         TextButton(onClick = { AppGraph.searchHistory.clear() }) { Text("清空") }

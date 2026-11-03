@@ -1,5 +1,7 @@
 # ailiaili
 
+[![CI](https://github.com/shiaho777/ailiaili/actions/workflows/ci.yml/badge.svg)](https://github.com/shiaho777/ailiaili/actions/workflows/ci.yml)
+
 哔哩哔哩第三方客户端。一套 Compose Multiplatform 代码覆盖 Android、Windows、macOS 和 Linux。
 
 - Android：Compose / Media3

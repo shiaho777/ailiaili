@@ -24,14 +24,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -270,25 +272,27 @@ fun DynamicRoute(
             val wide = maxWidth >= 720.dp && vm.users.isNotEmpty()
             Row(Modifier.fillMaxSize()) {
             if (wide) {
-                LazyColumn(Modifier.width(220.dp).fillMaxHeight().padding(8.dp)) {
-                    item {
-                        FilterChip(
+                LazyColumn(Modifier.width(232.dp).fillMaxHeight().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    item(key = "all-users") {
+                        UserFilterRow(
+                            name = "全部动态",
+                            face = null,
                             selected = vm.selected == null,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                                 vm.selectAll()
                             },
-                            label = { Text("全部动态", color = MaterialTheme.colorScheme.onSurface) },
                         )
                     }
                     items(vm.users, key = { it.mid }) { user ->
-                        FilterChip(
+                        UserFilterRow(
+                            name = user.name,
+                            face = user.face,
                             selected = vm.selected?.mid == user.mid,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                                 vm.select(user)
                             },
-                            label = { Text(user.name, color = MaterialTheme.colorScheme.onSurface, maxLines = 1) },
                         )
                     }
                 }
@@ -308,17 +312,17 @@ fun DynamicRoute(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     item(key = "all") {
-                        FilterChip(
+                        BiliFilterChip(
                             selected = vm.selected == null,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                                 vm.selectAll()
                             },
-                            label = { Text("全部", color = MaterialTheme.colorScheme.onSurface) },
+                            label = { Text("全部") },
                         )
                     }
                     items(vm.users, key = { it.mid }) { user ->
-                        FilterChip(
+                        BiliFilterChip(
                             selected = vm.selected?.mid == user.mid,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -337,7 +341,6 @@ fun DynamicRoute(
                             label = {
                                 Text(
                                     user.name,
-                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontWeight = if (vm.selected?.mid == user.mid) FontWeight.SemiBold else FontWeight.Normal,
                                 )
                             },
@@ -390,6 +393,61 @@ fun DynamicRoute(
             }
             }
             }
+        }
+    }
+}
+
+@Composable
+private fun UserFilterRow(
+    name: String,
+    face: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) accent.copy(alpha = 0.14f) else Color.Transparent,
+        contentColor = if (selected) accent else MaterialTheme.colorScheme.onSurface,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (face.isNullOrBlank()) {
+                Box(
+                    Modifier.size(30.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.List,
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp),
+                        tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                AsyncImage(
+                    model = face,
+                    contentDescription = name,
+                    modifier = Modifier.size(30.dp).clip(CircleShape),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+            Text(
+                text = name,
+                modifier = Modifier.padding(start = 10.dp).weight(1f),
+                color = if (selected) accent else MaterialTheme.colorScheme.onSurface,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

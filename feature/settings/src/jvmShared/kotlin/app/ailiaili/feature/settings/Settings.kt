@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.FilterChip
+import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -110,17 +110,17 @@ fun SettingsRoute(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     RowChips {
-                        FilterChip(
+                        BiliFilterChip(
                             selected = settings.shellLayout == ShellLayout.Auto,
                             onClick = { AppGraph.repo.updateSettings { it.copy(shellLayout = ShellLayout.Auto) } },
                             label = { Text("自动") },
                         )
-                        FilterChip(
+                        BiliFilterChip(
                             selected = settings.shellLayout == ShellLayout.Bottom,
                             onClick = { AppGraph.repo.updateSettings { it.copy(shellLayout = ShellLayout.Bottom) } },
                             label = { Text("底部标签") },
                         )
-                        FilterChip(
+                        BiliFilterChip(
                             selected = settings.shellLayout == ShellLayout.Rail,
                             onClick = { AppGraph.repo.updateSettings { it.copy(shellLayout = ShellLayout.Rail) } },
                             label = { Text("左侧导航") },
@@ -129,7 +129,7 @@ fun SettingsRoute(
                     Text("应用主题", modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
                     RowChips {
                         ThemeMode.entries.forEach { mode ->
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = settings.theme == mode,
                                 onClick = { AppGraph.repo.updateSettings { it.copy(theme = mode) } },
                                 label = {
@@ -155,14 +155,14 @@ fun SettingsRoute(
                     )
                     RowChips {
                         if (canFollowSystemAccent()) {
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = settings.accentFollowSystem,
                                 onClick = { AppGraph.repo.updateSettings { it.copy(accentFollowSystem = !it.accentFollowSystem) } },
                                 label = { Text("跟随系统") },
                             )
                         }
                         listOf("" to "默认粉", "3B82F6" to "蓝", "10B981" to "绿", "F59E0B" to "琥珀").forEach { (hex, label) ->
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = !settings.accentFollowSystem && settings.accentHex.equals(hex, ignoreCase = true),
                                 onClick = {
                                     AppGraph.repo.updateSettings { it.copy(accentFollowSystem = false, accentHex = hex) }
@@ -246,7 +246,7 @@ fun SettingsRoute(
                     Text("默认画质", modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
                     RowChips {
                         qualities.forEach { qn ->
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = settings.defaultQn == qn,
                                 onClick = { AppGraph.repo.updateSettings { it.copy(defaultQn = qn) } },
                                 label = { Text(qnLabel(qn)) },
@@ -263,7 +263,7 @@ fun SettingsRoute(
                     Text("线路", modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp))
                     RowChips {
                         listOf(CdnMode.Auto to "自动测速", CdnMode.Server to "跟随服务端", CdnMode.Manual to "指定线路").forEach { (mode, label) ->
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = settings.cdnMode == mode,
                                 onClick = {
                                     AppGraph.repo.updateSettings { it.copy(cdnMode = mode) }
@@ -293,7 +293,7 @@ fun SettingsRoute(
                     if (settings.cdnMode == CdnMode.Manual) {
                         RowChips {
                             CdnLine.all.forEach { line ->
-                                FilterChip(
+                                BiliFilterChip(
                                     selected = settings.cdnManualId == line.id,
                                     onClick = {
                                         AppGraph.repo.updateSettings { it.copy(cdnManualId = line.id) }
@@ -310,7 +310,7 @@ fun SettingsRoute(
                     Text("缓冲策略", modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
                     RowChips {
                         listOf(true to "自动", false to "手动").forEach { (auto, label) ->
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = settings.bufferAuto == auto,
                                 onClick = { AppGraph.repo.updateSettings { it.copy(bufferAuto = auto) } },
                                 label = { Text(label) },
@@ -333,7 +333,7 @@ fun SettingsRoute(
                         )
                         RowChips {
                             listOf(300, 500, 1000, 2000, 3000).forEach { ms ->
-                                FilterChip(
+                                BiliFilterChip(
                                     selected = settings.networkCachingMs == ms,
                                     onClick = { AppGraph.repo.updateSettings { it.copy(networkCachingMs = ms) } },
                                     label = { Text("${ms}ms") },
@@ -394,22 +394,22 @@ fun SettingsRoute(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     RowChips {
-                        FilterChip(
+                        BiliFilterChip(
                             selected = settings.danmakuFilterScroll,
                             onClick = { AppGraph.repo.updateSettings { it.copy(danmakuFilterScroll = !it.danmakuFilterScroll) } },
                             label = { Text("滚动") },
                         )
-                        FilterChip(
+                        BiliFilterChip(
                             selected = settings.danmakuFilterFixed,
                             onClick = { AppGraph.repo.updateSettings { it.copy(danmakuFilterFixed = !it.danmakuFilterFixed) } },
                             label = { Text("固定") },
                         )
-                        FilterChip(
+                        BiliFilterChip(
                             selected = settings.danmakuFilterColorful,
                             onClick = { AppGraph.repo.updateSettings { it.copy(danmakuFilterColorful = !it.danmakuFilterColorful) } },
                             label = { Text("彩色") },
                         )
-                        FilterChip(
+                        BiliFilterChip(
                             selected = settings.danmakuFilterAdvanced,
                             onClick = { AppGraph.repo.updateSettings { it.copy(danmakuFilterAdvanced = !it.danmakuFilterAdvanced) } },
                             label = { Text("高级") },
@@ -450,7 +450,7 @@ fun SettingsRoute(
                     RowChips {
                         val selected = SponsorCategories.sanitize(settings.sponsorCategories).split(',').toSet()
                         SponsorCategories.all.forEach { (id, label) ->
-                            FilterChip(
+                            BiliFilterChip(
                                 selected = id in selected,
                                 onClick = {
                                     val next = if (id in selected) selected - id else selected + id
