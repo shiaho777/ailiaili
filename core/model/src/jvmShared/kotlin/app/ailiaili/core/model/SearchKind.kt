@@ -26,6 +26,16 @@ fun searchEmptyMessage(kind: ContentKind): String = when (kind) {
     ContentKind.Bangumi -> "没有找到相关番剧"
 }
 
+/**
+ * B 站搜索风控码。
+ *
+ * -352 / -412 / -403 是常见的“请求被拦截”，-404 在搜索接口上也可能表示
+ * 被风控而不是真的没内容。命中后应走裸端点 / 换 buvid 的降级链，而不是
+ * 直接把“搜索被风控拦截”甩给用户。
+ */
+fun isSearchRiskCode(code: Int): Boolean =
+    code == -352 || code == -412 || code == -403 || code == -404
+
 fun searchPageError(blocked: Boolean): String? =
     if (blocked) "搜索被风控拦截，过一会儿再试" else null
 

@@ -76,6 +76,7 @@ interface BiliRepository {
     suspend fun spaceCollectionVideos(mid: Long, id: Long, series: Boolean, page: Int): Result<List<VideoItem>>
     suspend fun spaceFolders(mid: Long, page: Int = 1): Result<ItemPage<FavFolder>>
     suspend fun followings(mid: Long, page: Int): Result<ItemPage<FollowUser>>
+    suspend fun followingLive(limit: Int = 30): Result<List<VideoItem>>
     suspend fun history(page: Int): Result<List<VideoItem>>
     suspend fun liveHistory(page: Int): Result<List<VideoItem>>
     suspend fun deleteHistory(id: Long, live: Boolean = false): Result<Unit>
@@ -157,6 +158,7 @@ class BiliRepositoryImpl(
         client.spaceCollectionVideos(mid, id, series, page)
     override suspend fun spaceFolders(mid: Long, page: Int) = client.spaceFolders(mid, page)
     override suspend fun followings(mid: Long, page: Int) = client.followings(mid, page)
+    override suspend fun followingLive(limit: Int) = client.followingLive(limit)
     override suspend fun history(page: Int) = client.history(page)
     override suspend fun liveHistory(page: Int) = client.liveHistory(page)
     override suspend fun deleteHistory(id: Long, live: Boolean) = client.deleteHistory(id, live)

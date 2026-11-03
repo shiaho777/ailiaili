@@ -1,13 +1,19 @@
 package app.ailiaili.core.network
 
 import app.ailiaili.core.model.Comment
+import app.ailiaili.core.model.CommentEmote
+import app.ailiaili.core.model.CommentPicture
 import app.ailiaili.core.model.Episode
+import app.ailiaili.core.model.PlayInfo
+import app.ailiaili.core.model.Quality
 import app.ailiaili.core.model.VideoDetail
 import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.VideoPage
 import app.ailiaili.core.model.formatSeconds
 import app.ailiaili.core.model.normalizeUrl
 import app.ailiaili.core.model.formatMonthDayHour
+import app.ailiaili.core.model.parseMentions
+import app.ailiaili.core.model.qnLabel
 
 internal fun parseVideo(e: JSONObject): VideoItem? {
     val bvid = e.str("bvid")
@@ -135,6 +141,7 @@ internal fun parseComment(e: JSONObject, upperMid: Long = 0, withReplies: Boolea
     val content = e.obj("content")
     val control = e.obj("reply_control")
     val mid = member?.lng("mid") ?: 0
+    val message = content?.str("message").orEmpty()
     val replies = if (withReplies) {
         e.arr("replies")?.objects().orEmpty().map { parseComment(it, upperMid, withReplies = false) }
     } else {
@@ -145,11 +152,29 @@ internal fun parseComment(e: JSONObject, upperMid: Long = 0, withReplies: Boolea
         .removePrefix("IP属地:")
         .trim()
     val action = e.int("action")
+    val emotes = buildMap {
+        val emoteObj = content?.obj("emote") ?: return@buildMap
+        val keys = emoteObj.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            // 只收正文里真的用到的表情，避免白存一堆用不上的地址。
+            if (key.isBlank() || !message.contains(key)) continue
+            val v = emoteObj.obj(key) ?: continue
+            val url = normalizeUrl(v.str("url").ifBlank { v.str("webp_url") })
+            if (url.isBlank()) continue
+            val size = v.obj("meta")?.int("size")?.takeIf { it > 1 } ?: 1
+            put(key, CommentEmote(url, size))
+        }
+    }
+    val pictures = content?.arr("pictures")?.objects().orEmpty().mapNotNull { p ->
+        val url = normalizeUrl(p.str("img_src"))
+        if (url.isBlank()) null else CommentPicture(url, p.int("img_width"), p.int("img_height"))
+    }
     return Comment(
         rpid = e.lng("rpid"),
         name = member?.str("uname").orEmpty(),
         face = normalizeUrl(member?.str("avatar").orEmpty()),
-        message = content?.str("message").orEmpty(),
+        message = message,
         like = e.int("like"),
         timeText = control?.str("time_desc").orEmpty().ifBlank { commentTime(e.lng("ctime")) },
         replyCount = e.int("rcount"),
@@ -160,7 +185,64 @@ internal fun parseComment(e: JSONObject, upperMid: Long = 0, withReplies: Boolea
         liked = action == 1,
         disliked = action == 2,
         replies = replies,
+        mentions = parseMentions(message),
+        emotes = emotes,
+        pictures = pictures,
     )
+}
+
+/**
+ * 解析 durl（音视频合流单流）响应。
+ * 多段切片不能只播第一段，否则播到一半就没了，所以直接判为不可用。
+ */
+internal fun decodeDurl(data: JSONObject): PlayInfo? {
+    val segs = data.arr("durl")?.objects().orEmpty()
+        .map { it.str("url") }
+        .filter { it.isNotBlank() }
+    if (segs.size != 1) return null
+    val actual = data.int("quality")
+    val qualities = data.arr("accept_quality")?.let { arr ->
+        buildList {
+            for (i in 0 until arr.length()) add(arr.optInt(i))
+        }
+    }.orEmpty().filter { it > 0 }.distinct().sortedDescending()
+        .map { Quality(it, qnLabel(it)) }
+    return PlayInfo(
+        videoUrl = segs[0],
+        audioUrl = null,
+        backupUrls = emptyList(),
+        durationMs = data.lng("timelength"),
+        qualities = qualities,
+        actualQn = actual,
+    )
+}
+
+/**
+ * 解析 `/room/v1/Room/get_status_info_by_uids` 的 data。
+ * 只收 live_status == 1（直播中），0=未开播、2=轮播都不算。
+ */
+internal fun parseFollowingLive(data: JSONObject): List<VideoItem> {
+    val items = mutableListOf<VideoItem>()
+    val keys = data.keys()
+    while (keys.hasNext()) {
+        val e = data.obj(keys.next()) ?: continue
+        if (e.int("live_status") != 1) continue
+        val roomId = e.lng("room_id").takeIf { it > 0 } ?: e.lng("short_id")
+        if (roomId <= 0) continue
+        val cover = e.str("user_cover")
+            .ifBlank { e.str("cover") }
+            .ifBlank { e.str("keyframe") }
+        items += VideoItem(
+            roomId = roomId,
+            title = e.str("title").stripHtml(),
+            author = e.str("uname"),
+            ownerMid = e.lng("uid"),
+            cover = normalizeUrl(cover),
+            durationText = "直播中",
+            viewCount = e.lng("online"),
+        )
+    }
+    return items.sortedByDescending { it.viewCount }
 }
 
 internal fun parseDynamic(e: JSONObject): VideoItem? {

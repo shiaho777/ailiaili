@@ -11,8 +11,8 @@ android {
         applicationId = "app.ailiaili"
         minSdk = 26
         targetSdk = 35
-        versionCode = 124
-        versionName = "1.2.4"
+        versionCode = 130
+        versionName = "1.3.0"
     }
     buildTypes {
         release {

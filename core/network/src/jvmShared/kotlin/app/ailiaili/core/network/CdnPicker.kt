@@ -24,6 +24,10 @@ import kotlinx.coroutines.sync.withLock
 object CdnPicker {
     private const val WINDOW = 256 * 1024
     private const val TTL_MS = 10 * 60 * 1000L
+    private const val STALL_WINDOW_MS = 60_000L
+    private const val STALL_COUNT_TO_BOOST = 2
+    private const val STALL_BOOST_MS = 1_000
+    private const val STALL_RECORD_CAP = 8
 
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val gate = Mutex()
@@ -32,12 +36,52 @@ object CdnPicker {
     private var cachedHost: String? = null
     private var cachedAt = 0L
 
+    /** 最近一轮测速冠军的吞吐（字节/秒），给 BufferPolicy 自动档用。 */
+    @Volatile
+    var lastMeasuredBytesPerSecond: Long = 0L
+        private set
+
+    private val stallLock = Any()
+    private val stallTimes = mutableMapOf<String, MutableList<Long>>()
+
     fun invalidate() {
         scope.launch {
             gate.withLock {
                 cachedHost = null
                 cachedAt = 0L
+                lastMeasuredBytesPerSecond = 0L
             }
+            synchronized(stallLock) { stallTimes.clear() }
+        }
+    }
+
+    /**
+     * 上报一次播放中途卡顿。按 host 归因：同一家 CDN 的抖动才累加。
+     * 只影响后续媒体，绝不在当前播放中途换源。
+     */
+    fun reportStall(url: String) {
+        val host = hostOf(url)
+        if (host.isBlank()) return
+        val now = epochMs()
+        synchronized(stallLock) {
+            val list = stallTimes.getOrPut(host) { mutableListOf() }
+            list += now
+            list.removeAll { now - it > STALL_WINDOW_MS }
+            if (list.size > STALL_RECORD_CAP) {
+                list.subList(0, list.size - STALL_RECORD_CAP).clear()
+            }
+        }
+    }
+
+    /** 这条媒体要不要加深预读（毫秒）。60 秒内同 host 卡两次才触发。 */
+    fun stallBoostMs(url: String): Int {
+        val host = hostOf(url)
+        if (host.isBlank()) return 0
+        val now = epochMs()
+        synchronized(stallLock) {
+            val list = stallTimes[host] ?: return 0
+            val recent = list.count { now - it <= STALL_WINDOW_MS }
+            return if (recent >= STALL_COUNT_TO_BOOST) STALL_BOOST_MS else 0
         }
     }
 
@@ -112,6 +156,7 @@ object CdnPicker {
             val winner = ranked.first()
             cachedHost = hostOf(winner.first)
             cachedAt = epochMs()
+            lastMeasuredBytesPerSecond = winner.second
             val rest = ranked.drop(1).take(3).joinToString("，") {
                 "${labelOf(hostOf(it.first))} ${it.second / 1024}KB/s"
             }

@@ -28,7 +28,7 @@ compose.desktop {
         mainClass = "app.ailiaili.MainKt"
         nativeDistributions {
             packageName = "ailiaili"
-            packageVersion = "1.2.4"
+            packageVersion = "1.3.0"
             description = "ailiaili"
             copyright = "ailiaili"
             vendor = "ailiaili"

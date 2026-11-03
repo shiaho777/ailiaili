@@ -295,6 +295,49 @@ fun SettingsRoute(
                         }
                     }
                 }
+                BiliSectionTitle("缓冲", Modifier.padding(horizontal = 20.dp))
+                SettingsCard {
+                    Text("缓冲策略", modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
+                    RowChips {
+                        listOf(true to "自动", false to "手动").forEach { (auto, label) ->
+                            FilterChip(
+                                selected = settings.bufferAuto == auto,
+                                onClick = { AppGraph.repo.updateSettings { it.copy(bufferAuto = auto) } },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    if (settings.bufferAuto) {
+                        Text(
+                            "按最近一次 CDN 测速的带宽自动挑预读深度：弱网更深，快线更省内存。下一条视频生效。",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text(
+                            "网络缓冲 ${settings.networkCachingMs}ms",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        RowChips {
+                            listOf(300, 500, 1000, 2000, 3000).forEach { ms ->
+                                FilterChip(
+                                    selected = settings.networkCachingMs == ms,
+                                    onClick = { AppGraph.repo.updateSettings { it.copy(networkCachingMs = ms) } },
+                                    label = { Text("${ms}ms") },
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "桌面端生效；Android 由 Media3 自行管理缓冲。",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 BiliSectionTitle("弹幕", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
                     ListItem(
@@ -435,7 +478,7 @@ fun SettingsRoute(
                 SettingsCard {
                     ListItem(
                         headlineContent = { Text("ailiaili") },
-                        supportingContent = { Text("版本 1.2.4 · Android、Windows、macOS、Linux 共用这一套界面") },
+                        supportingContent = { Text("版本 1.3.0 · Android、Windows、macOS、Linux 共用这一套界面") },
                     )
                     ListItem(
                         headlineContent = { Text("启动时检查更新") },
@@ -449,7 +492,7 @@ fun SettingsRoute(
                     )
                     ListItem(
                         headlineContent = { Text("检查更新") },
-                        supportingContent = { Text(updateText ?: "当前版本 1.2.4") },
+                        supportingContent = { Text(updateText ?: "当前版本 1.3.0") },
                         trailingContent = {
                             TextButton(onClick = {
                                 scope.launch {

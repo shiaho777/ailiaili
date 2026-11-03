@@ -32,6 +32,17 @@ class SearchKindTest {
     }
 
     @Test
+    fun riskCodesCoverGuestSearchInterceptions() {
+        assertTrue(isSearchRiskCode(-352))
+        assertTrue(isSearchRiskCode(-412))
+        assertTrue(isSearchRiskCode(-403))
+        assertTrue(isSearchRiskCode(-404))
+        assertFalse(isSearchRiskCode(0))
+        assertFalse(isSearchRiskCode(-400))
+        assertFalse(isSearchRiskCode(-101))
+    }
+
+    @Test
     fun emptyCopy() {
         assertEquals("没有找到相关视频", searchEmptyMessage(ContentKind.Video))
         assertEquals("没有找到相关直播间", searchEmptyMessage(ContentKind.Live))

@@ -21,6 +21,9 @@ expect class PlayerEngine() {
     val playbackSpeed: Float
     var volume: Float
 
+    /** 网络预读缓冲（毫秒）。桌面端映射到 VLC :network-caching；Android 端暂存。 */
+    var networkCachingMs: Int
+
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)

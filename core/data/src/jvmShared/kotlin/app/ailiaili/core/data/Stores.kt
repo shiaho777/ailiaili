@@ -2,6 +2,9 @@ package app.ailiaili.core.data
 
 import app.ailiaili.core.model.AppSettings
 import app.ailiaili.core.model.CacheEntry
+import app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
+import app.ailiaili.core.model.NETWORK_CACHING_MAX_MS
+import app.ailiaili.core.model.NETWORK_CACHING_MIN_MS
 import app.ailiaili.core.model.CdnMode
 import app.ailiaili.core.model.ContentKind
 import app.ailiaili.core.model.PlayInfo
@@ -99,6 +102,9 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     cdnMode = runCatching { CdnMode.valueOf(o.optString("cdnMode", "Auto")) }.getOrDefault(CdnMode.Auto),
     cdnManualId = o.optString("cdnManualId", "ali").ifBlank { "ali" },
     blockPcdn = o.optBoolean("blockPcdn", true),
+    bufferAuto = o.optBoolean("bufferAuto", true),
+    networkCachingMs = o.optInt("networkCachingMs", NETWORK_CACHING_DEFAULT_MS)
+        .coerceIn(NETWORK_CACHING_MIN_MS, NETWORK_CACHING_MAX_MS),
     accentHex = o.optString("accentHex"),
     accentFollowSystem = o.optBoolean("accentFollowSystem", false),
     autoCheckUpdate = o.optBoolean("autoCheckUpdate", true),
@@ -136,6 +142,8 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("cdnMode", next.cdnMode.name)
     .put("cdnManualId", next.cdnManualId)
     .put("blockPcdn", next.blockPcdn)
+    .put("bufferAuto", next.bufferAuto)
+    .put("networkCachingMs", next.networkCachingMs.coerceIn(NETWORK_CACHING_MIN_MS, NETWORK_CACHING_MAX_MS))
     .put("accentHex", next.accentHex)
     .put("accentFollowSystem", next.accentFollowSystem)
     .put("autoCheckUpdate", next.autoCheckUpdate)

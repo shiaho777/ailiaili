@@ -24,6 +24,13 @@ expect class HttpEngine(connectTimeoutMs: Long, readTimeoutMs: Long) {
         range: String?,
         maxBytes: Int?,
     ): HttpResponse
+
+    /** 发送 application/json 请求体。直播状态批量查询等接口只认 JSON，不认 form。 */
+    fun postJson(
+        url: String,
+        json: String,
+        headers: Map<String, String>,
+    ): HttpResponse
 }
 
 fun HttpEngine.get(

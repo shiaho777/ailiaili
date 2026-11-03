@@ -15,6 +15,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
@@ -109,6 +110,9 @@ import app.ailiaili.core.data.HistorySync
 import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.setFullscreen
+import app.ailiaili.core.network.CdnPicker
+import app.ailiaili.core.player.BufferMediaKind
+import app.ailiaili.core.player.BufferPolicy
 import app.ailiaili.core.data.setWindowBrightness
 import app.ailiaili.core.data.shareText
 import app.ailiaili.core.data.windowBrightness
@@ -193,6 +197,7 @@ fun PlayerRoute(
     var listening by remember { mutableStateOf(false) }
     var listenClock by remember { mutableStateOf("00:00") }
     var avatarPreview by remember { mutableStateOf<String?>(null) }
+    var commentImagePreview by remember { mutableStateOf<Pair<String, String>?>(null) }
     var danmaku by remember { mutableStateOf<List<Danmaku>>(emptyList()) }
     var comments by remember { mutableStateOf<List<Comment>>(emptyList()) }
     var commentPage by remember { mutableIntStateOf(1) }
@@ -245,12 +250,14 @@ fun PlayerRoute(
     var replyTarget by remember { mutableStateOf<Comment?>(null) }
     var reacting by remember { mutableStateOf(setOf<Long>()) }
     var playing by remember { mutableStateOf(false) }
+    var buffering by remember { mutableStateOf(false) }
     var qualityOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var fullscreen by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
+    var composerExpanded by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
     val form = LocalWindowForm.current
@@ -372,6 +379,20 @@ fun PlayerRoute(
                     undoAt = 0L
                     hint = "已回到上次看到的位置"
                 }
+                val kind = if (got.audioUrl.isNullOrBlank()) {
+                    BufferMediaKind.VodSingle
+                } else {
+                    BufferMediaKind.VodDash
+                }
+                val mediaUrl = if (audioOnly) got.audioUrl.orEmpty() else got.videoUrl
+                engine.networkCachingMs = BufferPolicy.resolve(
+                    kind = kind,
+                    shortVideo = durationMs in 1..180_000,
+                    userMs = settings.networkCachingMs,
+                    auto = settings.bufferAuto,
+                    measuredBytesPerSecond = CdnPicker.lastMeasuredBytesPerSecond,
+                    stallBoostMs = CdnPicker.stallBoostMs(mediaUrl),
+                )
                 runCatching { engine.play(got, startAt, audioOnly = audioOnly) }
                     .onFailure { error = it.message ?: "播放失败" }
             }.onFailure { error = it.message }
@@ -577,7 +598,16 @@ fun PlayerRoute(
                 liveRoom != null -> {
                     val play = AppGraph.repo.livePlay(liveRoom)
                     ready.join()
-                    play.onSuccess { engine.playLive(it) }.onFailure { error = it.message }
+                    play.onSuccess {
+                        engine.networkCachingMs = BufferPolicy.resolve(
+                            kind = BufferMediaKind.Live,
+                            shortVideo = false,
+                            userMs = settings.networkCachingMs,
+                            auto = settings.bufferAuto,
+                            measuredBytesPerSecond = CdnPicker.lastMeasuredBytesPerSecond,
+                        )
+                        engine.playLive(it)
+                    }.onFailure { error = it.message }
                 }
                 !bvid.isNullOrBlank() -> {
                     error = null
@@ -623,6 +653,42 @@ fun PlayerRoute(
     }
 
     LaunchedEffect(speed) { engine.setPlaybackSpeed(speed) }
+
+    // 播放中途卡顿检测：连续 1 秒位置不推进才算卡顿，避免正常抖动误报。
+    // 上报按 CDN host 归因，后续视频的 BufferPolicy 会自动加深预读。
+    LaunchedEffect(info, error, scrubbing) {
+        var last = engine.currentPosition
+        var still = 0
+        var reported = false
+        while (info != null && error == null) {
+            delay(500)
+            if (scrubbing || !engine.isPlaying) {
+                last = engine.currentPosition
+                still = 0
+                buffering = false
+                reported = false
+                continue
+            }
+            val now = engine.currentPosition
+            if (now > 0 && now == last) {
+                still++
+                if (still >= 2) {
+                    buffering = true
+                    if (!reported) {
+                        val url = if (listening) info?.audioUrl else info?.videoUrl
+                        CdnPicker.reportStall(url.orEmpty())
+                        reported = true
+                    }
+                }
+            } else {
+                still = 0
+                buffering = false
+                reported = false
+            }
+            last = now
+        }
+        buffering = false
+    }
 
     LaunchedEffect(hint) {
         if (hint != null) {
@@ -745,6 +811,14 @@ fun PlayerRoute(
             url = faceUrl,
             name = detail?.owner ?: seedAuthor,
             onDismiss = { avatarPreview = null },
+            onSaved = { toast = it },
+        )
+    }
+    commentImagePreview?.let { (url, name) ->
+        app.ailiaili.core.designsystem.AvatarPreviewDialog(
+            url = url,
+            name = name,
+            onDismiss = { commentImagePreview = null },
             onSaved = { toast = it },
         )
     }
@@ -998,6 +1072,23 @@ fun PlayerRoute(
                             },
                         ),
                 )
+            }
+            if (buffering && info != null && error == null && !ended) {
+                Row(
+                    Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.55f), MaterialTheme.shapes.medium)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                    )
+                    Text("正在缓冲…", color = Color.White, fontSize = 13.sp)
+                }
             }
             toast?.let { message ->
                 Text(
@@ -1600,6 +1691,8 @@ fun PlayerRoute(
                                 { draft = it },
                                 modifier = Modifier.fillMaxWidth().onFocusChanged { composing = it.isFocused },
                                 label = { Text(if (replying == null) "写评论" else "回复 @${replying.name.ifBlank { "用户" }}") },
+                                minLines = if (composerExpanded) 5 else 1,
+                                maxLines = if (composerExpanded) 12 else 4,
                             )
                             Row {
                                 if (replying != null) {
@@ -1607,6 +1700,9 @@ fun PlayerRoute(
                                         replyTarget = null
                                         replyRoot = 0L
                                     }) { Text("取消回复") }
+                                }
+                                TextButton(onClick = { composerExpanded = !composerExpanded }) {
+                                    Text(if (composerExpanded) "收起" else "展开")
                                 }
                                 TextButton(onClick = {
                                     val aid = detail?.aid ?: return@TextButton
@@ -1650,6 +1746,7 @@ fun PlayerRoute(
                                         replyTarget = target
                                     }
                                 },
+                                onPreviewImage = { url, name -> commentImagePreview = url to name },
                                 onExpand = if (c.replyCount > shown.size && c.rpid !in replyDone) {
                                     {
                                         val aid = detail?.aid ?: 0L
@@ -1929,6 +2026,7 @@ private fun clock(ms: Long): String {
 private fun speedLabel(value: Float): String =
     if (value == value.toInt().toFloat()) "${value.toInt()}x" else "${value}x"
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CommentBlock(
     comment: Comment,
@@ -1939,6 +2037,7 @@ private fun CommentBlock(
     onDislike: (Comment) -> Unit,
     onReply: (Long, Comment) -> Unit,
     onExpand: (() -> Unit)?,
+    onPreviewImage: (String, String) -> Unit,
     nested: Boolean = false,
 ) {
     val ink = MaterialTheme.colorScheme.onSurface
@@ -2018,13 +2117,45 @@ private fun CommentBlock(
                 Text(meta.joinToString(" · "), color = ink, fontSize = 12.sp)
             }
             if (comment.message.isNotBlank()) {
-                Text(
-                    comment.message,
-                    modifier = Modifier.padding(top = 4.dp),
-                    color = ink,
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
-                )
+                SelectionContainer {
+                    CommentRichText(
+                        comment = comment,
+                        modifier = Modifier.padding(top = 4.dp),
+                        color = ink,
+                        accent = accent,
+                    )
+                }
+            }
+            if (comment.pictures.isNotEmpty()) {
+                FlowRow(
+                    modifier = Modifier.padding(top = 6.dp).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    comment.pictures.forEach { picture ->
+                        val height = 140.dp
+                        val width = if (picture.width > 0 && picture.height > 0) {
+                            (height * (picture.width.toFloat() / picture.height))
+                                .coerceIn(60.dp, 240.dp)
+                        } else {
+                            height
+                        }
+                        AsyncImage(
+                            model = picture.url,
+                            contentDescription = "评论图片",
+                            modifier = Modifier
+                                .size(width, height)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    onPreviewImage(
+                                        picture.url,
+                                        comment.name.ifBlank { "评论图片" },
+                                    )
+                                },
+                            contentScale = ContentScale.Crop,
+                        )
+                    }
+                }
             }
             Row(
                 Modifier.padding(top = 2.dp),
@@ -2053,6 +2184,7 @@ private fun CommentBlock(
                             onDislike,
                             onReply,
                             onExpand = null,
+                            onPreviewImage = onPreviewImage,
                             nested = true,
                         )
                     }

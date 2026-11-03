@@ -1,8 +1,10 @@
 package app.ailiaili.core.network
 
 import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 actual class HttpEngine actual constructor(
@@ -34,21 +36,39 @@ actual class HttpEngine actual constructor(
             builder.method(method, null)
         }
         client.newCall(builder.build()).execute().use { resp ->
-            val bytes = if (maxBytes != null) {
-                val stream = resp.body?.byteStream() ?: return HttpResponse(resp.code, ByteArray(0), headersOf(resp))
-                val buf = ByteArray(maxBytes)
-                var n = 0
-                while (n < maxBytes) {
-                    val read = stream.read(buf, n, maxBytes - n)
-                    if (read <= 0) break
-                    n += read
-                }
-                buf.copyOf(n)
-            } else {
-                resp.body?.bytes() ?: ByteArray(0)
-            }
-            return HttpResponse(resp.code, bytes, headersOf(resp))
+            return readResponse(resp, maxBytes)
         }
+    }
+
+    actual fun postJson(
+        url: String,
+        json: String,
+        headers: Map<String, String>,
+    ): HttpResponse {
+        val builder = Request.Builder()
+            .url(url)
+            .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
+        headers.forEach { (key, value) -> builder.header(key, value) }
+        client.newCall(builder.build()).execute().use { resp ->
+            return readResponse(resp, null)
+        }
+    }
+
+    private fun readResponse(resp: okhttp3.Response, maxBytes: Int?): HttpResponse {
+        val bytes = if (maxBytes != null) {
+            val stream = resp.body?.byteStream() ?: return HttpResponse(resp.code, ByteArray(0), headersOf(resp))
+            val buf = ByteArray(maxBytes)
+            var n = 0
+            while (n < maxBytes) {
+                val read = stream.read(buf, n, maxBytes - n)
+                if (read <= 0) break
+                n += read
+            }
+            buf.copyOf(n)
+        } else {
+            resp.body?.bytes() ?: ByteArray(0)
+        }
+        return HttpResponse(resp.code, bytes, headersOf(resp))
     }
 
     private fun headersOf(resp: okhttp3.Response): Map<String, List<String>> = buildMap {

@@ -3,7 +3,7 @@
 哔哩哔哩第三方客户端。一套 Compose Multiplatform 代码覆盖 Android、Windows、macOS 和 Linux。
 
 - Android：Compose / Media3
-- 桌面：Compose / LibVLC（需要本机已安装 VLC）
+- 桌面：Compose / LibVLC（需要本机已安装 VLC，建议 3.0.24+；3.0.20 在 Windows 上有音频破音问题）
 
 ![主界面](docs/screenshot-home.jpg)
 
@@ -50,6 +50,6 @@ ailiaili 是在多个开源项目的基础上重构、改进，并加入自研�
 
 目前已确认参考的项目：
 
-- [ABING1111/BiliDesk](https://github.com/ABING1111/BiliDesk) — GPL-3.0。产品行为、接口对齐与部分交互设计参考。
+- [ABING1111/BiliDesk](https://github.com/ABING1111/BiliDesk) — GPL-3.0。参考了 v1.3.2 的游客 UA / durl 单流 / 设备指纹修复，v1.4.0 的评论图片与关注直播看板，v1.5.0 的游客搜索降级，v1.5.1 的缓冲策略与长视频 seek 看门狗等实现思路；本项目用 Kotlin / Compose 重新实现。
 
 本项目沿用 GPL-3.0 许可证，与上述项目兼容。Jetpack Compose、Media3、LibVLC、OkHttp 等第三方组件的版权与许可证归各自权利人所有。

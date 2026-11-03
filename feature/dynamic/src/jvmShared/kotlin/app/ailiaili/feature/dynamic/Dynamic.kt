@@ -1,13 +1,18 @@
 package app.ailiaili.feature.dynamic
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,10 +44,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -55,6 +62,7 @@ import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.designsystem.shellNavigationBottom
 import app.ailiaili.core.model.FollowUser
 import app.ailiaili.core.model.VideoItem
+import app.ailiaili.core.model.formatCount
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 
@@ -66,6 +74,10 @@ class DynamicViewModel : ViewModel() {
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var hasMore by mutableStateOf(false)
+    var liveNow by mutableStateOf<List<VideoItem>>(emptyList())
+    var liveLoading by mutableStateOf(false)
+    var liveOpen by mutableStateOf(true)
+    private var liveTicket = 0
     private var usersPage by mutableIntStateOf(1)
     private var usersLoading = false
     private var offset: String? = null
@@ -78,6 +90,7 @@ class DynamicViewModel : ViewModel() {
         if (!AppGraph.repo.session.value.loggedIn) {
             users = emptyList()
             items = emptyList()
+            liveNow = emptyList()
             error = "请先登录后查看动态"
             return
         }
@@ -90,6 +103,7 @@ class DynamicViewModel : ViewModel() {
                 return@launch
             }
             selfMid = mid
+            loadLive()
             AppGraph.repo.followings(mid, 1).onSuccess { page ->
                 users = page.items
                 usersPage = 1
@@ -97,6 +111,21 @@ class DynamicViewModel : ViewModel() {
                 if (selected != null && page.items.none { it.mid == selected?.mid }) selected = null
             }
             loadFeed(reset = true)
+        }
+    }
+
+    /**
+     * 关注直播看板。与动态流并行加载，失败静默：看板是锦上添花，
+     * 不能因为它给整页报错。
+     */
+    private fun loadLive() {
+        val current = ++liveTicket
+        liveLoading = true
+        viewModelScope.launch {
+            val result = AppGraph.repo.followingLive()
+            if (current != liveTicket) return@launch
+            liveLoading = false
+            result.onSuccess { liveNow = it }
         }
     }
 
@@ -258,6 +287,13 @@ fun DynamicRoute(
                 }
             }
             Column(Modifier.weight(1f)) {
+            LiveBoard(
+                liveNow = vm.liveNow,
+                loading = vm.liveLoading,
+                open = vm.liveOpen,
+                onToggle = { vm.liveOpen = !vm.liveOpen },
+                onVideo = onVideo,
+            )
             if (!wide && (vm.users.isNotEmpty() || vm.selected != null)) {
                 LazyRow(
                     state = userRow,
@@ -348,5 +384,133 @@ fun DynamicRoute(
             }
             }
         }
+    }
+}
+
+@Composable
+private fun LiveBoard(
+    liveNow: List<VideoItem>,
+    loading: Boolean,
+    open: Boolean,
+    onToggle: () -> Unit,
+    onVideo: (VideoItem) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "关注直播",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (liveNow.isNotEmpty()) {
+                Text(
+                    " · ${liveNow.size}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                if (open) "收起" else "展开",
+                color = MaterialTheme.colorScheme.primary,
+                fontSize = 13.sp,
+            )
+        }
+        if (open) {
+            if (loading && liveNow.isEmpty()) {
+                Text(
+                    "正在查询关注主播…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            } else if (liveNow.isEmpty()) {
+                Text(
+                    "关注的主播暂时都没有在直播",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            } else {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                ) {
+                    items(liveNow, key = { it.roomId }) { item ->
+                        LiveCard(item, onClick = { onVideo(item) })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveCard(item: VideoItem, onClick: () -> Unit) {
+    Column(
+        Modifier
+            .width(210.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(4.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(118.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        ) {
+            AsyncImage(
+                model = item.cover,
+                contentDescription = item.title,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color(0xFFE53935))
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(5.dp).clip(CircleShape).background(Color.White))
+                Text(
+                    " 直播中",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+        Text(
+            text = item.title.ifBlank { "直播" },
+            modifier = Modifier.padding(top = 4.dp),
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = listOfNotNull(
+                item.author.takeIf { it.isNotBlank() },
+                formatCount(item.viewCount).takeIf { it.isNotBlank() },
+            ).joinToString(" · "),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

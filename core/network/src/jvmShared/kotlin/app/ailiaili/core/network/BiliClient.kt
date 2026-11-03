@@ -54,6 +54,15 @@ class BiliClient(
     private var laterAids: Set<Long>? = null
     private var laterAt: Long = 0L
 
+    /**
+     * 免登录 1080P 的“设备指纹”参数必须在一台设备/一个进程内保持稳定。
+     *
+     * 以前每次 playUrl 都重新随机；同一个 buvid 却不断更换硬件特征，长驻进程
+     * 会被服务端判成爬虫并稳定返回 -412。这里只生成一次，进程内复用。
+     */
+    private val dmImgStr = randomBase64(16, 64)
+    private val dmCoverImgStr = randomBase64(32, 128)
+
     suspend fun ensureBuvid() = withContext(ioDispatcher) {
         val cur = session()
         var next = cur
@@ -172,36 +181,66 @@ class BiliClient(
         kind: ContentKind = ContentKind.Video,
     ): Result<SearchPage> = api {
         ensureBuvid()
-        val url = if (kind.signed()) {
-            "https://api.bilibili.com/x/web-interface/wbi/search/type"
-        } else {
-            "https://api.bilibili.com/x/web-interface/search/type"
-        }
-        val resp = get(
-            url,
-            mutableMapOf(
-                "search_type" to kind.searchType(),
-                "keyword" to keyword,
-                "page" to page.toString(),
-            ),
-            sign = kind.signed(),
-            referer = kind.searchReferer() ?: REFERER,
-        )
-        if (resp.code != 0) {
-            if (resp.code == -352 || resp.code == -412 || resp.code == -403) {
-                return@api SearchPage(emptyList(), emptyList(), false, blocked = true)
-            }
-            error(resp.message ?: "搜索失败")
-        }
         val extraFt = if (kind == ContentKind.Bangumi) mediaFt(keyword, page) else emptyList()
-        if (resp.data?.has("v_voucher") == true) {
-            return@api if (kind == ContentKind.Bangumi) {
-                decodeSearchSuccess(kind, page, resp.data, extraFt).copy(blocked = true)
+        val params = mutableMapOf(
+            "search_type" to kind.searchType(),
+            "keyword" to keyword,
+            "page" to page.toString(),
+        )
+
+        // 一次搜索尝试。风控统一折成 blocked=true，由外层决定是否走降级链。
+        suspend fun attempt(signed: Boolean, referer: String): SearchPage {
+            val url = if (signed) {
+                "https://api.bilibili.com/x/web-interface/wbi/search/type"
             } else {
-                SearchPage(emptyList(), emptyList(), false, blocked = true)
+                "https://api.bilibili.com/x/web-interface/search/type"
             }
+            val resp = get(url, params, sign = signed, referer = referer)
+            if (resp.code != 0) {
+                if (app.ailiaili.core.model.isSearchRiskCode(resp.code)) {
+                    return SearchPage(emptyList(), emptyList(), false, blocked = true)
+                }
+                error(resp.message ?: "搜索失败")
+            }
+            // 游客态最常见的拦截形态不是错误码，而是 code=0 + v_voucher 挑战。
+            if (resp.data?.has("v_voucher") == true) {
+                return SearchPage(emptyList(), emptyList(), false, blocked = true)
+            }
+            return decodeSearchSuccess(kind, page, resp.data, extraFt)
         }
-        decodeSearchSuccess(kind, page, resp.data, extraFt)
+
+        val primary = attempt(kind.signed(), kind.searchReferer() ?: REFERER)
+        if (!primary.blocked) return@api primary
+
+        // ① 裸端点：不带 WBI 签名。游客态经常是“签名端点被盯上，裸端点反而放行”。
+        if (kind.signed()) {
+            val bare = attempt(signed = false, referer = "https://search.bilibili.com/")
+            if (!bare.blocked) return@api bare
+        }
+
+        // ② 换一对全新 buvid 再试一次。只轮换一次：每次失败都换身份反而更像脚本。
+        rotateBuvid()
+        attempt(kind.signed(), kind.searchReferer() ?: REFERER)
+    }
+
+    /**
+     * 风控专用：从 spi 领一对全新 buvid 并强制覆盖内存/磁盘。
+     *
+     * 与 [ensureBuvid] 的区别是“覆盖”而不是“补缺”。常规路径必须保持一对
+     * buvid 用到底（推荐系统靠它认设备）；只有搜索被风控时才允许换身份。
+     */
+    private suspend fun rotateBuvid() {
+        val data = get("https://api.bilibili.com/x/frontend/finger/spi", emptyMap()).data ?: return
+        val b3 = data.str("b_3")
+        val b4 = data.str("b_4")
+        if (b3.isBlank() && b4.isBlank()) return
+        val cur = session()
+        updateSession(
+            cur.copy(
+                buvid3 = b3.ifBlank { cur.buvid3.orEmpty() }.takeIf { it.isNotBlank() },
+                buvid4 = b4.ifBlank { cur.buvid4.orEmpty() }.takeIf { it.isNotBlank() },
+            ),
+        )
     }
 
     suspend fun bangumiDetail(seasonId: Long): Result<BangumiDetail> = api {
@@ -298,6 +337,15 @@ class BiliClient(
     suspend fun playUrl(bvid: String, cid: Long, settings: AppSettings): Result<PlayInfo> = api {
         ensureBuvid()
         val qn = settings.defaultQn
+
+        // 720P 及以下优先走 durl 合流单流：桌面 VLC 对 DASH 双流的远距离
+        // seek 不可靠，而 durl 是普通 MP4，拖动进度条一次到位。
+        // 1080P 及以上继续走 DASH，避免被 durl 的 720P 上限锁死画质。
+        if (app.ailiaili.core.model.shouldPreferDurl(qn)) {
+            parseDurl(bvid, cid, qn)?.let { return@api it }
+            // durl 取不到（多段切片/大会员/该档无源）时回落到 DASH，行为与旧版一致。
+        }
+
         val ps = mutableMapOf(
             "bvid" to bvid,
             "cid" to cid.toString(),
@@ -309,8 +357,8 @@ class BiliClient(
         if (!session().loggedIn && settings.noLogin1080) {
             ps["try_look"] = "1"
             ps["dm_img_list"] = "[]"
-            ps["dm_img_str"] = randomBase64(16, 64)
-            ps["dm_cover_img_str"] = randomBase64(32, 128)
+            ps["dm_img_str"] = dmImgStr
+            ps["dm_cover_img_str"] = dmCoverImgStr
             ps["dm_img_inter"] = """{"ds":[],"wh":[0,0,0],"of":[0,0,0]}"""
         }
         val resp = get("https://api.bilibili.com/x/player/wbi/playurl", ps, sign = true)
@@ -823,6 +871,46 @@ class BiliClient(
         }
         val total = data?.int("total") ?: 0
         ItemPage(users, if (total > 0) page * ps < total else users.size >= ps)
+    }
+
+    /**
+     * 我关注的主播里正在直播的列表。
+     *
+     * 两段式：先拿关注列表的 mid，再批量查直播状态。直播状态接口只认
+     * `application/json` 请求体，form 会报 invalid params，所以走 postJson。
+     */
+    suspend fun followingLive(limit: Int = 30): Result<List<VideoItem>> = api {
+        ensureBuvid()
+        val me = session().dedeUserId?.toLongOrNull()
+            ?: userState().getOrNull()?.mid
+            ?: 0L
+        if (me <= 0) error("请先登录后查看关注直播")
+        val take = limit.coerceIn(1, 50)
+        val page = get(
+            "https://api.bilibili.com/x/relation/followings",
+            mapOf("vmid" to me.toString(), "ps" to take.toString(), "pn" to "1"),
+            referer = "https://space.bilibili.com/",
+        )
+        if (page.code == -101) error("请先登录")
+        if (page.code != 0) error(friendly(page.code, page.message ?: "获取关注列表失败"))
+        val mids = page.data?.arr("list")?.objects().orEmpty()
+            .mapNotNull { it.lng("mid").takeIf { m -> m in 1..4_000_000_000L } }
+            .distinct()
+            .take(take)
+        if (mids.isEmpty()) return@api emptyList()
+
+        val body = """{"uids":[${mids.joinToString(",")}]}"""
+        val resp = http.postJson(
+            "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids",
+            body,
+            defaultHeaders("https://live.bilibili.com/", session().cookieHeader()),
+        )
+        val text = resp.bodyText.trimStart()
+        if (!text.startsWith("{")) error("查询直播状态失败")
+        val root = runCatching { JSONObject(text) }.getOrElse { error("查询直播状态失败") }
+        val code = root.optInt("code")
+        if (code != 0) error(friendly(code, root.optString("message").ifBlank { "查询直播状态失败" }))
+        parseFollowingLive(root.optJSONObject("data") ?: return@api emptyList())
     }
 
     private fun parseSpaceCollection(e: JSONObject, series: Boolean): SpaceCollection? {
@@ -1623,15 +1711,7 @@ class BiliClient(
             ),
             sign = true,
         ).data ?: return null
-        val segs = data.arr("durl")?.objects().orEmpty().map { it.str("url") }.filter { it.isNotBlank() }
-        if (segs.size != 1) return null
-        val actual = data.int("quality")
-        val qs = data.arr("accept_quality")?.let { arr ->
-            buildList {
-                for (i in 0 until arr.length()) add(arr.optInt(i))
-            }
-        }.orEmpty().filter { it > 0 }.map { app.ailiaili.core.model.Quality(it, app.ailiaili.core.model.qnLabel(it)) }
-        return PlayInfo(segs[0], null, emptyList(), data.lng("timelength"), qs, actual)
+        return decodeDurl(data)
     }
 
     private fun urlsOf(stream: JSONObject): List<String> = buildList {

@@ -47,8 +47,14 @@ actual class PlayerEngine actual constructor() {
     private var audioUrl: String? = null
     private var videoUrl: String? = null
     private var audioOnly = false
+    private var live = false
     private var speed = 1f
     private var volumeLevel = 1f
+
+    /** seek 看门狗：目标位置、确认截止时间、已重试次数。 */
+    @Volatile private var pendingSeekMs = -1L
+    @Volatile private var seekDeadline = 0L
+    private var seekRetries = 0
 
     @Volatile var statusMessage: String? = null
     private val pump = FramePump()
@@ -71,6 +77,18 @@ actual class PlayerEngine actual constructor() {
             media?.audio()?.setVolume((volumeLevel * 100).toInt())
         }
 
+    @Volatile
+    private var networkCaching = app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
+
+    actual var networkCachingMs: Int
+        get() = networkCaching
+        set(value) {
+            networkCaching = value.coerceIn(
+                app.ailiaili.core.model.NETWORK_CACHING_MIN_MS,
+                app.ailiaili.core.model.NETWORK_CACHING_MAX_MS,
+            )
+        }
+
     actual fun play() {
         media?.controls()?.play()
     }
@@ -80,8 +98,12 @@ actual class PlayerEngine actual constructor() {
     }
 
     actual fun seekTo(positionMs: Long) {
-        clock.acceptSeek(positionMs)
-        media?.controls()?.setTime(positionMs)
+        val target = positionMs.coerceAtLeast(0L)
+        clock.acceptSeek(target)
+        pendingSeekMs = target
+        seekDeadline = System.currentTimeMillis() + 2_500
+        seekRetries = 0
+        media?.controls()?.setTime(target)
         notify { it.onPositionJump() }
     }
 
@@ -118,6 +140,7 @@ actual class PlayerEngine actual constructor() {
     }
 
     actual fun play(info: PlayInfo, positionMs: Long, audioOnly: Boolean) {
+        live = false
         backups = info.backupUrls
         audioUrl = info.audioUrl
         videoUrl = info.videoUrl
@@ -128,6 +151,7 @@ actual class PlayerEngine actual constructor() {
 
     actual fun playAudioOnly(positionMs: Long): Boolean {
         val audio = audioUrl?.takeIf { it.isNotBlank() } ?: return false
+        live = false
         audioOnly = true
         start(audio, null, positionMs)
         return true
@@ -135,12 +159,14 @@ actual class PlayerEngine actual constructor() {
 
     actual fun restoreVideo(positionMs: Long) {
         val video = videoUrl?.takeIf { it.isNotBlank() } ?: return
+        live = false
         audioOnly = false
         start(video, audioUrl, positionMs)
     }
 
     actual fun failOver(positionMs: Long): Boolean {
         val next = backups.firstOrNull() ?: return false
+        live = false
         backups = backups.drop(1)
         videoUrl = next
         start(next, audioUrl, positionMs)
@@ -148,6 +174,7 @@ actual class PlayerEngine actual constructor() {
     }
 
     actual fun playLive(url: String) {
+        live = true
         audioOnly = false
         audioUrl = null
         videoUrl = url
@@ -155,6 +182,7 @@ actual class PlayerEngine actual constructor() {
     }
 
     actual fun playFiles(videoPath: String, audioPath: String?) {
+        live = false
         audioOnly = false
         videoUrl = File(videoPath).toURI().toString()
         audioUrl = audioPath?.let { File(it).toURI().toString() }
@@ -177,10 +205,13 @@ actual class PlayerEngine actual constructor() {
     private fun start(url: String, slave: String?, positionMs: Long) {
         val player = media ?: return
         if (url.isBlank()) return
+        pendingSeekMs = -1L
+        seekRetries = 0
         statusMessage = null
         val options = buildList {
             add(":http-referrer=https://www.bilibili.com/")
             add(":http-user-agent=$USER_AGENT")
+            add(":network-caching=$networkCaching")
             if (!slave.isNullOrBlank()) add(":input-slave=$slave")
             if (positionMs > 0) add(":start-time=${positionMs / 1000.0}")
         }
@@ -223,10 +254,12 @@ actual class PlayerEngine actual constructor() {
         player.videoSurface().set(surface)
         player.events().addMediaPlayerEventListener(object : MediaPlayerEventAdapter() {
             override fun error(mediaPlayer: MediaPlayer) {
+                clearPendingSeek()
                 notify { it.onError() }
             }
 
             override fun finished(mediaPlayer: MediaPlayer) {
+                clearPendingSeek()
                 clock.acceptPlaying(false)
                 notify { it.onEnded(true) }
             }
@@ -253,6 +286,25 @@ actual class PlayerEngine actual constructor() {
 
             override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) {
                 clock.acceptTime(newTime)
+                val target = pendingSeekMs
+                if (target < 0) return
+                if (isSeekSettled(newTime, target)) {
+                    clearPendingSeek()
+                    return
+                }
+                if (System.currentTimeMillis() < seekDeadline) return
+                if (seekRetries < 1) {
+                    seekRetries++
+                    seekDeadline = System.currentTimeMillis() + 2_000
+                    mediaPlayer.controls().setTime(target)
+                    return
+                }
+                // 重发一次仍不到位：用 :start-time 重建 Media，跳到目标位置。
+                // 只对网络流做；本地文件 seek 是可靠的，重建反而会闪一下。
+                clearPendingSeek()
+                if (!live && videoUrl?.startsWith("http") == true) {
+                    start(videoUrl.orEmpty(), audioUrl, target)
+                }
             }
 
             override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) {
@@ -268,6 +320,11 @@ actual class PlayerEngine actual constructor() {
             }
         })
         return created to player
+    }
+
+    private fun clearPendingSeek() {
+        pendingSeekMs = -1L
+        seekRetries = 0
     }
 }
 
@@ -366,7 +423,6 @@ private fun openFactory(): MediaPlayerFactory {
     val mac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
     val args = arrayOf(
         if (mac) "--avcodec-hw=videotoolbox" else "--avcodec-hw=any",
-        "--network-caching=400",
         "--no-osd",
         "--drop-late-frames",
         "--skip-frames",

@@ -19,7 +19,7 @@ import app.ailiaili.core.model.ioDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private const val CURRENT_VERSION = "1.2.4"
+private const val CURRENT_VERSION = "1.3.0"
 
 private data class UpdateNote(val tag: String, val page: String, val message: String)
 

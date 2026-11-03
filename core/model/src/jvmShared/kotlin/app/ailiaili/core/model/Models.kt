@@ -1,7 +1,14 @@
 package app.ailiaili.core.model
 
+/**
+ * 所有出站请求共用一份 UA。
+ *
+ * Chrome/126 已被 B 站列入拦截名单：游客态请求 `/x/web-interface/view`
+ * 会直接返回 HTTP 412，表现为未登录时打不开视频。升级到 131 即可恢复。
+ * 以后若再出现“游客态全量 412”，先扫 UA 版本，不要先改业务代码。
+ */
 const val USER_AGENT =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 fun normalizeUrl(url: String): String = when {
     url.startsWith("//") -> "https:$url"
@@ -142,6 +149,17 @@ data class VideoDetail(
 
 data class Quality(val qn: Int, val label: String)
 
+/**
+ * 720P 及以下优先走 durl 合流单流。
+ *
+ * 桌面端 LibVLC 对 DASH 双流 + input-slave 的远距离 seek 不可靠：拖进度条
+ * 可能跳回开头、画面卡死或无限缓冲。durl 是音视频已合流的单个 MP4，seek
+ * 一次到位。1080P 及以上仍走 DASH，避免画质被 durl 的 720P 上限锁死。
+ *
+ * qn=0 是“自动/最高可用”的旧语义，不能当成 360P，所以显式排除。
+ */
+fun shouldPreferDurl(qn: Int): Boolean = qn in 1..64
+
 data class PlayInfo(
     val videoUrl: String,
     val audioUrl: String?,
@@ -210,6 +228,22 @@ data class Danmaku(
     val color: Int,
 )
 
+/** 评论里的一张图片。尺寸是接口给的原始像素，UI 按它算缩略图比例。 */
+data class CommentPicture(
+    val url: String,
+    val width: Int = 0,
+    val height: Int = 0,
+)
+
+/**
+ * 评论里的一个自定义表情。
+ * key 是正文里原样出现的短代码（如 `[微笑]`），size=2 表示大表情。
+ */
+data class CommentEmote(
+    val url: String,
+    val size: Int = 1,
+)
+
 data class Comment(
     val rpid: Long,
     val name: String,
@@ -226,6 +260,12 @@ data class Comment(
     val liked: Boolean = false,
     val disliked: Boolean = false,
     val replies: List<Comment> = emptyList(),
+    /** 正文里 @ 到的昵称，UI 据此把 @ 段染成强调色。 */
+    val mentions: List<String> = emptyList(),
+    /** 正文里用到的自定义表情，key 是短代码。 */
+    val emotes: Map<String, CommentEmote> = emptyMap(),
+    /** 正文下面挂的图片。 */
+    val pictures: List<CommentPicture> = emptyList(),
 )
 
 data class CommentPage(
@@ -479,6 +519,10 @@ data class AppSettings(
     val cdnManualId: String = "ali",
     /** 关掉之后会使用带 mcdn 的地址。默认丢掉这类线路。 */
     val blockPcdn: Boolean = true,
+    /** 桌面端缓冲策略：true=按 CDN 实测带宽自动挑预读深度，false=用固定值。 */
+    val bufferAuto: Boolean = true,
+    /** 手动缓冲值（毫秒）。自动档下只作为兜底参考。 */
+    val networkCachingMs: Int = NETWORK_CACHING_DEFAULT_MS,
     /** 空字符串表示默认的 B 站粉。跟随系统时忽略。 */
     val accentHex: String = "",
     val accentFollowSystem: Boolean = false,
@@ -497,6 +541,11 @@ data class AppSettings(
 
 /** 改免责声明正文时 +1。 */
 const val DISCLAIMER_VERSION = 2
+
+/** 网络缓冲（VLC :network-caching）的夹取范围，与设置页档位一致。 */
+const val NETWORK_CACHING_MIN_MS = 300
+const val NETWORK_CACHING_MAX_MS = 3000
+const val NETWORK_CACHING_DEFAULT_MS = 1000
 
 data class Session(
     val sessData: String? = null,

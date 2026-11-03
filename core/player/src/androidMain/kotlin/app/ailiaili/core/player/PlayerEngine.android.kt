@@ -80,6 +80,13 @@ actual class PlayerEngine actual constructor() {
             player.volume = value
         }
 
+    /**
+     * Media3 的缓冲由 DefaultLoadControl 在构造时固定；这里暂存桌面端策略值，
+     * 避免 expect/actual 接口分叉。后续若要 Android 也自适应，可在换片时重建
+     * DefaultLoadControl。
+     */
+    actual var networkCachingMs: Int = app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
+
     actual fun play() {
         player.play()
     }
