@@ -1,33 +1,37 @@
 package app.ailiaili.core.designsystem
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.ThumbUp
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,9 +43,14 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.ailiaili.core.model.VideoItem
@@ -129,14 +138,19 @@ fun VideoCard(
     modifier: Modifier = Modifier,
 ) {
     var previewCover by remember(item.cover) { mutableStateOf(false) }
-    Card(
-        modifier = modifier.fillMaxWidth(),
+    val interaction = remember { MutableInteractionSource() }
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .biliPressScale(interaction, pressedScale = 0.98f),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
             Modifier
                 .combinedClickable(
+                    interactionSource = interaction,
+                    indication = LocalIndication.current,
                     onClick = { onClick(item) },
                     onLongClick = { if (item.cover.isNotBlank()) previewCover = true },
                 )
@@ -144,73 +158,60 @@ fun VideoCard(
                     if (item.cover.isNotBlank()) previewCover = true
                 },
         ) {
-            Box {
-                AsyncImage(
-                    model = item.cover,
-                    contentDescription = item.title,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 10f),
-                    contentScale = ContentScale.Crop,
-                )
-                val badge = if (item.isLive) {
-                    val n = formatCount(item.viewCount)
-                    if (n.isBlank()) "直播" else "$n 人气"
-                } else item.durationText
-                if (badge.isNotBlank() && badge != "--:--") {
-                    BiliBadge(
-                        text = badge,
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
-                        tone = BiliBadgeTone.Dark,
-                        style = BiliBadgeStyle.Solid,
-                    )
-                }
-            }
-            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            VideoCover(item)
+            Column(
+                Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Text(
                     item.title,
                     style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    minLines = 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (item.reason.isNotBlank()) {
-                    Text(
-                        item.reason,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    BiliBadge(
+                        text = item.reason,
+                        tone = BiliBadgeTone.Warning,
+                        style = BiliBadgeStyle.Soft,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (item.author.isNotBlank()) {
+                if (item.author.isNotBlank()) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable(enabled = item.ownerMid > 0) { onAuthor(item) },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        if (item.ownerFace.isNotBlank()) {
+                            AsyncImage(
+                                model = item.ownerFace,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            Icon(
+                                Icons.Filled.Person,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Text(
                             item.author,
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .clickable(enabled = item.ownerMid > 0) { onAuthor(item) },
                         )
                     }
-                }
-                val meta = buildList {
-                    if (!item.isLive && item.statsReady) {
-                        formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
-                            add(MetaSpec(Icons.Filled.PlayArrow, it, MetricTone.Play))
-                        }
-                        formatCount(item.danmakuCount).takeIf { it.isNotBlank() }?.let {
-                            add(MetaSpec(Icons.AutoMirrored.Filled.Comment, it, MetricTone.Danmaku))
-                        }
-                        formatCount(item.likeCount).takeIf { it.isNotBlank() }?.let {
-                            add(MetaSpec(Icons.Filled.ThumbUp, it, MetricTone.Like))
-                        }
-                    }
-                }
-                if (meta.isNotEmpty()) {
-                    MetaRow(meta, maxItems = 2)
                 }
             }
         }
@@ -221,6 +222,97 @@ fun VideoCard(
             name = item.title,
             onDismiss = { previewCover = false },
             onSaved = {},
+        )
+    }
+}
+
+private val CoverScrim = Brush.verticalGradient(
+    0f to Color.Transparent,
+    1f to Color.Black.copy(alpha = 0.72f),
+)
+
+@Composable
+private fun VideoCover(item: VideoItem) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(16f / 10f)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+    ) {
+        AsyncImage(
+            model = item.cover,
+            contentDescription = item.title,
+            modifier = Modifier.matchParentSize(),
+            contentScale = ContentScale.Crop,
+        )
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(44.dp)
+                .background(CoverScrim),
+        )
+        if (item.isLive) {
+            BiliBadge(
+                text = "直播中",
+                modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                tone = BiliBadgeTone.Accent,
+                style = BiliBadgeStyle.Solid,
+            )
+        }
+        Row(
+            Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (item.isLive) {
+                formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
+                    CoverStat(Icons.Filled.Person, "$it 人气")
+                }
+            } else if (item.statsReady) {
+                formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
+                    CoverStat(Icons.Filled.PlayArrow, it)
+                }
+                formatCount(item.danmakuCount).takeIf { it.isNotBlank() }?.let {
+                    CoverStat(Icons.AutoMirrored.Filled.Comment, it)
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            val duration = item.durationText
+            if (!item.isLive && duration.isNotBlank() && duration != "--:--") {
+                Text(
+                    duration,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoverStat(icon: ImageVector, text: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(13.dp),
+            tint = Color.White,
+        )
+        Text(
+            text,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
         )
     }
 }
