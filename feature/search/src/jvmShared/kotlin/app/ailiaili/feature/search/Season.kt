@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -27,7 +29,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.LoadBox
+import app.ailiaili.core.designsystem.MetaRow
+import app.ailiaili.core.designsystem.MetaSpec
+import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.model.BangumiDetail
 import app.ailiaili.core.model.BangumiEpisode
@@ -112,13 +120,35 @@ fun SeasonRoute(
                         headlineContent = {
                             Text(
                                 bangumiEpisodeDisplayTitle(ep.title, ep.longTitle),
-                                color = if (latest) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         },
                         supportingContent = if (ep.durationSec > 0) {
-                            { Text(formatSeconds(ep.durationSec)) }
+                            {
+                                MetaRow(
+                                    items = listOf(
+                                        MetaSpec(
+                                            Icons.Filled.Schedule,
+                                            formatSeconds(ep.durationSec),
+                                            MetricTone.Neutral,
+                                        ),
+                                    ),
+                                    maxItems = 1,
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        trailingContent = if (latest) {
+                            {
+                                BiliBadge(
+                                    text = "最新",
+                                    tone = BiliBadgeTone.Accent,
+                                    style = BiliBadgeStyle.Soft,
+                                )
+                            }
                         } else {
                             null
                         },
