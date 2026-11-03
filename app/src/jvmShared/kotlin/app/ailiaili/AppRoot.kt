@@ -340,6 +340,11 @@ private fun AppShell() {
                     onOpenDynamic = { vm.tab(Dest.Dynamic) },
                 )
             }
+        }
+    }
+
+    val overlayLayer: @Composable () -> Unit = {
+        Box(Modifier.fillMaxSize()) {
             if (composeOverlayLayer(liveOverlay, heldOverlay)) {
                 AnimatedVisibility(
                     visible = liveOverlay != null,
@@ -386,6 +391,7 @@ private fun AppShell() {
                 onSelect = openTab,
             )
         },
+        overlay = overlayLayer,
         content = body,
     )
 

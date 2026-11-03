@@ -108,19 +108,32 @@ fun BiliShell(
     chrome: BiliChrome,
     rail: @Composable (wide: Boolean) -> Unit,
     bottomBar: @Composable () -> Unit,
+    overlay: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
     val latest = rememberUpdatedState(content)
+    val latestOverlay = rememberUpdatedState(overlay)
     val page = remember { movableContentOf { latest.value.invoke() } }
+    val layer = remember { movableContentOf { latestOverlay.value.invoke() } }
     Box(
         Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
         when (chrome) {
-            BiliChrome.None -> page()
-            BiliChrome.Rail -> RailFrame(rail, page)
-            BiliChrome.Bottom -> BottomFrame(bottomBar, page)
+            BiliChrome.None -> {
+                page()
+                layer()
+            }
+            BiliChrome.Rail -> RailFrame(rail) {
+                page()
+                layer()
+            }
+            BiliChrome.Bottom -> {
+                // 底栏留在布局里让下层标签页不重排；覆盖层盖住整屏，播放页不被底栏挤占。
+                BottomFrame(bottomBar, page)
+                layer()
+            }
         }
     }
 }
