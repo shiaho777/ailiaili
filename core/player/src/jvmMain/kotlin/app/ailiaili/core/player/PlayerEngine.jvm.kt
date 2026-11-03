@@ -41,6 +41,9 @@ import uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32Buffe
 import java.awt.EventQueue
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 actual class PlayerEngine actual constructor() {
     private val listeners = linkedSetOf<PlaybackListener>()
@@ -56,7 +59,11 @@ actual class PlayerEngine actual constructor() {
     @Volatile private var pendingSeekMs = -1L
     @Volatile private var seekDeadline = 0L
     @Volatile private var seeking = false
-    private var seekRetries = 0
+    @Volatile private var seekRetries = 0
+    private val seekToken = AtomicInteger(0)
+    private val seekWatchdog = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "vlc-seek-timeout").apply { isDaemon = true }
+    }
 
     @Volatile var statusMessage: String? = null
     private val pump = FramePump()
@@ -115,8 +122,17 @@ actual class PlayerEngine actual constructor() {
         seeking = true
         seekDeadline = System.currentTimeMillis() + 2_500
         seekRetries = 0
+        val token = seekToken.incrementAndGet()
         runCatching { media?.controls()?.setTime(target) }
         notify { it.onPositionJump() }
+        // 兜底：如果 VLC 卡死后连 timeChanged 都不再发，不能让弹幕永久冻结。
+        runCatching {
+            seekWatchdog.schedule({
+                if (seekToken.get() == token && pendingSeekMs == target) {
+                    clearPendingSeek()
+                }
+            }, 3, TimeUnit.SECONDS)
+        }
     }
 
     actual fun setPlaybackSpeed(speed: Float) {
@@ -212,6 +228,7 @@ actual class PlayerEngine actual constructor() {
             renderCallback = null
             videoSurface = null
             eventAdapter = null
+            runCatching { seekWatchdog.shutdownNow() }
             pump.release()
         }
     }

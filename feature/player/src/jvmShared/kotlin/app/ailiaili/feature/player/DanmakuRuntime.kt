@@ -634,7 +634,7 @@ private const val FADE_SEC = 0.6
 private const val FIXED_LIFE_SEC = HOLD_SEC + FADE_SEC
 private const val CURSOR_TOLERANCE_SEC = 1.5
 private const val MAX_ON_SCREEN = 80
-private const val SPAWN_BUDGET = 48
+private const val SPAWN_BUDGET = 24
 
 private fun windowStart(videoSec: Double): Double {
     if (videoSec.isNaN()) return 0.0

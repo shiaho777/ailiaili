@@ -42,6 +42,16 @@ class DanmakuRuntimeTest {
     }
 
     @Test
+    fun pinWhilePlayingJumpsToSeekTarget() {
+        val runtime = DanmakuRuntime()
+        val t0 = 1_000_000_000L
+        runtime.presentedSec(10.0, true, t0, 1f)
+        runtime.pin(40.0)
+        val shown = runtime.presentedSec(10.0, true, t0 + 16_000_000L, 1f)
+        assertEquals(40.0, shown, 0.05)
+    }
+
+    @Test
     fun pinDuringPauseJumpsPresentedTime() {
         val runtime = DanmakuRuntime()
         runtime.presentedSec(3.0, true, 1_000_000_000L, 1f)
