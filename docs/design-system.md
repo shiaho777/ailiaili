@@ -78,6 +78,24 @@ BiliBadge("1080P", tone = BiliBadgeTone.Neutral, style = BiliBadgeStyle.Outline)
 - `BiliBadgeSize`：`Small` / `Medium`
 - 叠在封面上的时长、清晰度用 `Dark + Solid`。
 
+### BiliActionPill
+
+用于详情页/播放器的操作按钮：点赞、投币、收藏、稍后、分享、缓存。
+
+```kotlin
+BiliActionPill(
+    icon = Icons.Filled.ThumbUp,
+    label = "点赞 3.8万",
+    active = liked,
+    accent = Color(0xFFFF6B81),
+    onClick = { toggleLike() },
+)
+```
+
+- 选中态：`accent` 16% 浅底 + accent 文字 + accent 细边框
+- 未选中：`surfaceContainerHigh` + `onSurface`
+- 统一 12dp 圆角、44dp 最小高度、按压动效
+
 ### BiliLoadingState / BiliEmptyState / BiliErrorState
 
 统一空态、加载态、错误态。
@@ -171,6 +189,9 @@ Modifier
 - [x] 离线缓存清晰度
 - [x] 设置页卡片容器
 - [x] 统一空态/加载态/错误态
-- [ ] 设置页缓存大小的进一步结构化
-- [ ] 搜索历史/热词的进一步结构化
-- [ ] 播放器操作按钮统一成 ActionPill
+- [x] 播放器操作按钮统一成 ActionPill
+- [x] 设置页缓存摘要：已下载数量 + 封面缓存
+- [x] 搜索热搜：排名角标 + 火焰图标
+- [x] 空间页动态时间 / 合集数量 / 收藏夹数量
+- [ ] 搜索历史 chip 的进一步结构化
+- [ ] 动态页用户筛选列表

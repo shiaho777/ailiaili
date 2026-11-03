@@ -44,10 +44,17 @@ import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.data.traySupported
 import app.ailiaili.core.model.SponsorCategories
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Photo
 import app.ailiaili.core.designsystem.BiliPageTitle
 import app.ailiaili.core.designsystem.BiliPillTabs
 import app.ailiaili.core.designsystem.BiliSectionTitle
 import app.ailiaili.core.designsystem.BiliSurfaceCard
+import app.ailiaili.core.designsystem.MetricChip
+import app.ailiaili.core.designsystem.MetricChipSize
+import app.ailiaili.core.designsystem.MetricSpec
+import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.shellBottomPadding
 import app.ailiaili.core.model.CdnLine
 import app.ailiaili.core.model.CdnMode
@@ -460,15 +467,41 @@ fun SettingsRoute(
             2 -> {
                 BiliSectionTitle("离线缓存", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
+                    var cacheCount by remember { mutableStateOf<Int?>(null) }
+                    var coverCache by remember { mutableStateOf("计算中…") }
+                    LaunchedEffect(Unit) {
+                        coverCache = withContext(ioDispatcher) { coverCacheSize() }
+                        cacheCount = withContext(ioDispatcher) { AppGraph.cache.list().size }
+                    }
+                    FlowRow(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                    ) {
+                        MetricChip(
+                            MetricSpec(
+                                Icons.Filled.Download,
+                                cacheCount?.toString() ?: "…",
+                                "已下载",
+                                MetricTone.Accent,
+                            ),
+                            size = MetricChipSize.Compact,
+                        )
+                        MetricChip(
+                            MetricSpec(
+                                Icons.Filled.Photo,
+                                coverCache,
+                                "封面缓存",
+                                MetricTone.Favorite,
+                            ),
+                            size = MetricChipSize.Compact,
+                        )
+                    }
                     ListItem(
                         headlineContent = { Text("已下载的视频") },
                         supportingContent = { Text("缓存在这台设备上，不上传账号") },
                         trailingContent = { TextButton(onClick = onOpenCache) { Text("打开") } },
                     )
-                    var coverCache by remember { mutableStateOf("计算中…") }
-                    LaunchedEffect(Unit) {
-                        coverCache = withContext(ioDispatcher) { coverCacheSize() }
-                    }
                     ListItem(
                         headlineContent = { Text("封面缓存") },
                         supportingContent = { Text(coverCache) },

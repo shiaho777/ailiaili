@@ -115,6 +115,7 @@ import app.ailiaili.core.data.HistorySync
 import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.setFullscreen
+import app.ailiaili.core.designsystem.BiliActionPill
 import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.MetricFlow
 import app.ailiaili.core.designsystem.MetricSpec
@@ -2442,26 +2443,14 @@ private fun Act(
     active: Color = Color(0xFF1A1A1A),
     onClick: () -> Unit,
 ) {
-    FilledTonalButton(
-        onClick = onClick,
+    BiliActionPill(
+        icon = icon,
+        label = label,
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-        colors = if (on) {
-            ButtonDefaults.filledTonalButtonColors(
-                containerColor = active.copy(alpha = 0.16f),
-                contentColor = active,
-            )
-        } else {
-            ButtonDefaults.filledTonalButtonColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface,
-            )
-        },
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(4.dp))
-        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
+        active = on,
+        accent = active,
+        onClick = onClick,
+    )
 }
 
 

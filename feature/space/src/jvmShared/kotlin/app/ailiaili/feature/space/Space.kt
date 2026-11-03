@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,7 +72,10 @@ import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliSectionHeader
 import app.ailiaili.core.designsystem.BiliSurfaceCard
+import app.ailiaili.core.designsystem.MetaRow
+import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricStat
+import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.VideoCard
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.model.FavFolder
@@ -716,17 +720,20 @@ private fun PostCard(post: SpacePost, ownerName: String, onVideo: (VideoItem) ->
     val showText = body.isNotBlank() && body != video?.title
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (post.timeText.isNotBlank()) {
-            Text(post.timeText, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
+            MetaRow(
+                items = listOf(
+                    MetaSpec(Icons.Filled.Schedule, post.timeText, MetricTone.Neutral),
+                ),
+                maxItems = 1,
+            )
         }
         if (showText && video == null) {
-            Surface(
+            BiliSurfaceCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
             ) {
                 Text(
                     body,
-                    modifier = Modifier.padding(14.dp),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 15.sp,
                     lineHeight = 22.sp,
