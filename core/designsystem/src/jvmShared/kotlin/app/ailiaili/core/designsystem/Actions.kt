@@ -1,5 +1,16 @@
 package app.ailiaili.core.designsystem
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
@@ -83,5 +94,71 @@ fun BiliActionPill(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/**
+ * 详情页一排等宽的竖向操作：图标在上、计数在下。
+ * 激活时图标染成语义色并轻弹一下；首次组合不弹，避免进页面时整排抖动。
+ */
+@Composable
+fun BiliActionItem(
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    active: Boolean = false,
+    accent: Color = MaterialTheme.colorScheme.primary,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val tint by animateColorAsState(
+        targetValue = if (active) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+        label = "biliActionTint",
+    )
+    val pop = remember { Animatable(1f) }
+    var seen by remember { mutableStateOf(active) }
+    LaunchedEffect(active) {
+        if (active && !seen) {
+            pop.snapTo(0.72f)
+            pop.animateTo(
+                1f,
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+            )
+        }
+        seen = active
+    }
+    Column(
+        modifier = modifier
+            .biliPressScale(interaction, pressedScale = 0.92f)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                role = Role.Button,
+                onClick = onClick,
+            )
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier
+                .size(24.dp)
+                .graphicsLayer {
+                    scaleX = pop.value
+                    scaleY = pop.value
+                },
+        )
+        Text(
+            text = label,
+            color = if (active) tint else MaterialTheme.colorScheme.onSurface,
+            fontSize = 12.sp,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

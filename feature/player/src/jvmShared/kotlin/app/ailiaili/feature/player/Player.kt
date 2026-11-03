@@ -117,7 +117,7 @@ import app.ailiaili.core.data.HistorySync
 import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.setFullscreen
-import app.ailiaili.core.designsystem.BiliActionPill
+import app.ailiaili.core.designsystem.BiliActionItem
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
@@ -1523,8 +1523,8 @@ fun PlayerRoute(
                     val likeAccent = metricToneColor(MetricTone.Like)
                     val coinAccent = metricToneColor(MetricTone.Coin)
                     val favAccent = metricToneColor(MetricTone.Favorite)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Act(Icons.Filled.ThumbUp, countLabel("点赞", detail?.likeCount ?: 0), Modifier.weight(1f), liked, likeAccent) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Act(Icons.Filled.ThumbUp, actLabel("点赞", detail?.likeCount ?: 0), Modifier.weight(1f), liked, likeAccent) {
                             toggleLike()
                         }
                         Act(Icons.Filled.MonetizationOn, countLabel("投币", detail?.coinCount ?: 0), Modifier.weight(1f), coined, coinAccent) {
