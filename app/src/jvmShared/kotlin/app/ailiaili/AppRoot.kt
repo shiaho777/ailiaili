@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -249,16 +250,14 @@ private fun decode(line: String): Dest {
 
 private fun String.oneLine(): String = replace('\n', ' ').replace('\t', ' ')
 
-private fun Dest.isTab(): Boolean = this is Dest.Home || this is Dest.Dynamic || this is Dest.Mine || this is Dest.Settings
+private fun Dest.isTab(): Boolean =
+    this is Dest.Regions || this is Dest.Home || this is Dest.Dynamic || this is Dest.Mine || this is Dest.Settings
 
 internal fun Dest.showsShellChrome(): Boolean = isTab()
 
-internal fun railSelection(base: Dest): Int = when (base) {
-    Dest.Dynamic -> 1
-    Dest.Mine -> 2
-    Dest.Settings -> 3
-    else -> 0
-}
+internal val tabDests: List<Dest> = listOf(Dest.Regions, Dest.Home, Dest.Dynamic, Dest.Mine, Dest.Settings)
+
+internal fun railSelection(base: Dest): Int = tabDests.indexOf(base).takeIf { it >= 0 } ?: tabDests.indexOf(Dest.Home)
 
 internal fun Dest.isPlayerLayer(): Boolean =
     this is Dest.Play || this is Dest.Live || this is Dest.Local
@@ -290,6 +289,7 @@ private fun AppShell() {
     val (base, overlay) = playerLayers(vm.stack)
     val chrome = if (base.showsShellChrome()) settings.shellLayout.toChrome(form) else BiliChrome.None
     val railItems = listOf(
+        BiliRailItem("分区", Icons.Filled.GridView),
         BiliRailItem("首页", Icons.Filled.Home),
         BiliRailItem("动态", Icons.AutoMirrored.Filled.ViewList),
         BiliRailItem("我的", Icons.Filled.Person),
@@ -367,14 +367,7 @@ private fun AppShell() {
     }
 
     val openTab: (Int) -> Unit = { index ->
-        vm.tab(
-            when (index) {
-                1 -> Dest.Dynamic
-                2 -> Dest.Mine
-                3 -> Dest.Settings
-                else -> Dest.Home
-            },
-        )
+        vm.tab(tabDests.getOrElse(index) { Dest.Home })
     }
     BiliShell(
         chrome = chrome,
@@ -383,7 +376,6 @@ private fun AppShell() {
                 items = railItems,
                 selected = railIndex,
                 wide = wide,
-                onLogo = { vm.push(Dest.Regions) },
                 onSelect = openTab,
             )
         },
@@ -391,7 +383,6 @@ private fun AppShell() {
             BiliBottomBar(
                 items = railItems,
                 selected = railIndex,
-                onLogo = { vm.push(Dest.Regions) },
                 onSelect = openTab,
             )
         },
@@ -510,7 +501,7 @@ private fun Route(
         )
         Dest.Regions -> RegionPickerRoute(
             onPick = { onPush(Dest.RegionRank(it.tid, it.name)) },
-            onBack = onPop,
+            onSearch = { onPush(Dest.Search("")) },
         )
         is Dest.RegionRank -> RegionRoute(dest.tid, dest.name, onPop, ::openVideo, ::openAuthor)
         is Dest.Space -> SpaceRoute(

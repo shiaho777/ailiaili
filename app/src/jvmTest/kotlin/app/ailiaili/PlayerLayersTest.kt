@@ -69,10 +69,11 @@ class PlayerLayersTest {
         val (base, overlay) = playerLayers(listOf(Dest.Dynamic, Dest.Play(bvid = "BV1")))
         assertEquals(Dest.Dynamic, base)
         assertNotNull(overlay)
-        assertEquals(1, railSelection(base))
-        assertEquals(0, railSelection(Dest.Home))
-        assertEquals(2, railSelection(Dest.Mine))
-        assertEquals(3, railSelection(Dest.Settings))
+        assertEquals(2, railSelection(base))
+        assertEquals(0, railSelection(Dest.Regions))
+        assertEquals(1, railSelection(Dest.Home))
+        assertEquals(3, railSelection(Dest.Mine))
+        assertEquals(4, railSelection(Dest.Settings))
     }
 
     @Test

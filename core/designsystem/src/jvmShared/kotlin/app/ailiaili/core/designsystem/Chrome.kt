@@ -76,7 +76,6 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.abs
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.GridView
 
 /**
  * 壳层有两种导航，页内的下划线、胶囊、简介/评论页签不走这里。
@@ -173,7 +172,6 @@ fun BiliBottomBar(
     items: List<BiliRailItem>,
     selected: Int,
     onSelect: (Int) -> Unit,
-    onLogo: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val primary = MaterialTheme.colorScheme.primary
@@ -197,17 +195,6 @@ fun BiliBottomBar(
                 contentColor = muted,
                 arrangement = arrangement,
             ) {
-                ShortNavigationBarItem(
-                    selected = false,
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                        onLogo()
-                    },
-                    icon = { Icon(Icons.Filled.GridView, contentDescription = null) },
-                    label = { Text("分区") },
-                    iconPosition = NavigationItemIconPosition.Top,
-                    colors = colors,
-                )
                 items.forEachIndexed { index, item ->
                     val on = index == selected
                     ShortNavigationBarItem(
@@ -232,7 +219,6 @@ fun BiliRail(
     items: List<BiliRailItem>,
     selected: Int,
     onSelect: (Int) -> Unit,
-    onLogo: () -> Unit,
     wide: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -248,16 +234,7 @@ fun BiliRail(
             Modifier
                 .align(Alignment.CenterHorizontally)
                 .padding(top = 8.dp)
-                .size(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                    haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                    onLogo()
-                }
-                .semantics {
-                    role = Role.Button
-                    contentDescription = "分区"
-                },
+                .size(48.dp),
             contentAlignment = Alignment.Center,
         ) {
             BrandMark(if (wide) 42.dp else 36.dp)

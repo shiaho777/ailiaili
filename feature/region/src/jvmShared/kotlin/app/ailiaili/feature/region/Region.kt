@@ -1,7 +1,6 @@
 package app.ailiaili.feature.region
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,16 +14,19 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.BiliHeaderAction
+import app.ailiaili.core.designsystem.BiliPageHeader
+import app.ailiaili.core.designsystem.shellNavigationBottom
+import androidx.compose.material3.Surface
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
@@ -105,37 +107,54 @@ class RegionViewModel(private val tid: Int) : ViewModel() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RegionPickerRoute(onPick: (Partition) -> Unit, onBack: () -> Unit) {
-    Scaffold(
-        topBar = {
-            BiliBackHeader("分区", onBack)
-        },
-    ) { padding ->
+fun RegionPickerRoute(onPick: (Partition) -> Unit, onSearch: () -> Unit) {
+    val navBottom = shellNavigationBottom()
+    Column(Modifier.fillMaxSize()) {
+        BiliPageHeader("分区") {
+            BiliHeaderAction(Icons.Filled.Search, "搜索", onSearch)
+        }
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(148.dp),
-            modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            columns = GridCells.Adaptive(150.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + navBottom),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(PartitionCatalog.all, key = { it.tid }) { part ->
-                ListItem(
-                    headlineContent = { Text(part.name) },
-                    leadingContent = {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(Color(part.tint), RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(part.initial)
-                        }
-                    },
-                    modifier = Modifier.clickable { onPick(part) },
-                )
+                PartitionTile(part, onClick = { onPick(part) })
             }
+        }
+    }
+}
+
+@Composable
+private fun PartitionTile(part: Partition, onClick: () -> Unit) {
+    val tint = Color(part.tint)
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(tint.copy(alpha = 0.18f), MaterialTheme.shapes.medium),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(part.initial, color = tint, style = MaterialTheme.typography.titleMedium)
+            }
+            Text(
+                part.name,
+                modifier = Modifier.padding(start = 12.dp),
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+            )
         }
     }
 }
