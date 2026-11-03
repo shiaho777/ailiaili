@@ -47,6 +47,7 @@ import app.ailiaili.core.model.SponsorCategories
 import app.ailiaili.core.designsystem.BiliPageTitle
 import app.ailiaili.core.designsystem.BiliPillTabs
 import app.ailiaili.core.designsystem.BiliSectionTitle
+import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.shellBottomPadding
 import app.ailiaili.core.model.CdnLine
 import app.ailiaili.core.model.CdnMode
@@ -554,13 +555,11 @@ fun SettingsRoute(
 
 @Composable
 private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
+    BiliSurfaceCard(
         modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
-        Column(Modifier.padding(bottom = 8.dp), content = content)
-    }
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
+        content = content,
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

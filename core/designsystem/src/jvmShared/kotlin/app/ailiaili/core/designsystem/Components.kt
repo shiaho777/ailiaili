@@ -68,20 +68,18 @@ fun LoadBox(
 ) {
     Box(modifier.fillMaxSize()) {
         when {
-            loading && empty -> LoadingIndicator(Modifier.align(Alignment.Center))
-            error != null && empty -> Column(
-                Modifier.align(Alignment.Center).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(error, style = MaterialTheme.typography.bodyLarge)
-                Button(onClick = onRetry) { Text("重试") }
-            }
-            empty && !loading -> Text(
-                emptyText,
+            loading && empty -> BiliLoadingState(
                 modifier = Modifier.align(Alignment.Center),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                label = "加载中…",
+            )
+            error != null && empty -> BiliErrorState(
+                message = error,
+                onRetry = onRetry,
+                modifier = Modifier.align(Alignment.Center),
+            )
+            empty && !loading -> BiliEmptyState(
+                title = emptyText,
+                modifier = Modifier.align(Alignment.Center),
             )
             else -> content()
         }
@@ -160,16 +158,11 @@ fun VideoCard(
                     if (n.isBlank()) "直播" else "$n 人气"
                 } else item.durationText
                 if (badge.isNotBlank() && badge != "--:--") {
-                    Text(
-                        badge,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.72f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.inverseOnSurface,
-                        style = MaterialTheme.typography.labelSmall,
+                    BiliBadge(
+                        text = badge,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                        tone = BiliBadgeTone.Dark,
+                        style = BiliBadgeStyle.Solid,
                     )
                 }
             }

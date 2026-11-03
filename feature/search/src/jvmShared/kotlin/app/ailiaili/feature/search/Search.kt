@@ -22,6 +22,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,8 +52,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
+import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.LocalWindowForm
+import app.ailiaili.core.designsystem.MetaRow
+import app.ailiaili.core.designsystem.MetaSpec
+import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.model.BangumiItem
@@ -296,10 +305,10 @@ private fun BangumiCard(
     onClick: (BangumiItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    BiliSurfaceCard(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        contentPadding = PaddingValues(0.dp),
     ) {
         Column(Modifier.clickable { onClick(item) }) {
             Box {
@@ -312,33 +321,28 @@ private fun BangumiCard(
                     contentScale = ContentScale.Crop,
                 )
                 if (item.badge.isNotBlank()) {
-                    Text(
-                        item.badge,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.72f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.inverseOnSurface,
-                        style = MaterialTheme.typography.labelSmall,
+                    BiliBadge(
+                        text = item.badge,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                        tone = BiliBadgeTone.Dark,
+                        style = BiliBadgeStyle.Solid,
                     )
                 }
             }
             Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     item.title,
+                    color = MaterialTheme.colorScheme.onSurface,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (item.indexShow.isNotBlank()) {
-                    Text(
-                        item.indexShow,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    MetaRow(
+                        items = listOf(
+                            MetaSpec(Icons.Filled.Tv, item.indexShow, MetricTone.Accent),
+                        ),
+                        maxItems = 1,
                     )
                 }
             }

@@ -24,8 +24,16 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Schedule
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.ContentFilter
+import app.ailiaili.core.designsystem.MetaRow
+import app.ailiaili.core.designsystem.MetaSpec
+import app.ailiaili.core.designsystem.MetricTone
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -205,10 +213,16 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                             ListItem(
                                 headlineContent = { Text(item.title) },
                                 supportingContent = {
-                                    Text(
-                                        listOf(item.author, item.durationText)
-                                            .filter { it.isNotBlank() }
-                                            .joinToString(" · "),
+                                    MetaRow(
+                                        items = listOfNotNull(
+                                            item.author.takeIf { it.isNotBlank() }?.let {
+                                                MetaSpec(Icons.Filled.Person, it, MetricTone.Neutral)
+                                            },
+                                            item.durationText.takeIf { it.isNotBlank() }?.let {
+                                                MetaSpec(Icons.Filled.Schedule, it, MetricTone.Neutral)
+                                            },
+                                        ),
+                                        maxItems = 2,
                                     )
                                 },
                                 leadingContent = if (!editing) null else {
@@ -463,7 +477,13 @@ fun CacheRoute(onBack: () -> Unit, onPlay: (CacheEntry) -> Unit) {
                     items(entries, key = { it.bvid }) { entry ->
                         ListItem(
                             headlineContent = { Text(entry.title) },
-                            supportingContent = { Text(app.ailiaili.core.model.qnLabel(entry.qn)) },
+                            supportingContent = {
+                                BiliBadge(
+                                    text = app.ailiaili.core.model.qnLabel(entry.qn),
+                                    tone = BiliBadgeTone.Neutral,
+                                    style = BiliBadgeStyle.Soft,
+                                )
+                            },
                             modifier = Modifier.clickable { onPlay(entry) },
                             trailingContent = {
                                 Text("删除", modifier = Modifier.clickable {

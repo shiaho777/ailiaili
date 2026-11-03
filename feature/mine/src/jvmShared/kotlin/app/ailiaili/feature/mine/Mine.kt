@@ -59,6 +59,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliPageTitle
 import app.ailiaili.core.designsystem.MetricChip
 import app.ailiaili.core.designsystem.MetricChipSize
@@ -238,16 +241,11 @@ fun MineRoute(
                                 fontWeight = FontWeight.SemiBold,
                             )
                             if (profile.level > 0) {
-                                Text(
-                                    "LV${profile.level}",
-                                    modifier = Modifier
-                                        .padding(start = 8.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                                        .padding(horizontal = 5.dp, vertical = 1.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                BiliBadge(
+                                    text = "LV${profile.level}",
+                                    modifier = Modifier.padding(start = 8.dp),
+                                    tone = BiliBadgeTone.Accent,
+                                    style = BiliBadgeStyle.Soft,
                                 )
                             }
                         }

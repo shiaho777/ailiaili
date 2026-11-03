@@ -23,6 +23,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.runtime.Composable
@@ -95,7 +98,15 @@ fun MessagesRoute(onBack: () -> Unit, onOpen: (MsgSession) -> Unit, vm: InboxVie
                         ListItem(
                             headlineContent = { Text(session.name.ifBlank { "UID ${session.talkerId}" }) },
                             supportingContent = { Text(session.preview) },
-                            trailingContent = { if (session.unread > 0) Text("${session.unread}") },
+                            trailingContent = {
+                                if (session.unread > 0) {
+                                    BiliBadge(
+                                        text = if (session.unread > 99) "99+" else "${session.unread}",
+                                        tone = BiliBadgeTone.Accent,
+                                        style = BiliBadgeStyle.Solid,
+                                    )
+                                }
+                            },
                             modifier = Modifier.clickable { onOpen(session) }.animateItem(),
                         )
                     }

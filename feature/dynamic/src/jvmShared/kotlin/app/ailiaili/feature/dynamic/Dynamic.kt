@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -55,8 +56,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliPageTitle
 import app.ailiaili.core.designsystem.LoadBox
+import app.ailiaili.core.designsystem.MetaRow
+import app.ailiaili.core.designsystem.MetaSpec
+import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.designsystem.shellNavigationBottom
@@ -475,23 +482,12 @@ private fun LiveCard(item: VideoItem, onClick: () -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(6.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xFFE53935))
-                    .padding(horizontal = 5.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.size(5.dp).clip(CircleShape).background(Color.White))
-                Text(
-                    " 直播中",
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            BiliBadge(
+                text = "直播中",
+                modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                tone = BiliBadgeTone.Accent,
+                style = BiliBadgeStyle.Solid,
+            )
         }
         Text(
             text = item.title.ifBlank { "直播" },
@@ -502,15 +498,16 @@ private fun LiveCard(item: VideoItem, onClick: () -> Unit) {
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            text = listOfNotNull(
-                item.author.takeIf { it.isNotBlank() },
-                formatCount(item.viewCount).takeIf { it.isNotBlank() },
-            ).joinToString(" · "),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        MetaRow(
+            items = listOfNotNull(
+                item.author.takeIf { it.isNotBlank() }?.let {
+                    MetaSpec(Icons.Filled.Person, it, MetricTone.Neutral)
+                },
+                formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
+                    MetaSpec(Icons.Filled.Visibility, it, MetricTone.Online)
+                },
+            ),
+            maxItems = 2,
         )
     }
 }

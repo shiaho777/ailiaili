@@ -63,6 +63,33 @@ MetaRow(
 
 `maxItems` 默认 2，避免窄卡片溢出。
 
+### BiliBadge
+
+用于短状态，不承载“数值 + 单位”的统计：直播中、清晰度、未读数、等级、私密、更新至第 N 话。
+
+```kotlin
+BiliBadge("直播中", tone = BiliBadgeTone.Accent, style = BiliBadgeStyle.Solid)
+BiliBadge("LV6", tone = BiliBadgeTone.Accent, style = BiliBadgeStyle.Soft)
+BiliBadge("1080P", tone = BiliBadgeTone.Neutral, style = BiliBadgeStyle.Outline)
+```
+
+- `BiliBadgeTone`：`Accent` / `Neutral` / `Dark` / `Success` / `Warning`
+- `BiliBadgeStyle`：`Solid` / `Soft` / `Outline`
+- `BiliBadgeSize`：`Small` / `Medium`
+- 叠在封面上的时长、清晰度用 `Dark + Solid`。
+
+### BiliLoadingState / BiliEmptyState / BiliErrorState
+
+统一空态、加载态、错误态。
+
+```kotlin
+BiliLoadingState(label = "加载中…")
+BiliEmptyState(title = "还没有内容", message = "换个关键词试试")
+BiliErrorState(message = "网络请求失败", onRetry = vm::reload)
+```
+
+`LoadBox` 已经默认使用这套状态组件，业务页优先复用 `LoadBox`。
+
 ### BiliSurfaceCard
 
 统一卡片容器：`surfaceContainerLow` + 16dp 圆角 + 细边框 + 14dp 内边距。
@@ -135,9 +162,15 @@ Modifier
 
 - [x] 播放页详情头部：标题卡片 + 统计胶囊
 - [x] 视频卡底部元信息：小图标 + 数值
-- [x] 空间页：粉丝/关注/投稿 + 区块标题
-- [x] 我的页：动态/关注/粉丝 + 硬币/经验胶囊
-- [ ] 搜索番剧海报卡
-- [ ] 动态页卡片
-- [ ] 消息/收藏夹列表的元信息
-- [ ] 设置页的统计/缓存信息
+- [x] 空间页：粉丝/关注/投稿 + 区块标题 + 合集/收藏夹数量
+- [x] 我的页：动态/关注/粉丝 + 硬币/经验胶囊 + 等级标
+- [x] 搜索番剧海报卡：统一卡片 + 角标 + 更新信息
+- [x] 动态页直播卡：直播标 + 在线人数
+- [x] 消息列表未读数
+- [x] 历史记录作者/时长
+- [x] 离线缓存清晰度
+- [x] 设置页卡片容器
+- [x] 统一空态/加载态/错误态
+- [ ] 设置页缓存大小的进一步结构化
+- [ ] 搜索历史/热词的进一步结构化
+- [ ] 播放器操作按钮统一成 ActionPill

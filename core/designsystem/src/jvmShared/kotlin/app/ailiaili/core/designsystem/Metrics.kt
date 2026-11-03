@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -247,6 +248,7 @@ fun BiliSurfaceCard(
     shape: Shape = RoundedCornerShape(16.dp),
     color: Color = MaterialTheme.colorScheme.surfaceContainerLow,
     border: BorderStroke? = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    contentPadding: PaddingValues = PaddingValues(14.dp),
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
@@ -256,7 +258,7 @@ fun BiliSurfaceCard(
         contentColor = contentColorFor(color),
         border = border,
     ) {
-        Column(Modifier.padding(14.dp), content = content)
+        Column(Modifier.padding(contentPadding), content = content)
     }
 }
 

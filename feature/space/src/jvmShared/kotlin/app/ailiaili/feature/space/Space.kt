@@ -66,7 +66,11 @@ import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliSectionHeader
+import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.MetricStat
 import app.ailiaili.core.designsystem.VideoCard
 import app.ailiaili.core.designsystem.appViewModel
@@ -745,42 +749,40 @@ private fun PostCard(post: SpacePost, ownerName: String, onVideo: (VideoItem) ->
 @Composable
 private fun CollectionCard(item: SpaceCollection, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    Surface(
+    BiliSurfaceCard(
         modifier = modifier.clickable {
             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             onClick()
         },
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentPadding = PaddingValues(0.dp),
     ) {
-        Column {
-            if (item.cover.isBlank()) {
-                Box(
-                    Modifier.fillMaxWidth().aspectRatio(16f / 10f).background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                )
-            } else {
-                AsyncImage(
-                    item.cover,
-                    item.title,
-                    Modifier.fillMaxWidth().aspectRatio(16f / 10f),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    item.title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    "${item.count} 个视频",
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
-                )
-            }
+        if (item.cover.isBlank()) {
+            Box(
+                Modifier.fillMaxWidth().aspectRatio(16f / 10f).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            )
+        } else {
+            AsyncImage(
+                item.cover,
+                item.title,
+                Modifier.fillMaxWidth().aspectRatio(16f / 10f),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                item.title,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            BiliBadge(
+                text = "${item.count} 个视频",
+                tone = BiliBadgeTone.Neutral,
+                style = BiliBadgeStyle.Soft,
+            )
         }
     }
 }
@@ -788,15 +790,15 @@ private fun CollectionCard(item: SpaceCollection, modifier: Modifier = Modifier,
 @Composable
 private fun FolderRow(folder: FavFolder, onClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    Surface(
+    BiliSurfaceCard(
         modifier = Modifier.fillMaxWidth().clickable {
             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             onClick()
         },
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        contentPadding = PaddingValues(10.dp),
     ) {
-        Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             if (folder.cover.isBlank()) {
                 Box(
                     Modifier.width(112.dp).aspectRatio(16f / 10f).clip(RoundedCornerShape(8.dp))
@@ -819,11 +821,11 @@ private fun FolderRow(folder: FavFolder, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    "${folder.count} 个视频",
+                BiliBadge(
+                    text = "${folder.count} 个视频",
                     modifier = Modifier.padding(top = 4.dp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
+                    tone = BiliBadgeTone.Neutral,
+                    style = BiliBadgeStyle.Soft,
                 )
             }
         }
