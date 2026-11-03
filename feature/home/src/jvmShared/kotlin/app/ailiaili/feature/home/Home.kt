@@ -151,6 +151,24 @@ fun HomeRoute(
                         )
                     }
                 },
+                actions = {
+                    val (themeIcon, themeLabel) = when (settings.theme) {
+                        ThemeMode.System -> Icons.Filled.BrightnessAuto to "主题：跟随系统"
+                        ThemeMode.Light -> Icons.Filled.LightMode to "主题：浅色"
+                        ThemeMode.Dark -> Icons.Filled.DarkMode to "主题：深色"
+                    }
+                    BiliHeaderAction(themeIcon, themeLabel, onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                        val next = when (settings.theme) {
+                            ThemeMode.System -> ThemeMode.Light
+                            ThemeMode.Light -> ThemeMode.Dark
+                            ThemeMode.Dark -> ThemeMode.System
+                        }
+                        AppGraph.repo.updateSettings { it.copy(theme = next) }
+                    })
+                    Spacer(Modifier.width(8.dp))
+                    BiliHeaderAction(Icons.AutoMirrored.Filled.Message, "消息", onClick = onMessages)
+                },
             )
             BoxWithConstraints(
                 Modifier
@@ -171,50 +189,67 @@ fun HomeRoute(
                 onSelect = { vm.select(HomeTab.entries[it]) },
             )
             var filterOpen by remember { mutableStateOf(false) }
-            if (!filterOpen && !ContentFilter.active) {
-                TextButton(onClick = { filterOpen = true }, modifier = Modifier.padding(horizontal = 8.dp)) {
-                    Text("屏蔽", color = MaterialTheme.colorScheme.onSurface)
-                }
-            } else {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TextButton(onClick = { filterOpen = !filterOpen }) {
-                        Text(if (ContentFilter.active) "屏蔽中" else "屏蔽", color = MaterialTheme.colorScheme.onSurface)
-                    }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BiliFilterChip(
+                    selected = ContentFilter.active || filterOpen,
+                    onClick = { filterOpen = !filterOpen },
+                    label = { Text(if (ContentFilter.active) "屏蔽中" else "屏蔽") },
+                    leadingIcon = {
+                        Icon(Icons.Filled.FilterList, contentDescription = null, Modifier.size(18.dp))
+                    },
+                )
+                if (ContentFilter.active) {
                     Text(
                         ContentFilter.summary(),
                         modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    if (ContentFilter.active) {
-                        TextButton(onClick = {
-                            ContentFilter.clear()
-                            filterOpen = false
-                        }) {
-                            Text("清除", color = MaterialTheme.colorScheme.onSurface)
-                        }
+                    TextButton(onClick = {
+                        ContentFilter.clear()
+                        filterOpen = false
+                    }) {
+                        Text("清除")
                     }
                 }
             }
-            if (filterOpen) {
-                OutlinedTextField(
-                    value = ContentFilter.title,
-                    onValueChange = { ContentFilter.title = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    singleLine = true,
-                    label = { Text("屏蔽标题，多个词用空格或逗号分开") },
-                )
-                OutlinedTextField(
-                    value = ContentFilter.up,
-                    onValueChange = { ContentFilter.up = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    singleLine = true,
-                    label = { Text("屏蔽 UP 主") },
-                )
+            AnimatedVisibility(
+                visible = filterOpen,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut(),
+            ) {
+                BiliSurfaceCard(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(12.dp),
+                ) {
+                    Text(
+                        "命中任意关键词就隐藏，多个词用空格或逗号分开",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedTextField(
+                        value = ContentFilter.title,
+                        onValueChange = { ContentFilter.title = it },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        singleLine = true,
+                        label = { Text("标题关键词") },
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                    OutlinedTextField(
+                        value = ContentFilter.up,
+                        onValueChange = { ContentFilter.up = it },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        singleLine = true,
+                        label = { Text("UP 主名称") },
+                        shape = MaterialTheme.shapes.medium,
+                    )
+                }
             }
             val shown = vm.items.filter { ContentFilter.allows(it) }
             val blockedOut = vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
@@ -225,10 +260,14 @@ fun HomeRoute(
             ) {
                 LoadBox(vm.loading, vm.error, shown.isEmpty() && !blockedOut, "这里还没有内容", vm::refresh) {
                     if (blockedOut) {
-                        Text(
-                            "这些内容已被屏蔽",
-                            modifier = Modifier.padding(24.dp),
-                            color = MaterialTheme.colorScheme.onSurface,
+                        BiliEmptyState(
+                            title = "这一页都被屏蔽了",
+                            message = ContentFilter.summary(),
+                            icon = Icons.Filled.FilterList,
+                            modifier = Modifier.fillMaxSize(),
+                            action = {
+                                TextButton(onClick = { ContentFilter.clear() }) { Text("清除屏蔽") }
+                            },
                         )
                     } else VideoGrid(
                         items = shown,
@@ -255,16 +294,6 @@ fun HomeRoute(
                 onClick = { scope.launch { grid.scrollToItem(0) } },
             )
             BiliFloatButton(Icons.Filled.Refresh, "刷新", onClick = vm::refresh)
-            BiliFloatButton(Icons.Filled.WbSunny, "切换主题") {
-                haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                val next = when (settings.theme) {
-                    ThemeMode.System -> ThemeMode.Light
-                    ThemeMode.Light -> ThemeMode.Dark
-                    ThemeMode.Dark -> ThemeMode.System
-                }
-                AppGraph.repo.updateSettings { it.copy(theme = next) }
-            }
-            BiliFloatButton(Icons.AutoMirrored.Filled.Message, "消息", onClick = onMessages)
         }
     }
 }
