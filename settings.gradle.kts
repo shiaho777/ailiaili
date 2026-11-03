@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "BiliDesk"
+rootProject.name = "ailiaili"
 
 include(
     ":app",

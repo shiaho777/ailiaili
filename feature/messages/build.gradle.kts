@@ -63,7 +63,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.feature.messages"
+    namespace = "app.ailiaili.feature.messages"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

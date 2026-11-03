@@ -1,4 +1,4 @@
-# BiliDesk
+# ailiaili
 
 哔哩哔哩第三方客户端。一套 Compose Multiplatform 代码覆盖 Android、Windows、macOS 和 Linux。
 
@@ -13,7 +13,7 @@
 
 ## 下载
 
-前往 [Releases](https://github.com/ABING1111/BiliDesk/releases/latest) 下载最新版本。
+前往 [Releases](https://github.com/shiaho777/ailiaili/releases/latest) 下载最新版本。
 
 ## 功能
 
@@ -43,3 +43,13 @@
 ## 许可
 
 [GPL-3.0](LICENSE)
+
+## 致谢与借鉴
+
+ailiaili 是在多个开源项目的基础上重构、改进，并加入自研实现的。完整的借鉴清单（项目、模块、对应实现与许可证）会补充在本节末尾。
+
+目前已确认参考的项目：
+
+- [ABING1111/BiliDesk](https://github.com/ABING1111/BiliDesk) — GPL-3.0。产品行为、接口对齐与部分交互设计参考。
+
+本项目沿用 GPL-3.0 许可证，与上述项目兼容。Jetpack Compose、Media3、LibVLC、OkHttp 等第三方组件的版权与许可证归各自权利人所有。

@@ -46,13 +46,13 @@
 ### Task 1: 模型、分区表、游标、搜索元数据
 
 **Files:**
-- Create: `core/model/src/jvmShared/kotlin/app/bilidesk/core/model/RegionFeed.kt`
-- Create: `core/model/src/jvmShared/kotlin/app/bilidesk/core/model/SearchKind.kt`
-- Create: `core/model/src/jvmTest/kotlin/app/bilidesk/core/model/RegionFeedTest.kt`
-- Create: `core/model/src/jvmTest/kotlin/app/bilidesk/core/model/SearchKindTest.kt`
-- Create: `core/model/src/jvmTest/kotlin/app/bilidesk/core/model/PartitionCatalogTest.kt`
+- Create: `core/model/src/jvmShared/kotlin/app/ailiaili/core/model/RegionFeed.kt`
+- Create: `core/model/src/jvmShared/kotlin/app/ailiaili/core/model/SearchKind.kt`
+- Create: `core/model/src/jvmTest/kotlin/app/ailiaili/core/model/RegionFeedTest.kt`
+- Create: `core/model/src/jvmTest/kotlin/app/ailiaili/core/model/SearchKindTest.kt`
+- Create: `core/model/src/jvmTest/kotlin/app/ailiaili/core/model/PartitionCatalogTest.kt`
 - Modify: `core/model/build.gradle.kts` — 增加 `jvmTest`
-- Modify: `core/model/src/jvmShared/kotlin/app/bilidesk/core/model/Models.kt`
+- Modify: `core/model/src/jvmShared/kotlin/app/ailiaili/core/model/Models.kt`
 
 **Interfaces:**
 - Consumes: 现有 `VideoItem`、`AppSettings`
@@ -89,7 +89,7 @@
 `PartitionCatalogTest.kt`:
 
 ```kotlin
-package app.bilidesk.core.model
+package app.ailiaili.core.model
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -109,7 +109,7 @@ class PartitionCatalogTest {
 `RegionFeedTest.kt`:
 
 ```kotlin
-package app.bilidesk.core.model
+package app.ailiaili.core.model
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -154,7 +154,7 @@ class RegionFeedTest {
 `SearchKindTest.kt`:
 
 ```kotlin
-package app.bilidesk.core.model
+package app.ailiaili.core.model
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -198,7 +198,7 @@ class SearchKindTest {
 
 - [ ] **Step 3: 跑测试，确认失败**
 
-Run: `./gradlew :core:model:jvmTest --tests app.bilidesk.core.model.PartitionCatalogTest --tests app.bilidesk.core.model.RegionFeedTest --tests app.bilidesk.core.model.SearchKindTest`
+Run: `./gradlew :core:model:jvmTest --tests app.ailiaili.core.model.PartitionCatalogTest --tests app.ailiaili.core.model.RegionFeedTest --tests app.ailiaili.core.model.SearchKindTest`
 
 Expected: FAIL（`ContentKind` / `afterRegionPage` / 美食 1020 不存在）
 
@@ -207,7 +207,7 @@ Expected: FAIL（`ContentKind` / `afterRegionPage` / 美食 1020 不存在）
 `RegionFeed.kt`:
 
 ```kotlin
-package app.bilidesk.core.model
+package app.ailiaili.core.model
 
 const val REGION_PAGE_SIZE = 20
 
@@ -230,7 +230,7 @@ fun afterRegionPage(displayId: Int, fetchedBvids: List<String>, seen: Set<String
 `SearchKind.kt`:
 
 ```kotlin
-package app.bilidesk.core.model
+package app.ailiaili.core.model
 
 enum class ContentKind { Video, Live, Bangumi }
 
@@ -271,14 +271,14 @@ fun searchEmptyMessage(kind: ContentKind): String = when (kind) {
 
 - [ ] **Step 5: 跑测试，确认通过**
 
-Run: `./gradlew :core:model:jvmTest --tests app.bilidesk.core.model.PartitionCatalogTest --tests app.bilidesk.core.model.RegionFeedTest --tests app.bilidesk.core.model.SearchKindTest`
+Run: `./gradlew :core:model:jvmTest --tests app.ailiaili.core.model.PartitionCatalogTest --tests app.ailiaili.core.model.RegionFeedTest --tests app.ailiaili.core.model.SearchKindTest`
 
 Expected: PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add core/model feature/region/src/jvmShared/kotlin/app/bilidesk/feature/region/Region.kt
+git add core/model feature/region/src/jvmShared/kotlin/app/ailiaili/feature/region/Region.kt
 git commit -m "$(cat <<'EOF'
 feat: add v2 region catalog, search kinds, and feed cursor
 
@@ -291,10 +291,10 @@ EOF
 ### Task 2: 分区 JSON 解码 + author 对象
 
 **Files:**
-- Create: `core/network/src/jvmShared/kotlin/app/bilidesk/core/network/RegionFeedDecode.kt`
-- Create: `core/network/src/jvmTest/kotlin/app/bilidesk/core/network/RegionFeedDecodeTest.kt`
+- Create: `core/network/src/jvmShared/kotlin/app/ailiaili/core/network/RegionFeedDecode.kt`
+- Create: `core/network/src/jvmTest/kotlin/app/ailiaili/core/network/RegionFeedDecodeTest.kt`
 - Modify: `core/network/build.gradle.kts` — `jvmTest` 依赖 `kotlin("test")` 和 `jvmShared`（默认已有）
-- Modify: `core/network/src/jvmShared/kotlin/app/bilidesk/core/network/Parse.kt`
+- Modify: `core/network/src/jvmShared/kotlin/app/ailiaili/core/network/Parse.kt`
 
 **Interfaces:**
 - Consumes: `parseVideo`、`JSONObject`、`afterRegionPage`
@@ -308,7 +308,7 @@ EOF
 `RegionFeedDecodeTest.kt`:
 
 ```kotlin
-package app.bilidesk.core.network
+package app.ailiaili.core.network
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -350,7 +350,7 @@ class RegionFeedDecodeTest {
 
 - [ ] **Step 2: 跑测试，确认失败**
 
-Run: `./gradlew :core:network:jvmTest --tests app.bilidesk.core.network.RegionFeedDecodeTest`
+Run: `./gradlew :core:network:jvmTest --tests app.ailiaili.core.network.RegionFeedDecodeTest`
 
 Expected: FAIL（`decodeRegionFeed` 未定义）
 
@@ -374,9 +374,9 @@ Expected: FAIL（`decodeRegionFeed` 未定义）
 `RegionFeedDecode.kt`:
 
 ```kotlin
-package app.bilidesk.core.network
+package app.ailiaili.core.network
 
-import app.bilidesk.core.model.VideoItem
+import app.ailiaili.core.model.VideoItem
 
 data class RegionFeedDecode(
     val ok: Boolean,
@@ -396,7 +396,7 @@ fun decodeRegionFeed(code: Int, message: String?, data: JSONObject?): RegionFeed
 
 - [ ] **Step 4: 跑测试，确认通过**
 
-Run: `./gradlew :core:network:jvmTest --tests app.bilidesk.core.network.RegionFeedDecodeTest`
+Run: `./gradlew :core:network:jvmTest --tests app.ailiaili.core.network.RegionFeedDecodeTest`
 
 Expected: PASS
 
@@ -416,8 +416,8 @@ EOF
 ### Task 3: 搜索解码、番剧解析、media_ft 合并
 
 **Files:**
-- Create: `core/network/src/jvmShared/kotlin/app/bilidesk/core/network/SearchDecode.kt`
-- Create: `core/network/src/jvmTest/kotlin/app/bilidesk/core/network/SearchDecodeTest.kt`
+- Create: `core/network/src/jvmShared/kotlin/app/ailiaili/core/network/SearchDecode.kt`
+- Create: `core/network/src/jvmTest/kotlin/app/ailiaili/core/network/SearchDecodeTest.kt`
 
 **Interfaces:**
 - Consumes: `ContentKind`、`BangumiItem`、`searchHasMore`、`searchEmptyMessage`、`parseSearch`、`parseLive`
@@ -431,9 +431,9 @@ EOF
 - [ ] **Step 1: 写失败测试**
 
 ```kotlin
-package app.bilidesk.core.network
+package app.ailiaili.core.network
 
-import app.bilidesk.core.model.ContentKind
+import app.ailiaili.core.model.ContentKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -480,7 +480,7 @@ class SearchDecodeTest {
 
 - [ ] **Step 2: 跑测试，确认失败**
 
-Run: `./gradlew :core:network:jvmTest --tests app.bilidesk.core.network.SearchDecodeTest`
+Run: `./gradlew :core:network:jvmTest --tests app.ailiaili.core.network.SearchDecodeTest`
 
 Expected: FAIL
 
@@ -494,7 +494,7 @@ Expected: FAIL
 
 - [ ] **Step 4: 跑测试，确认通过**
 
-Run: `./gradlew :core:network:jvmTest --tests app.bilidesk.core.network.SearchDecodeTest`
+Run: `./gradlew :core:network:jvmTest --tests app.ailiaili.core.network.SearchDecodeTest`
 
 Expected: PASS
 
@@ -514,8 +514,8 @@ EOF
 ### Task 4: 番剧选集解码
 
 **Files:**
-- Create: `core/network/src/jvmShared/kotlin/app/bilidesk/core/network/BangumiDecode.kt`
-- Create: `core/network/src/jvmTest/kotlin/app/bilidesk/core/network/BangumiDecodeTest.kt`
+- Create: `core/network/src/jvmShared/kotlin/app/ailiaili/core/network/BangumiDecode.kt`
+- Create: `core/network/src/jvmTest/kotlin/app/ailiaili/core/network/BangumiDecodeTest.kt`
 
 **Interfaces:**
 - Consumes: `BangumiDetail`、`BangumiEpisode`
@@ -524,7 +524,7 @@ EOF
 - [ ] **Step 1: 写失败测试**
 
 ```kotlin
-package app.bilidesk.core.network
+package app.ailiaili.core.network
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -568,7 +568,7 @@ class BangumiDecodeTest {
 
 - [ ] **Step 2: 跑测试，确认失败**
 
-Run: `./gradlew :core:network:jvmTest --tests app.bilidesk.core.network.BangumiDecodeTest`
+Run: `./gradlew :core:network:jvmTest --tests app.ailiaili.core.network.BangumiDecodeTest`
 
 Expected: FAIL
 
@@ -578,7 +578,7 @@ Expected: FAIL
 
 - [ ] **Step 4: 跑测试，确认通过**
 
-Run: `./gradlew :core:network:jvmTest --tests app.bilidesk.core.network.BangumiDecodeTest`
+Run: `./gradlew :core:network:jvmTest --tests app.ailiaili.core.network.BangumiDecodeTest`
 
 Expected: PASS
 
@@ -598,8 +598,8 @@ EOF
 ### Task 5: Settings 落盘音量和搜索类别
 
 **Files:**
-- Modify: `core/data/src/jvmShared/kotlin/app/bilidesk/core/data/Stores.kt`
-- Create: `core/data/src/jvmTest/kotlin/app/bilidesk/core/data/SettingsCodecTest.kt`
+- Modify: `core/data/src/jvmShared/kotlin/app/ailiaili/core/data/Stores.kt`
+- Create: `core/data/src/jvmTest/kotlin/app/ailiaili/core/data/SettingsCodecTest.kt`
 - Modify: `core/data/build.gradle.kts` — `jvmTest` + `implementation(kotlin("test"))`
 
 **Interfaces:**
@@ -609,10 +609,10 @@ EOF
 - [ ] **Step 1: 写失败测试**
 
 ```kotlin
-package app.bilidesk.core.data
+package app.ailiaili.core.data
 
-import app.bilidesk.core.model.ContentKind
-import app.bilidesk.core.network.JSONObject
+import app.ailiaili.core.model.ContentKind
+import app.ailiaili.core.network.JSONObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -643,7 +643,7 @@ class SettingsCodecTest {
 
 - [ ] **Step 2: 跑测试，确认失败**
 
-Run: `./gradlew :core:data:jvmTest --tests app.bilidesk.core.data.SettingsCodecTest`
+Run: `./gradlew :core:data:jvmTest --tests app.ailiaili.core.data.SettingsCodecTest`
 
 Expected: FAIL
 
@@ -668,7 +668,7 @@ encode：
 
 - [ ] **Step 4: 跑测试，确认通过**
 
-Run: `./gradlew :core:data:jvmTest --tests app.bilidesk.core.data.SettingsCodecTest`
+Run: `./gradlew :core:data:jvmTest --tests app.ailiaili.core.data.SettingsCodecTest`
 
 Expected: PASS
 
@@ -688,8 +688,8 @@ EOF
 ### Task 6: BiliClient 与 Repository
 
 **Files:**
-- Modify: `core/network/src/jvmShared/kotlin/app/bilidesk/core/network/BiliClient.kt`
-- Modify: `core/data/src/jvmShared/kotlin/app/bilidesk/core/data/BiliRepository.kt`
+- Modify: `core/network/src/jvmShared/kotlin/app/ailiaili/core/network/BiliClient.kt`
+- Modify: `core/data/src/jvmShared/kotlin/app/ailiaili/core/data/BiliRepository.kt`
 
 **Interfaces:**
 - Consumes: Task 2–4 的 decode 函数、`ContentKind`
@@ -780,8 +780,8 @@ EOF
 ### Task 7: 分区页翻页和 FAB
 
 **Files:**
-- Modify: `feature/region/src/jvmShared/kotlin/app/bilidesk/feature/region/Region.kt`
-- Create: `core/model/src/jvmTest/kotlin/app/bilidesk/core/model/RegionFeedPagerTest.kt`（若把 pager 抽到 model）或直接在 ViewModel 里调用 `afterRegionPage`
+- Modify: `feature/region/src/jvmShared/kotlin/app/ailiaili/feature/region/Region.kt`
+- Create: `core/model/src/jvmTest/kotlin/app/ailiaili/core/model/RegionFeedPagerTest.kt`（若把 pager 抽到 model）或直接在 ViewModel 里调用 `afterRegionPage`
 
 **Interfaces:**
 - Consumes: `repo.regionFeed`、`afterRegionPage`、`Partition.tint`
@@ -827,7 +827,7 @@ EOF
 ### Task 8: 搜索三类 UI
 
 **Files:**
-- Modify: `feature/search/src/jvmShared/kotlin/app/bilidesk/feature/search/Search.kt`
+- Modify: `feature/search/src/jvmShared/kotlin/app/ailiaili/feature/search/Search.kt`
 
 **Interfaces:**
 - Consumes: `ContentKind`、`SearchPage.bangumiItems`、`AppSettings.lastSearchKind`
@@ -867,9 +867,9 @@ EOF
 ### Task 9: Dest.Bangumi 与选集页
 
 **Files:**
-- Create: `feature/search/src/jvmShared/kotlin/app/bilidesk/feature/search/Season.kt`
-- Modify: `app/src/jvmShared/kotlin/app/bilidesk/AppRoot.kt`
-- Modify: `app/src/jvmTest/kotlin/app/bilidesk/PlayerLayersTest.kt`
+- Create: `feature/search/src/jvmShared/kotlin/app/ailiaili/feature/search/Season.kt`
+- Modify: `app/src/jvmShared/kotlin/app/ailiaili/AppRoot.kt`
+- Modify: `app/src/jvmTest/kotlin/app/ailiaili/PlayerLayersTest.kt`
 
 **Interfaces:**
 - Consumes: `repo.bangumiDetail`、`BangumiDetail`
@@ -896,7 +896,7 @@ EOF
 
 - [ ] **Step 2: 跑测试，确认失败**
 
-Run: `./gradlew :app:jvmTest --tests app.bilidesk.PlayerLayersTest.bangumiSeasonIsNotPlayerOverlay`
+Run: `./gradlew :app:jvmTest --tests app.ailiaili.PlayerLayersTest.bangumiSeasonIsNotPlayerOverlay`
 
 Expected: FAIL（没有 `Dest.Bangumi`）
 
@@ -910,7 +910,7 @@ Expected: FAIL（没有 `Dest.Bangumi`）
 
 - [ ] **Step 4: 跑测试，确认通过**
 
-Run: `./gradlew :app:jvmTest --tests app.bilidesk.PlayerLayersTest`
+Run: `./gradlew :app:jvmTest --tests app.ailiaili.PlayerLayersTest`
 
 Expected: PASS（原 11 个 + 新 1 个）
 
@@ -930,7 +930,7 @@ EOF
 ### Task 10: 播放器音量继承
 
 **Files:**
-- Modify: `feature/player/src/jvmShared/kotlin/app/bilidesk/feature/player/Player.kt`
+- Modify: `feature/player/src/jvmShared/kotlin/app/ailiaili/feature/player/Player.kt`
 
 **Interfaces:**
 - Consumes: `AppSettings.playerVolume`、`updateSettings`

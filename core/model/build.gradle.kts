@@ -39,7 +39,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.core.model"
+    namespace = "app.ailiaili.core.model"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

@@ -64,7 +64,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.core.designsystem"
+    namespace = "app.ailiaili.core.designsystem"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

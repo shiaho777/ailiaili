@@ -63,7 +63,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.feature.dynamic"
+    namespace = "app.ailiaili.feature.dynamic"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

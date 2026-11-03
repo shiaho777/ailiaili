@@ -80,7 +80,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.shared"
+    namespace = "app.ailiaili.shared"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

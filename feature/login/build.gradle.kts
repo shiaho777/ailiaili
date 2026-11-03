@@ -65,7 +65,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.feature.login"
+    namespace = "app.ailiaili.feature.login"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

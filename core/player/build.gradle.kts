@@ -72,7 +72,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.core.player"
+    namespace = "app.ailiaili.core.player"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

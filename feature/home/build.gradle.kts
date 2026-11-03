@@ -63,7 +63,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.feature.home"
+    namespace = "app.ailiaili.feature.home"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

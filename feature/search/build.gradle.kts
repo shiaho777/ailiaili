@@ -63,7 +63,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.feature.search"
+    namespace = "app.ailiaili.feature.search"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {

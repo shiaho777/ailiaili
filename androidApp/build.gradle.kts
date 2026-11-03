@@ -5,10 +5,10 @@ plugins {
 }
 
 android {
-    namespace = "app.bilidesk"
+    namespace = "app.ailiaili"
     compileSdk = 37
     defaultConfig {
-        applicationId = "app.bilidesk"
+        applicationId = "app.ailiaili"
         minSdk = 26
         targetSdk = 35
         versionCode = 124

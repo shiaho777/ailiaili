@@ -25,27 +25,27 @@ dependencies {
 
 compose.desktop {
     application {
-        mainClass = "app.bilidesk.MainKt"
+        mainClass = "app.ailiaili.MainKt"
         nativeDistributions {
-            packageName = "BiliDesk"
+            packageName = "ailiaili"
             packageVersion = "1.2.4"
-            description = "BiliDesk"
-            copyright = "BiliDesk"
-            vendor = "BiliDesk"
+            description = "ailiaili"
+            copyright = "ailiaili"
+            vendor = "ailiaili"
             targetFormats(
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg,
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi,
                 org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb,
             )
             macOS {
-                bundleID = "app.bilidesk"
+                bundleID = "app.ailiaili"
             }
             windows {
-                menuGroup = "BiliDesk"
-                upgradeUuid = "8f3c1e6a-4b2d-4f91-9c5a-7e1d2b8a6c40"
+                menuGroup = "ailiaili"
+                upgradeUuid = "b6e2f4a1-7c3d-4e58-9a0b-1d5f8c2e7a93"
             }
             linux {
-                packageName = "bilidesk"
+                packageName = "ailiaili"
             }
         }
     }

@@ -70,7 +70,7 @@ kotlin {
 }
 
 android {
-    namespace = "app.bilidesk.feature.player"
+    namespace = "app.ailiaili.feature.player"
     compileSdk = 37
     defaultConfig { minSdk = 26 }
     compileOptions {
