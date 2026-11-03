@@ -18,6 +18,10 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -199,15 +203,21 @@ fun VideoCard(
                         )
                     }
                 }
-                val meta = cardMeta(item)
-                if (meta.isNotBlank()) {
-                    Text(
-                        meta,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                val meta = buildList {
+                    if (!item.isLive && item.statsReady) {
+                        formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
+                            add(MetaSpec(Icons.Filled.PlayArrow, it, MetricTone.Play))
+                        }
+                        formatCount(item.danmakuCount).takeIf { it.isNotBlank() }?.let {
+                            add(MetaSpec(Icons.AutoMirrored.Filled.Comment, it, MetricTone.Danmaku))
+                        }
+                        formatCount(item.likeCount).takeIf { it.isNotBlank() }?.let {
+                            add(MetaSpec(Icons.Filled.ThumbUp, it, MetricTone.Like))
+                        }
+                    }
+                }
+                if (meta.isNotEmpty()) {
+                    MetaRow(meta, maxItems = 2)
                 }
             }
         }
@@ -222,11 +232,4 @@ fun VideoCard(
     }
 }
 
-private fun cardMeta(item: VideoItem): String {
-    if (item.isLive || !item.statsReady) return ""
-    return listOfNotNull(
-        formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let { "$it 播放" },
-        formatCount(item.danmakuCount).takeIf { it.isNotBlank() }?.let { "$it 弹幕" },
-        formatCount(item.likeCount).takeIf { it.isNotBlank() }?.let { "$it 点赞" },
-    ).joinToString(" · ")
-}
+

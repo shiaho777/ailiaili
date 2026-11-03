@@ -66,6 +66,8 @@ import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.BiliSectionHeader
+import app.ailiaili.core.designsystem.MetricStat
 import app.ailiaili.core.designsystem.VideoCard
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.model.FavFolder
@@ -534,7 +536,7 @@ private fun LazyGridScope.homeSections(
     val folders = vm.folders.orEmpty()
     if (!posts.isNullOrEmpty()) {
         item(key = "home-post-title", span = { GridItemSpan(maxLineSpan) }) {
-            SectionHeader("最近动态", "全部") { vm.select(SpaceSection.Dynamic) }
+            BiliSectionHeader("最近动态", "全部") { vm.select(SpaceSection.Dynamic) }
         }
         item(key = "home-post", span = { GridItemSpan(maxLineSpan) }) {
             PostCard(posts.first(), vm.ownerName(), onVideo)
@@ -542,7 +544,7 @@ private fun LazyGridScope.homeSections(
     }
     if (collections.isNotEmpty()) {
         item(key = "home-col-title", span = { GridItemSpan(maxLineSpan) }) {
-            SectionHeader("合集", "全部") {
+            BiliSectionHeader("合集", "全部") {
                 vm.closeCollection()
                 vm.select(SpaceSection.Collections)
             }
@@ -556,7 +558,7 @@ private fun LazyGridScope.homeSections(
         }
     }
     item(key = "home-video-title", span = { GridItemSpan(maxLineSpan) }) {
-        SectionHeader(
+        BiliSectionHeader(
             title = "最新投稿",
             action = if (vm.items.size > 4) "全部" else null,
             onAction = { vm.select(SpaceSection.Videos) },
@@ -573,7 +575,7 @@ private fun LazyGridScope.homeSections(
     }
     if (folders.isNotEmpty()) {
         item(key = "home-fav-title", span = { GridItemSpan(maxLineSpan) }) {
-            SectionHeader("收藏夹", "全部") { vm.select(SpaceSection.Favs) }
+            BiliSectionHeader("收藏夹", "全部") { vm.select(SpaceSection.Favs) }
         }
         folders.take(4).forEach { folder ->
             item(key = "home-fav-${folder.id}", span = { GridItemSpan(maxLineSpan) }) {
@@ -639,7 +641,7 @@ private fun LazyGridScope.collectionSections(vm: SpaceViewModel, onVideo: (Video
     val opened = vm.opened
     if (opened != null) {
         item(key = "col-back", span = { GridItemSpan(maxLineSpan) }) {
-            SectionHeader(opened.title, "全部合集", vm::closeCollection)
+            BiliSectionHeader(opened.title, "全部合集", onAction = vm::closeCollection)
         }
         if (vm.collectionVideos.isEmpty() && vm.collectionLoading) {
             item(key = "col-loading", span = { GridItemSpan(maxLineSpan) }) { CenterProgress() }
@@ -696,39 +698,6 @@ private fun LazyGridScope.folderSections(vm: SpaceViewModel, onOpenFolder: (FavF
             } else if (!vm.foldersHasMore) {
                 item(key = "fav-end", span = { GridItemSpan(maxLineSpan) }) { EndLine() }
             }
-        }
-    }
-}
-
-@Composable
-private fun SectionHeader(title: String, action: String?, onAction: (() -> Unit)? = null) {
-    val haptic = LocalHapticFeedback.current
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 40.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            title,
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (!action.isNullOrBlank() && onAction != null) {
-            Text(
-                action,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                        onAction()
-                    }
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-            )
         }
     }
 }
@@ -967,9 +936,9 @@ private fun ProfileHeader(
                 }
             }
             Row(Modifier.fillMaxWidth()) {
-                Stat(formatCount(info?.follower ?: 0).ifBlank { "0" }, "粉丝", Modifier.weight(1f))
-                Stat(formatCount(info?.following ?: 0).ifBlank { "0" }, "关注", Modifier.weight(1f))
-                Stat(formatCount(videoCount).ifBlank { "0" }, "投稿", Modifier.weight(1f))
+                MetricStat(formatCount(info?.follower ?: 0).ifBlank { "0" }, "粉丝", Modifier.weight(1f))
+                MetricStat(formatCount(info?.following ?: 0).ifBlank { "0" }, "关注", Modifier.weight(1f))
+                MetricStat(formatCount(videoCount).ifBlank { "0" }, "投稿", Modifier.weight(1f))
             }
             if (showFollow && followed) {
                 OutlinedButton(
@@ -994,15 +963,3 @@ private fun ProfileHeader(
     }
 }
 
-@Composable
-private fun Stat(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        Text(
-            label,
-            modifier = Modifier.padding(top = 2.dp),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 13.sp,
-        )
-    }
-}

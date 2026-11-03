@@ -1,7 +1,6 @@
 package app.ailiaili.feature.player
 
 import androidx.compose.ui.backhandler.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -116,6 +115,10 @@ import app.ailiaili.core.data.HistorySync
 import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.setFullscreen
+import app.ailiaili.core.designsystem.BiliSurfaceCard
+import app.ailiaili.core.designsystem.MetricFlow
+import app.ailiaili.core.designsystem.MetricSpec
+import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.network.CdnPicker
 import app.ailiaili.core.player.BufferMediaKind
 import app.ailiaili.core.player.BufferPolicy
@@ -2116,145 +2119,113 @@ private fun clock(ms: Long): String {
 private fun speedLabel(value: Float): String =
     if (value == value.toInt().toFloat()) "${value.toInt()}x" else "${value}x"
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun VideoHeader(
     title: String,
     detail: VideoDetail?,
     onlineText: String?,
 ) {
-    Surface(
+    BiliSurfaceCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(
-            Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Box(
-                    Modifier
-                        .padding(top = 4.dp)
-                        .width(4.dp)
-                        .height(22.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.primary),
-                )
-                Text(
-                    text = title,
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 28.sp,
-                    ),
-                )
-            }
-            if (detail != null) {
-                val watching = onlineText?.takeIf { it.isNotBlank() }?.let { raw ->
-                    raw.trim()
-                        .removeSuffix("人在看")
-                        .removeSuffix("人")
-                        .trim()
-                        .ifBlank { raw.trim() }
-                }
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    StatChip(
-                        Icons.Filled.PlayArrow,
-                        formatCount(detail.viewCount).ifBlank { "0" },
-                        "播放",
-                        MaterialTheme.colorScheme.primary,
-                    )
-                    StatChip(
-                        Icons.AutoMirrored.Filled.Comment,
-                        formatCount(detail.danmakuCount).ifBlank { "0" },
-                        "弹幕",
-                        Color(0xFF4FC3F7),
-                    )
-                    StatChip(
-                        Icons.Filled.ThumbUp,
-                        formatCount(detail.likeCount).ifBlank { "0" },
-                        "点赞",
-                        Color(0xFFFF6B81),
-                    )
-                    StatChip(
-                        Icons.Filled.MonetizationOn,
-                        formatCount(detail.coinCount).ifBlank { "0" },
-                        "投币",
-                        Color(0xFFFFB74D),
-                    )
-                    StatChip(
-                        Icons.Filled.Star,
-                        formatCount(detail.favoriteCount).ifBlank { "0" },
-                        "收藏",
-                        Color(0xFF4DD0E1),
-                    )
-                    if (!watching.isNullOrBlank()) {
-                        StatChip(
-                            Icons.Filled.Visibility,
-                            watching,
-                            "人在看",
-                            Color(0xFF81C784),
-                        )
-                    }
-                    val day = formatDay(detail.pubdate)
-                    if (day.isNotBlank()) {
-                        StatChip(
-                            Icons.Filled.CalendarMonth,
-                            day,
-                            "发布",
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatChip(
-    icon: ImageVector,
-    value: String,
-    label: String,
-    tint: Color,
-) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
-            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(14.dp),
-                tint = tint,
+            Box(
+                Modifier
+                    .padding(top = 4.dp)
+                    .width(4.dp)
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary),
             )
             Text(
-                value,
+                text = title,
+                modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 28.sp,
+                ),
             )
-            Text(
-                label,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 11.sp,
-            )
+        }
+        if (detail != null) {
+            val d = detail
+            val watching = onlineText?.takeIf { it.isNotBlank() }?.let { raw ->
+                raw.trim()
+                    .removeSuffix("人在看")
+                    .removeSuffix("人")
+                    .trim()
+                    .ifBlank { raw.trim() }
+            }
+            val metrics = remember(d, onlineText) {
+                buildList {
+                    add(
+                        MetricSpec(
+                            Icons.Filled.PlayArrow,
+                            formatCount(d.viewCount).ifBlank { "0" },
+                            "播放",
+                            MetricTone.Play,
+                        ),
+                    )
+                    add(
+                        MetricSpec(
+                            Icons.AutoMirrored.Filled.Comment,
+                            formatCount(d.danmakuCount).ifBlank { "0" },
+                            "弹幕",
+                            MetricTone.Danmaku,
+                        ),
+                    )
+                    add(
+                        MetricSpec(
+                            Icons.Filled.ThumbUp,
+                            formatCount(d.likeCount).ifBlank { "0" },
+                            "点赞",
+                            MetricTone.Like,
+                        ),
+                    )
+                    add(
+                        MetricSpec(
+                            Icons.Filled.MonetizationOn,
+                            formatCount(d.coinCount).ifBlank { "0" },
+                            "投币",
+                            MetricTone.Coin,
+                        ),
+                    )
+                    add(
+                        MetricSpec(
+                            Icons.Filled.Star,
+                            formatCount(d.favoriteCount).ifBlank { "0" },
+                            "收藏",
+                            MetricTone.Favorite,
+                        ),
+                    )
+                    if (!watching.isNullOrBlank()) {
+                        add(
+                            MetricSpec(
+                                Icons.Filled.Visibility,
+                                watching,
+                                "人在看",
+                                MetricTone.Online,
+                            ),
+                        )
+                    }
+                    val day = formatDay(d.pubdate)
+                    if (day.isNotBlank()) {
+                        add(
+                            MetricSpec(
+                                Icons.Filled.CalendarMonth,
+                                day,
+                                "发布",
+                                MetricTone.Date,
+                            ),
+                        )
+                    }
+                }
+            }
+            MetricFlow(metrics)
         }
     }
 }

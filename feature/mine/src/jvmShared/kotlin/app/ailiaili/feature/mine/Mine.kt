@@ -25,10 +25,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -58,6 +60,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.BiliPageTitle
+import app.ailiaili.core.designsystem.MetricChip
+import app.ailiaili.core.designsystem.MetricChipSize
+import app.ailiaili.core.designsystem.MetricSpec
+import app.ailiaili.core.designsystem.MetricStat
+import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.shellBottomPadding
 import app.ailiaili.core.model.FavFolder
 import app.ailiaili.core.model.UserState
@@ -244,22 +251,30 @@ fun MineRoute(
                                 )
                             }
                         }
-                        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("硬币", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
-                            Text(
-                                formatCoins(profile.coins),
-                                modifier = Modifier.padding(start = 4.dp),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.sp,
+                        FlowRow(
+                            modifier = Modifier.padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            MetricChip(
+                                MetricSpec(
+                                    Icons.Filled.MonetizationOn,
+                                    formatCoins(profile.coins),
+                                    "硬币",
+                                    MetricTone.Coin,
+                                ),
+                                size = MetricChipSize.Compact,
                             )
                             val exp = expLabel(profile)
                             if (exp != null) {
-                                Text("经验", modifier = Modifier.padding(start = 18.dp), color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
-                                Text(
-                                    exp,
-                                    modifier = Modifier.padding(start = 4.dp),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 13.sp,
+                                MetricChip(
+                                    MetricSpec(
+                                        Icons.AutoMirrored.Filled.TrendingUp,
+                                        exp,
+                                        "经验",
+                                        MetricTone.Accent,
+                                    ),
+                                    size = MetricChipSize.Compact,
                                 )
                             }
                         }
@@ -285,12 +300,12 @@ fun MineRoute(
                 }
 
                 Row(Modifier.fillMaxWidth().padding(top = 28.dp)) {
-                    Stat(counts.dynamic, "动态", Modifier.weight(1f)) {
+                    MetricStat(counts.dynamic, "动态", Modifier.weight(1f)) {
                         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                         onOpenDynamic()
                     }
-                    Stat(counts.following, "关注", Modifier.weight(1f))
-                    Stat(counts.follower, "粉丝", Modifier.weight(1f))
+                    MetricStat(counts.following, "关注", Modifier.weight(1f))
+                    MetricStat(counts.follower, "粉丝", Modifier.weight(1f))
                 }
 
                 BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 22.dp)) {
@@ -405,25 +420,6 @@ private data class MineCounts(
     val following: String = "--",
     val follower: String = "--",
 )
-
-@Composable
-private fun Stat(
-    value: String,
-    label: String,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null,
-) {
-    Column(
-        modifier
-            .clip(RoundedCornerShape(12.dp))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(value, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-        Text(label, modifier = Modifier.padding(top = 3.dp), color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
-    }
-}
 
 @Composable
 private fun Shortcut(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
