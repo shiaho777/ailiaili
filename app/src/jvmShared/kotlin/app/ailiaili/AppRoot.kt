@@ -514,7 +514,11 @@ private fun Route(
         Dest.Favorites -> FavoritesRoute(onPop) { onPush(Dest.FavList(it.id, it.title)) }
         is Dest.FavList -> FavVideosRoute(dest.id, dest.title, onPop, ::openVideo, ::openAuthor)
         Dest.WatchLater -> WatchLaterRoute(onPop, ::openVideo, ::openAuthor)
-        Dest.Messages -> MessagesRoute(onBack = onPop, onOpen = { onPush(Dest.Chat(it.talkerId, it.name)) })
+        Dest.Messages -> MessagesRoute(
+            onBack = onPop,
+            onOpen = { onPush(Dest.Chat(it.talkerId, it.name)) },
+            onLogin = { onPush(Dest.Login) },
+        )
         is Dest.Chat -> ChatRoute(dest.talkerId, dest.name, onPop)
         Dest.Cache -> CacheRoute(onPop) { onPush(Dest.Local(it.bvid)) }
         Dest.Login -> LoginRoute(onBack = onPop, onSuccess = onPop)
