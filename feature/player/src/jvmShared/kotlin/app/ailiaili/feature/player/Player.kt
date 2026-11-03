@@ -151,7 +151,6 @@ import app.ailiaili.core.model.VideoShot
 import app.ailiaili.core.model.ViewChapter
 import app.ailiaili.core.model.epochMs
 import app.ailiaili.core.model.ioDispatcher
-import app.ailiaili.core.model.countLabel
 import app.ailiaili.core.model.formatCount
 import app.ailiaili.core.model.formatDay
 import app.ailiaili.core.model.qnLabel
@@ -1527,7 +1526,7 @@ fun PlayerRoute(
                         Act(Icons.Filled.ThumbUp, actLabel("点赞", detail?.likeCount ?: 0), Modifier.weight(1f), liked, likeAccent) {
                             toggleLike()
                         }
-                        Act(Icons.Filled.MonetizationOn, countLabel("投币", detail?.coinCount ?: 0), Modifier.weight(1f), coined, coinAccent) {
+                        Act(Icons.Filled.MonetizationOn, actLabel("投币", detail?.coinCount ?: 0), Modifier.weight(1f), coined, coinAccent) {
                             val aid = detail?.aid ?: 0L
                             if (!AppGraph.repo.session.value.loggedIn) toast = "投币需要先登录"
                             else if (aid <= 0) toast = "还没有稿件号，暂时不能投币"
@@ -1539,7 +1538,7 @@ fun PlayerRoute(
                                 }
                             }
                         }
-                        Act(Icons.Filled.Star, countLabel("收藏", detail?.favoriteCount ?: 0), Modifier.weight(1f), favored, favAccent) {
+                        Act(Icons.Filled.Star, actLabel("收藏", detail?.favoriteCount ?: 0), Modifier.weight(1f), favored, favAccent) {
                             val aid = detail?.aid ?: 0L
                             if (!AppGraph.repo.session.value.loggedIn) toast = "收藏需要先登录"
                             else if (aid <= 0) toast = "还没有稿件号，暂时不能收藏"
@@ -1555,8 +1554,6 @@ fun PlayerRoute(
                                 }.onFailure { toast = it.message ?: "收藏夹加载失败" }
                             }
                         }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Act(Icons.Filled.Schedule, "稍后", Modifier.weight(1f), inLater, favAccent) {
                             val aid = detail?.aid ?: 0L
                             if (!AppGraph.repo.session.value.loggedIn) toast = "稍后再看需要先登录"
@@ -1580,6 +1577,8 @@ fun PlayerRoute(
                             Icons.Filled.Download,
                             if (downloading) "缓存中" else "缓存",
                             Modifier.weight(1f),
+                            on = downloading,
+                            active = MaterialTheme.colorScheme.primary,
                         ) {
                             val play = info ?: return@Act
                             val d = detail ?: return@Act
@@ -2458,10 +2457,10 @@ private fun Act(
     label: String,
     modifier: Modifier = Modifier,
     on: Boolean = false,
-    active: Color = Color(0xFF1A1A1A),
+    active: Color = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit,
 ) {
-    BiliActionPill(
+    BiliActionItem(
         icon = icon,
         label = label,
         modifier = modifier,
@@ -2470,5 +2469,8 @@ private fun Act(
         onClick = onClick,
     )
 }
+
+/** 竖向操作下方只放计数；为 0 时回退成动作名。 */
+private fun actLabel(name: String, n: Long): String = formatCount(n).ifBlank { name }
 
 
