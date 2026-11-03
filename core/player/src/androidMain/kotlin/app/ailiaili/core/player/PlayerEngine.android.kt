@@ -1,6 +1,8 @@
 package app.ailiaili.core.player
 
 import android.graphics.Color as AndroidColor
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
@@ -171,7 +173,15 @@ actual class PlayerEngine actual constructor() {
     }
 
     actual fun release() {
-        player.release()
+        // Media3 强制要求 release 在创建 player 的线程（主线程）执行。
+        // 调用方即使从 IO 线程进来，也切回主线程，避免 “Player is accessed on the wrong thread” 崩溃。
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            runCatching { player.release() }
+        } else {
+            Handler(Looper.getMainLooper()).post {
+                runCatching { player.release() }
+            }
+        }
     }
 
     private fun attach(videoUrl: String, positionMs: Long) {

@@ -342,7 +342,12 @@ fun PlayerRoute(
             fireHistory(now = true)
             engine.removeListener(listener)
             engine.freeze()
-            CoroutineScope(ioDispatcher).launch { engine.release() }
+            // ExoPlayer 必须在主线程 release；VLC 的 release 可能阻塞，放 IO。
+            if (isDesktopHost()) {
+                CoroutineScope(ioDispatcher).launch { engine.release() }
+            } else {
+                engine.release()
+            }
         }
     }
 
