@@ -127,6 +127,7 @@ import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricFlow
 import app.ailiaili.core.designsystem.MetricSpec
 import app.ailiaili.core.designsystem.MetricTone
+import app.ailiaili.core.designsystem.metricToneColor
 import app.ailiaili.core.network.CdnPicker
 import app.ailiaili.core.player.BufferMediaKind
 import app.ailiaili.core.player.BufferPolicy
@@ -1519,11 +1520,14 @@ fun PlayerRoute(
                     }
                 }
                 if (bvid != null) {
+                    val likeAccent = metricToneColor(MetricTone.Like)
+                    val coinAccent = metricToneColor(MetricTone.Coin)
+                    val favAccent = metricToneColor(MetricTone.Favorite)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Act(Icons.Filled.ThumbUp, countLabel("点赞", detail?.likeCount ?: 0), Modifier.weight(1f), liked, Color(0xFFF43F5E)) {
+                        Act(Icons.Filled.ThumbUp, countLabel("点赞", detail?.likeCount ?: 0), Modifier.weight(1f), liked, likeAccent) {
                             toggleLike()
                         }
-                        Act(Icons.Filled.MonetizationOn, countLabel("投币", detail?.coinCount ?: 0), Modifier.weight(1f), coined, Color(0xFFF59E0B)) {
+                        Act(Icons.Filled.MonetizationOn, countLabel("投币", detail?.coinCount ?: 0), Modifier.weight(1f), coined, coinAccent) {
                             val aid = detail?.aid ?: 0L
                             if (!AppGraph.repo.session.value.loggedIn) toast = "投币需要先登录"
                             else if (aid <= 0) toast = "还没有稿件号，暂时不能投币"
@@ -1535,7 +1539,7 @@ fun PlayerRoute(
                                 }
                             }
                         }
-                        Act(Icons.Filled.Star, countLabel("收藏", detail?.favoriteCount ?: 0), Modifier.weight(1f), favored, Color(0xFF0EA5E9)) {
+                        Act(Icons.Filled.Star, countLabel("收藏", detail?.favoriteCount ?: 0), Modifier.weight(1f), favored, favAccent) {
                             val aid = detail?.aid ?: 0L
                             if (!AppGraph.repo.session.value.loggedIn) toast = "收藏需要先登录"
                             else if (aid <= 0) toast = "还没有稿件号，暂时不能收藏"
@@ -1553,7 +1557,7 @@ fun PlayerRoute(
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Act(Icons.Filled.Schedule, "稍后", Modifier.weight(1f), inLater, Color(0xFF0EA5E9)) {
+                        Act(Icons.Filled.Schedule, "稍后", Modifier.weight(1f), inLater, favAccent) {
                             val aid = detail?.aid ?: 0L
                             if (!AppGraph.repo.session.value.loggedIn) toast = "稍后再看需要先登录"
                             else if (aid <= 0) toast = "还没有稿件号，暂时不能加入稍后再看"

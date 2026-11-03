@@ -189,9 +189,11 @@ class BiliRepositoryImpl(
     override suspend fun sendMsg(receiverId: Long, text: String) = client.sendMsg(receiverId, text)
     override suspend fun liveList(page: Int) = client.liveList(page)
     override suspend fun livePlay(roomId: Long) = client.livePlay(roomId)
-    override suspend fun like(bvid: String, liked: Boolean) = client.like(bvid, liked)
+    override suspend fun like(bvid: String, liked: Boolean) =
+        client.like(bvid, liked).also { if (it.isSuccess) videoCache.invalidate(bvid) }
     override suspend fun hasLiked(aid: Long) = client.hasLiked(aid)
-    override suspend fun coin(aid: Long, bvid: String, count: Int) = client.coin(aid, bvid, count)
+    override suspend fun coin(aid: Long, bvid: String, count: Int) =
+        client.coin(aid, bvid, count).also { if (it.isSuccess) videoCache.invalidate(bvid) }
     override suspend fun relation(mid: Long) = client.relation(mid)
     override suspend fun follow(mid: Long, follow: Boolean) = client.follow(mid, follow)
     override suspend fun reportHistory(aid: Long, cid: Long, progressSec: Long) = client.reportHistory(aid, cid, progressSec)
