@@ -34,6 +34,7 @@ internal fun DanmakuOverlay(
     player: PlayerEngine,
     comments: List<Danmaku>,
     settings: AppSettings,
+    frozen: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val measurer = rememberTextMeasurer(cacheSize = 256)
@@ -48,7 +49,7 @@ internal fun DanmakuOverlay(
             .fillMaxSize()
             .clipToBounds()
             .clearAndSetSemantics {}
-            .then(DanmakuElement(runtime, player, measurer)),
+            .then(DanmakuElement(runtime, player, measurer, frozen)),
     )
 }
 
@@ -56,24 +57,30 @@ private class DanmakuElement(
     private val runtime: DanmakuRuntime,
     private val player: PlayerEngine,
     private val measurer: TextMeasurer,
+    private val frozen: Boolean,
 ) : ModifierNodeElement<DanmakuNode>() {
-    override fun create() = DanmakuNode(runtime, player, measurer)
+    override fun create() = DanmakuNode(runtime, player, measurer, frozen)
 
     override fun update(node: DanmakuNode) {
         node.runtime = runtime
         node.rebindPlayer(player)
         node.measurer = measurer
+        node.frozen = frozen
     }
 
     override fun equals(other: Any?): Boolean {
         if (other !is DanmakuElement) return false
-        return runtime === other.runtime && player === other.player && measurer === other.measurer
+        return runtime === other.runtime &&
+            player === other.player &&
+            measurer === other.measurer &&
+            frozen == other.frozen
     }
 
     override fun hashCode(): Int {
         var hash = runtime.hashCode()
         hash = 31 * hash + player.hashCode()
         hash = 31 * hash + measurer.hashCode()
+        hash = 31 * hash + frozen.hashCode()
         return hash
     }
 }
@@ -82,6 +89,7 @@ private class DanmakuNode(
     var runtime: DanmakuRuntime,
     var player: PlayerEngine,
     var measurer: TextMeasurer,
+    var frozen: Boolean,
 ) : Modifier.Node(), DrawModifierNode {
     private var clock: Job? = null
     @Volatile private var frameNanos = 0L
@@ -146,6 +154,7 @@ private class DanmakuNode(
         }
         // 缓冲中即使 VLC 还报 isPlaying=true，也不能让弹幕按墙钟继续跑。
         val playing = runCatching { player.isPlaying }.getOrDefault(false) &&
+            !frozen &&
             !runCatching { player.isBuffering }.getOrDefault(false)
         val speed = runCatching { player.playbackSpeed }.getOrDefault(1f)
         val now = frameNanos.takeIf { it > 0L } ?: System.nanoTime()

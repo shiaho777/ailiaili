@@ -946,7 +946,14 @@ fun PlayerRoute(
                 )
             }
             if (bvid != null && info != null && settings.danmakuEnabled) {
-                if (!listening) DanmakuOverlay(engine, danmaku, settings)
+                if (!listening) {
+                    DanmakuOverlay(
+                        engine,
+                        danmaku,
+                        settings,
+                        frozen = buffering || scrubbing,
+                    )
+                }
             }
             if (bvid != null || liveRoom != null) {
                 Box(
