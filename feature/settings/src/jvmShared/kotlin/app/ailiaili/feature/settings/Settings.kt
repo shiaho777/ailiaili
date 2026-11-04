@@ -13,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import app.ailiaili.core.designsystem.BiliFilterChip
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -46,6 +45,26 @@ import app.ailiaili.core.model.SponsorCategories
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Minimize
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.VisibilityOff
+import app.ailiaili.core.designsystem.BiliSettingsLabel
+import app.ailiaili.core.designsystem.BiliSettingsNote
+import app.ailiaili.core.designsystem.BiliSettingsRow
+import app.ailiaili.core.designsystem.BiliSwitchRow
 import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.BiliPillTabs
 import app.ailiaili.core.designsystem.BiliSectionTitle
@@ -100,13 +119,7 @@ fun SettingsRoute(
             0 -> {
                 BiliSectionTitle("外观", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
-                    Text("标签栏", modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
-                    Text(
-                        "自动：手机竖屏用底部，平板和电脑窗口用左侧。也可以固定某一种。",
-                        modifier = Modifier.padding(start = 16.dp, top = 2.dp, end = 16.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    BiliSettingsLabel("标签栏", supporting = "自动：手机竖屏用底部，平板和电脑窗口用左侧。也可以固定某一种。")
                     RowChips {
                         BiliFilterChip(
                             selected = settings.shellLayout == ShellLayout.Auto,
@@ -124,7 +137,7 @@ fun SettingsRoute(
                             label = { Text("左侧导航") },
                         )
                     }
-                    Text("应用主题", modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
+                    BiliSettingsLabel("应用主题")
                     RowChips {
                         ThemeMode.entries.forEach { mode ->
                             BiliFilterChip(
@@ -140,16 +153,13 @@ fun SettingsRoute(
                             )
                         }
                     }
-                    Text("主题色", modifier = Modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp))
-                    Text(
-                        if (canFollowSystemAccent()) {
+                    BiliSettingsLabel(
+                        "主题色",
+                        supporting = if (canFollowSystemAccent()) {
                             "默认是 B 站粉。跟随系统用设备强调色，也可以自己填一个 6 位色值。"
                         } else {
                             "默认是 B 站粉。也可以自己填一个 6 位色值。"
                         },
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.bodySmall,
                     )
                     RowChips {
                         if (canFollowSystemAccent()) {
@@ -185,43 +195,39 @@ fun SettingsRoute(
                         },
                     )
                     if (isDesktopHost() && traySupported()) {
-                        ListItem(
-                            headlineContent = { Text("关闭时最小化到托盘") },
-                            supportingContent = {
-                                Text(
-                                    if (settings.closeToTray) {
-                                        "点右上角关闭键会收进系统托盘，双击托盘图标可恢复"
-                                    } else {
-                                        "点右上角关闭键将直接退出程序"
-                                    },
-                                )
+                        BiliSwitchRow(
+                            title = "关闭时最小化到托盘",
+                            checked = settings.closeToTray,
+                            onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(closeToTray = on) } },
+                            supporting = if (settings.closeToTray) {
+                                "点右上角关闭键会收进系统托盘，双击托盘图标可恢复"
+                            } else {
+                                "点右上角关闭键将直接退出程序"
                             },
-                            trailingContent = {
-                                Switch(settings.closeToTray, { on ->
-                                    AppGraph.repo.updateSettings { it.copy(closeToTray = on) }
-                                })
-                            },
+                            icon = Icons.Filled.Minimize,
+                            tone = MetricTone.Danmaku,
                         )
                         if (settings.closeToTray) {
-                            ListItem(
-                                headlineContent = { Text("立刻收到托盘") },
-                                supportingContent = { Text("主窗口会藏起来，进程继续跑") },
-                                trailingContent = {
-                                    TextButton(onClick = { hideAppWindow() }) { Text("收起") }
-                                },
+                            BiliSettingsRow(
+                                title = "立刻收到托盘",
+                                supporting = "主窗口会藏起来，进程继续跑",
+                                icon = Icons.Filled.VisibilityOff,
+                                tone = MetricTone.Neutral,
+                                onClick = { hideAppWindow() },
                             )
                         }
                     }
                     if (session.loggedIn) {
-                        ListItem(
-                            headlineContent = { Text("退出登录") },
-                            trailingContent = {
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        AppGraph.repo.logout()
-                                        onLogout()
-                                    }
-                                }) { Text("退出") }
+                        BiliSettingsRow(
+                            title = "退出登录",
+                            supporting = "清除这台设备上的登录信息",
+                            icon = Icons.AutoMirrored.Filled.Logout,
+                            tone = MetricTone.Like,
+                            onClick = {
+                                scope.launch {
+                                    AppGraph.repo.logout()
+                                    onLogout()
+                                }
                             },
                         )
                     }
@@ -241,7 +247,7 @@ fun SettingsRoute(
                 }
                 BiliSectionTitle("画质与线路", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
-                    Text("默认画质", modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
+                    BiliSettingsLabel("默认画质")
                     RowChips {
                         qualities.forEach { qn ->
                             BiliFilterChip(
@@ -251,14 +257,14 @@ fun SettingsRoute(
                             )
                         }
                     }
-                    ListItem(
-                        headlineContent = { Text("免登录 1080P") },
-                        supportingContent = { Text("未登录时附带试看参数，最高到 1080P") },
-                        trailingContent = {
-                            Switch(settings.noLogin1080, { on -> AppGraph.repo.updateSettings { it.copy(noLogin1080 = on) } })
-                        },
+                    BiliSwitchRow(
+                        title = "免登录 1080P",
+                        checked = settings.noLogin1080,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(noLogin1080 = on) } },
+                        supporting = "未登录时附带试看参数，最高到 1080P",
+                        icon = Icons.Filled.HighQuality,
                     )
-                    Text("线路", modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp))
+                    BiliSettingsLabel("线路")
                     RowChips {
                         listOf(CdnMode.Auto to "自动测速", CdnMode.Server to "跟随服务端", CdnMode.Manual to "指定线路").forEach { (mode, label) ->
                             BiliFilterChip(
@@ -271,23 +277,19 @@ fun SettingsRoute(
                             )
                         }
                     }
-                    ListItem(
-                        headlineContent = { Text("屏蔽 PCDN") },
-                        supportingContent = { Text("不走点对点分发。关掉后可能用到 mcdn 线路") },
-                        trailingContent = {
-                            Switch(settings.blockPcdn, { on ->
-                                AppGraph.repo.updateSettings { it.copy(blockPcdn = on) }
-                                AppGraph.repo.invalidateCdn()
-                            })
+                    BiliSwitchRow(
+                        title = "屏蔽 PCDN",
+                        checked = settings.blockPcdn,
+                        onCheckedChange = { on ->
+                            AppGraph.repo.updateSettings { it.copy(blockPcdn = on) }
+                            AppGraph.repo.invalidateCdn()
                         },
+                        supporting = "不走点对点分发。关掉后可能用到 mcdn 线路",
+                        icon = Icons.Filled.Block,
+                        tone = MetricTone.Danmaku,
                     )
                     val cdnReport by AppGraph.repo.cdnReport.collectAsState()
-                    Text(
-                        cdnReport,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    BiliSettingsNote(cdnReport)
                     if (settings.cdnMode == CdnMode.Manual) {
                         RowChips {
                             CdnLine.all.forEach { line ->
@@ -305,7 +307,14 @@ fun SettingsRoute(
                 }
                 BiliSectionTitle("缓冲", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
-                    Text("缓冲策略", modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp))
+                    BiliSettingsLabel(
+                        "缓冲策略",
+                        supporting = if (settings.bufferAuto) {
+                            "按最近一次 CDN 测速的带宽自动挑预读深度：弱网更深，快线更省内存。下一条视频生效。"
+                        } else {
+                            "手动指定网络缓冲，数值越大越抗卡顿，但起播更慢。"
+                        },
+                    )
                     RowChips {
                         listOf(true to "自动", false to "手动").forEach { (auto, label) ->
                             BiliFilterChip(
@@ -315,20 +324,8 @@ fun SettingsRoute(
                             )
                         }
                     }
-                    if (settings.bufferAuto) {
-                        Text(
-                            "按最近一次 CDN 测速的带宽自动挑预读深度：弱网更深，快线更省内存。下一条视频生效。",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    } else {
-                        Text(
-                            "网络缓冲 ${settings.networkCachingMs}ms",
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                    if (!settings.bufferAuto) {
+                        BiliSettingsLabel("网络缓冲 ${settings.networkCachingMs}ms")
                         RowChips {
                             listOf(300, 500, 1000, 2000, 3000).forEach { ms ->
                                 BiliFilterChip(
@@ -339,35 +336,33 @@ fun SettingsRoute(
                             }
                         }
                     }
-                    Text(
-                        "桌面端生效；Android 由 Media3 自行管理缓冲。",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    BiliSettingsNote("桌面端生效；Android 由 Media3 自行管理缓冲。")
                 }
                 BiliSectionTitle("弹幕", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
-                    ListItem(
-                        headlineContent = { Text("显示弹幕") },
-                        trailingContent = {
-                            Switch(settings.danmakuEnabled, { on -> AppGraph.repo.updateSettings { it.copy(danmakuEnabled = on) } })
-                        },
+                    BiliSwitchRow(
+                        title = "显示弹幕",
+                        checked = settings.danmakuEnabled,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(danmakuEnabled = on) } },
+                        icon = Icons.AutoMirrored.Filled.Comment,
+                        tone = MetricTone.Danmaku,
                     )
-                    ListItem(
-                        headlineContent = { Text("彩色弹幕") },
-                        trailingContent = {
-                            Switch(settings.danmakuColorful, { on -> AppGraph.repo.updateSettings { it.copy(danmakuColorful = on) } })
-                        },
+                    BiliSwitchRow(
+                        title = "彩色弹幕",
+                        checked = settings.danmakuColorful,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(danmakuColorful = on) } },
+                        icon = Icons.Filled.Palette,
+                        tone = MetricTone.Like,
                     )
-                    ListItem(
-                        headlineContent = { Text("智能屏蔽") },
-                        supportingContent = { Text("过滤超长和刷屏弹幕") },
-                        trailingContent = {
-                            Switch(settings.danmakuSmartFilter, { on -> AppGraph.repo.updateSettings { it.copy(danmakuSmartFilter = on) } })
-                        },
+                    BiliSwitchRow(
+                        title = "智能屏蔽",
+                        checked = settings.danmakuSmartFilter,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(danmakuSmartFilter = on) } },
+                        supporting = "过滤超长和刷屏弹幕",
+                        icon = Icons.Filled.AutoFixHigh,
+                        tone = MetricTone.Online,
                     )
-                    Text("弹幕显示区域 ${area.toInt()}%", modifier = Modifier.padding(horizontal = 16.dp))
+                    BiliSettingsLabel("弹幕显示区域 ${area.toInt()}%")
                     Slider(
                         value = area,
                         onValueChange = { area = it },
@@ -377,19 +372,16 @@ fun SettingsRoute(
                         valueRange = 25f..100f,
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
-                    Text("按类型过滤", modifier = Modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp))
-                    Text(
-                        if (
+                    BiliSettingsLabel(
+                        "按类型过滤",
+                        supporting = if (
                             settings.danmakuFilterScroll && settings.danmakuFilterFixed &&
                             settings.danmakuFilterColorful && settings.danmakuFilterAdvanced
                         ) {
-                            "当前显示全部类型; 关掉某一类即可把它从画面里去掉"
+                            "当前显示全部类型；关掉某一类即可把它从画面里去掉"
                         } else {
                             "只显示已选中的类型"
                         },
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
                     )
                     RowChips {
                         BiliFilterChip(
@@ -432,18 +424,17 @@ fun SettingsRoute(
                 }
                 BiliSectionTitle("赞助片段", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
-                    ListItem(
-                        headlineContent = { Text("跳过赞助片段") },
-                        supportingContent = { Text("播到被标注的片段时跳到末尾，可随时撤回。默认关闭") },
-                        trailingContent = {
-                            Switch(settings.sponsorBlock, { on -> AppGraph.repo.updateSettings { it.copy(sponsorBlock = on) } })
-                        },
+                    BiliSwitchRow(
+                        title = "跳过赞助片段",
+                        checked = settings.sponsorBlock,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(sponsorBlock = on) } },
+                        supporting = "播到被标注的片段时跳到末尾，可随时撤回。默认关闭",
+                        icon = Icons.Filled.FastForward,
+                        tone = MetricTone.Coin,
                     )
-                    Text(
-                        "跳过的类别。数据来自网友标注，没人标过的视频不会跳。至少保留一类。",
-                        modifier = Modifier.padding(start = 16.dp, top = 4.dp, end = 16.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    BiliSettingsLabel(
+                        "跳过的类别",
+                        supporting = "数据来自网友标注，没人标过的视频不会跳。至少保留一类。",
                     )
                     RowChips {
                         val selected = SponsorCategories.sanitize(settings.sponsorCategories).split(',').toSet()
@@ -495,89 +486,101 @@ fun SettingsRoute(
                             size = MetricChipSize.Compact,
                         )
                     }
-                    ListItem(
-                        headlineContent = { Text("已下载的视频") },
-                        supportingContent = { Text("缓存在这台设备上，不上传账号") },
-                        trailingContent = { TextButton(onClick = onOpenCache) { Text("打开") } },
+                    BiliSettingsRow(
+                        title = "已下载的视频",
+                        supporting = "缓存在这台设备上，不上传账号",
+                        icon = Icons.Filled.Download,
+                        tone = MetricTone.Online,
+                        onClick = onOpenCache,
                     )
-                    ListItem(
-                        headlineContent = { Text("封面缓存") },
-                        supportingContent = { Text(coverCache) },
-                        trailingContent = {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    withContext(ioDispatcher) { clearCoverCache() }
-                                    coverCache = withContext(ioDispatcher) { coverCacheSize() }
-                                }
-                            }) { Text("清除") }
+                    BiliSettingsRow(
+                        title = "封面缓存",
+                        supporting = coverCache,
+                        icon = Icons.Filled.Photo,
+                        tone = MetricTone.Favorite,
+                        onClick = {
+                            scope.launch {
+                                withContext(ioDispatcher) { clearCoverCache() }
+                                coverCache = withContext(ioDispatcher) { coverCacheSize() }
+                            }
+                        },
+                        trailing = {
+                            Text(
+                                "清除",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
+                            )
                         },
                     )
-                    ListItem(
-                        headlineContent = { Text("短视频播放缓存") },
-                        supportingContent = {
-                            Text("播放器直接合流，不另存一份短视频缓存。要腾出空间，清上面的封面，或打开已下载的视频删掉离线文件。")
-                        },
-                    )
+                    BiliSettingsNote("短视频由播放器直接合流，不另存一份缓存。要腾出空间，清上面的封面，或打开已下载的视频删掉离线文件。")
                 }
             }
             else -> {
                 BiliSectionTitle("关于", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
-                    ListItem(
-                        headlineContent = { Text("ailiaili") },
-                        supportingContent = { Text("版本 1.3.0 · Android、Windows、macOS、Linux 共用这一套界面") },
+                    BiliSettingsRow(
+                        title = "ailiaili",
+                        supporting = "版本 1.3.0 · Android、Windows、macOS、Linux 共用这一套界面",
+                        icon = Icons.Filled.Apps,
                     )
-                    ListItem(
-                        headlineContent = { Text("启动时检查更新") },
-                        supportingContent = { Text("打开应用大约 6 秒后查一次。关掉后仍可手动检查") },
-                        trailingContent = {
-                            Switch(
-                                settings.autoCheckUpdate,
-                                { on -> AppGraph.repo.updateSettings { it.copy(autoCheckUpdate = on) } },
+                    BiliSwitchRow(
+                        title = "启动时检查更新",
+                        checked = settings.autoCheckUpdate,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(autoCheckUpdate = on) } },
+                        supporting = "打开应用大约 6 秒后查一次。关掉后仍可手动检查",
+                        icon = Icons.Filled.SystemUpdate,
+                        tone = MetricTone.Online,
+                    )
+                    BiliSettingsRow(
+                        title = "检查更新",
+                        supporting = updateText ?: "当前版本 1.3.0",
+                        icon = Icons.Filled.Refresh,
+                        tone = MetricTone.Danmaku,
+                        onClick = {
+                            scope.launch {
+                                updateText = "正在检查…"
+                                updateText = checkUpdate()
+                            }
+                        },
+                        trailing = {
+                            Text(
+                                "检查",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
                             )
                         },
                     )
-                    ListItem(
-                        headlineContent = { Text("检查更新") },
-                        supportingContent = { Text(updateText ?: "当前版本 1.3.0") },
-                        trailingContent = {
-                            TextButton(onClick = {
-                                scope.launch {
-                                    updateText = "正在检查…"
-                                    updateText = checkUpdate()
-                                }
-                            }) { Text("检查") }
-                        },
-                    )
                     updateText?.lineSequence()?.firstOrNull { it.startsWith("http") }?.let { page ->
-                        TextButton(
+                        BiliSettingsRow(
+                            title = "打开发布页",
+                            supporting = page,
+                            icon = Icons.Filled.OpenInNew,
+                            tone = MetricTone.Accent,
                             onClick = { openUrl(page) },
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                        ) { Text("打开发布页") }
+                        )
                     }
-                    ListItem(
-                        headlineContent = { Text("原作者 ABing") },
-                        supportingContent = { Text("打开 B 站主页") },
-                        modifier = Modifier.clickable(onClick = onOpenAuthor),
+                    BiliSettingsRow(
+                        title = "原作者 ABing",
+                        supporting = "打开 B 站主页",
+                        icon = Icons.Filled.Person,
+                        tone = MetricTone.Like,
+                        onClick = onOpenAuthor,
                     )
-                    ListItem(
-                        headlineContent = { Text("项目维护 shiaho777") },
-                        supportingContent = { Text("github.com/shiaho777/ailiaili") },
-                        modifier = Modifier.clickable {
-                            openUrl("https://github.com/shiaho777/ailiaili")
-                        },
+                    BiliSettingsRow(
+                        title = "项目维护 shiaho777",
+                        supporting = "github.com/shiaho777/ailiaili",
+                        icon = Icons.Filled.Code,
+                        tone = MetricTone.Neutral,
+                        onClick = { openUrl("https://github.com/shiaho777/ailiaili") },
                     )
-                    ListItem(
-                        headlineContent = { Text("非官方声明") },
-                        supportingContent = { Text("首次启动时已确认，可以再看一遍") },
-                        modifier = Modifier.clickable(onClick = onOpenDisclaimer),
+                    BiliSettingsRow(
+                        title = "非官方声明",
+                        supporting = "首次启动时已确认，可以再看一遍",
+                        icon = Icons.Filled.Info,
+                        tone = MetricTone.Coin,
+                        onClick = onOpenDisclaimer,
                     )
-                    Text(
-                        "非官方客户端。视频版权归哔哩哔哩所有。",
-                        modifier = Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    BiliSettingsNote("非官方客户端。视频版权归哔哩哔哩所有。")
                 }
             }
         }
