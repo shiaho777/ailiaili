@@ -118,6 +118,15 @@ import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.setFullscreen
 import app.ailiaili.core.designsystem.BiliActionItem
+import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.BiliErrorState
+import app.ailiaili.core.designsystem.BiliLoadingState
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material.icons.automirrored.filled.Send
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
@@ -1749,85 +1758,135 @@ fun PlayerRoute(
                         }
                     }
                     "comments" -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        val switchSort: (Int) -> Unit = { mode ->
+                            if (mode != commentMode) {
+                                commentMode = mode
+                                replyExtra = emptyMap()
+                                replyPage = emptyMap()
+                                replyDone = emptySet()
+                                detail?.aid?.let { loadComments(it, 1, mode, append = false) }
+                            }
+                        }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
-                                if (commentTotal > 0) "共 $commentTotal 条" else "评论",
-                                style = MaterialTheme.typography.labelLarge,
+                                "评论",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
                             )
+                            if (commentTotal > 0) {
+                                BiliBadge(
+                                    text = formatCount(commentTotal.toLong()).ifBlank { "$commentTotal" },
+                                    tone = BiliBadgeTone.Neutral,
+                                    style = BiliBadgeStyle.Soft,
+                                )
+                            }
+                            Spacer(Modifier.weight(1f))
                             BiliFilterChip(
                                 selected = commentMode == 3,
-                                onClick = {
-                                    commentMode = 3
-                                    replyExtra = emptyMap()
-                                    replyPage = emptyMap()
-                                    replyDone = emptySet()
-                                    detail?.aid?.let { loadComments(it, 1, 3, append = false) }
-                                },
+                                onClick = { switchSort(3) },
                                 label = { Text("热门") },
                             )
                             BiliFilterChip(
                                 selected = commentMode == 2,
-                                onClick = {
-                                    commentMode = 2
-                                    replyExtra = emptyMap()
-                                    replyPage = emptyMap()
-                                    replyDone = emptySet()
-                                    detail?.aid?.let { loadComments(it, 1, 2, append = false) }
-                                },
-                                label = { Text("时间") },
+                                onClick = { switchSort(2) },
+                                label = { Text("最新") },
                             )
                         }
                         if (AppGraph.repo.session.value.loggedIn && (detail?.aid ?: 0) > 0) {
                             val replying = replyTarget
-                            OutlinedTextField(
-                                draft,
-                                { draft = it },
-                                modifier = Modifier.fillMaxWidth().onFocusChanged { composing = it.isFocused },
-                                label = { Text(if (replying == null) "写评论" else "回复 @${replying.name.ifBlank { "用户" }}") },
-                                minLines = if (composerExpanded) 5 else 1,
-                                maxLines = if (composerExpanded) 12 else 4,
-                            )
-                            Row {
-                                if (replying != null) {
-                                    TextButton(onClick = {
+                            var sending by remember { mutableStateOf(false) }
+                            val send: () -> Unit = send@{
+                                val aid = detail?.aid ?: return@send
+                                if (draft.isBlank() || sending) return@send
+                                val root = replyRoot
+                                val parent = replying?.rpid ?: 0L
+                                sending = true
+                                scope.launch {
+                                    AppGraph.repo.postComment(aid, draft, root, parent).onSuccess {
+                                        draft = ""
                                         replyTarget = null
                                         replyRoot = 0L
-                                    }) { Text("取消回复") }
+                                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                                        toast = if (root > 0) "已回复" else "已发送"
+                                        loadComments(aid, 1, commentMode, append = false)
+                                    }.onFailure { toast = it.message ?: "发送失败" }
+                                    sending = false
                                 }
-                                TextButton(onClick = { composerExpanded = !composerExpanded }) {
-                                    Text(if (composerExpanded) "收起" else "展开")
-                                }
-                                TextButton(onClick = {
-                                    val aid = detail?.aid ?: return@TextButton
-                                    if (draft.isBlank()) return@TextButton
-                                    val root = replyRoot
-                                    val parent = replying?.rpid ?: 0L
-                                    scope.launch {
-                                        AppGraph.repo.postComment(aid, draft, root, parent).onSuccess {
-                                            draft = ""
-                                            replyTarget = null
-                                            replyRoot = 0L
-                                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                            toast = if (root > 0) "已回复" else "已发送"
-                                            loadComments(aid, 1, commentMode, append = false)
-                                        }.onFailure { toast = it.message ?: "发送失败" }
-                                    }
-                                }) { Text(if (replying == null) "发送" else "回复") }
                             }
+                            CommentComposer(
+                                draft = draft,
+                                onDraft = { draft = it },
+                                replyingTo = replying?.name?.ifBlank { "用户" },
+                                expanded = composerExpanded,
+                                sending = sending,
+                                onToggleExpand = { composerExpanded = !composerExpanded },
+                                onCancelReply = {
+                                    replyTarget = null
+                                    replyRoot = 0L
+                                },
+                                onFocus = { composing = it },
+                                onSend = send,
+                            )
                         } else if (!AppGraph.repo.session.value.loggedIn) {
-                            Text("登录后可以发评论", color = MaterialTheme.colorScheme.onSurface)
-                        }
-                        if (commentLoading && comments.isEmpty()) {
-                            Text("加载评论中…", color = MaterialTheme.colorScheme.onSurface)
-                        } else if (comments.isEmpty()) {
-                            Text("还没有评论", color = MaterialTheme.colorScheme.onSurface)
-                        }
-                        commentError?.let { message ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.large)
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    Icons.Filled.Person,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(18.dp),
+                                )
                                 Text(
-                                    message,
+                                    "登录后可以发评论、点赞和回复",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 13.sp,
+                                )
+                            }
+                        }
+                        val commentErr = commentError
+                        if (commentErr != null && comments.isEmpty()) {
+                            BiliErrorState(
+                                message = commentErr,
+                                onRetry = { detail?.aid?.let { loadComments(it, 1, commentMode, append = false) } },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else if (commentLoading && comments.isEmpty()) {
+                            BiliLoadingState(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                label = "加载评论中…",
+                            )
+                        } else if (comments.isEmpty()) {
+                            BiliEmptyState(
+                                title = "还没有评论",
+                                message = "来抢个沙发吧",
+                                icon = Icons.AutoMirrored.Filled.Comment,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else if (commentErr != null) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.medium)
+                                    .background(MaterialTheme.colorScheme.errorContainer)
+                                    .padding(start = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    commentErr,
                                     modifier = Modifier.weight(1f),
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
                                     fontSize = 13.sp,
                                 )
                                 TextButton(onClick = {
@@ -2472,5 +2531,106 @@ private fun Act(
 
 /** 竖向操作下方只放计数；为 0 时回退成动作名。 */
 private fun actLabel(name: String, n: Long): String = formatCount(n).ifBlank { name }
+
+@Composable
+private fun CommentComposer(
+    draft: String,
+    onDraft: (String) -> Unit,
+    replyingTo: String?,
+    expanded: Boolean,
+    sending: Boolean,
+    onToggleExpand: () -> Unit,
+    onCancelReply: () -> Unit,
+    onFocus: (Boolean) -> Unit,
+    onSend: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
+            .background(scheme.surfaceContainerHigh)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AnimatedVisibility(visible = replyingTo != null) {
+            Row(
+                Modifier
+                    .clip(CircleShape)
+                    .background(scheme.primaryContainer)
+                    .padding(start = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Reply,
+                    contentDescription = null,
+                    tint = scheme.onPrimaryContainer,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    "回复 @${replyingTo.orEmpty()}",
+                    modifier = Modifier.padding(start = 6.dp),
+                    color = scheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                IconButton(onClick = onCancelReply, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "取消回复",
+                        tint = scheme.onPrimaryContainer,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = onDraft,
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { onFocus(it.isFocused) },
+                placeholder = { Text(if (replyingTo == null) "发一条友善的评论" else "回复 @$replyingTo") },
+                shape = MaterialTheme.shapes.medium,
+                minLines = if (expanded) 5 else 1,
+                maxLines = if (expanded) 12 else 4,
+            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                IconButton(onClick = onToggleExpand, modifier = Modifier.size(36.dp)) {
+                    Icon(
+                        if (expanded) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
+                        contentDescription = if (expanded) "收起输入框" else "展开输入框",
+                        tint = scheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                FilledIconButton(
+                    onClick = onSend,
+                    enabled = draft.isNotBlank() && !sending,
+                    modifier = Modifier.size(44.dp),
+                ) {
+                    if (sending) {
+                        LoadingIndicator(Modifier.size(22.dp))
+                    } else {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = if (replyingTo == null) "发送" else "回复",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 
