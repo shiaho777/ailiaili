@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
@@ -45,6 +46,21 @@ fun CommentRichText(
     accent: Color = MaterialTheme.colorScheme.primary,
 ) {
     val tokens = remember(comment.message, comment.emotes) { tokenize(comment) }
+    val (text, inline) = remember(tokens, accent) { buildRich(tokens, accent) }
+    BasicText(
+        text = text,
+        modifier = modifier,
+        style = LocalTextStyle.current.merge(
+            TextStyle(color = color, fontSize = 15.sp, lineHeight = 22.sp),
+        ),
+        inlineContent = inline,
+    )
+}
+
+private fun buildRich(
+    tokens: List<RichToken>,
+    accent: Color,
+): Pair<AnnotatedString, Map<String, InlineTextContent>> {
     val inline = mutableMapOf<String, InlineTextContent>()
     val text = buildAnnotatedString {
         tokens.forEachIndexed { index, token ->
@@ -55,7 +71,8 @@ fun CommentRichText(
                 ) { append(token.text) }
                 is RichToken.Emote -> {
                     val id = "emote-$index"
-                    appendInlineContent(token.key, id)
+                    // 第二个参数是找不到内联内容时的替代文本，也是读屏念出的内容。
+                    appendInlineContent(id, token.key)
                     val big = token.emote.size >= 2
                     val size = if (big) 28.sp else 20.sp
                     inline[id] = InlineTextContent(
@@ -71,14 +88,7 @@ fun CommentRichText(
             }
         }
     }
-    BasicText(
-        text = text,
-        modifier = modifier,
-        style = LocalTextStyle.current.merge(
-            TextStyle(color = color, fontSize = 15.sp, lineHeight = 22.sp),
-        ),
-        inlineContent = inline,
-    )
+    return text to inline
 }
 
 private fun tokenize(comment: Comment): List<RichToken> {
