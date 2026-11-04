@@ -149,6 +149,7 @@ import app.ailiaili.core.data.shareText
 import app.ailiaili.core.data.windowBrightness
 import app.ailiaili.core.designsystem.BiliContentTabs
 import app.ailiaili.core.designsystem.BiliSectionTitle
+import app.ailiaili.core.designsystem.VideoListRow
 import app.ailiaili.core.designsystem.LocalWindowForm
 import app.ailiaili.core.model.CacheEntry
 import app.ailiaili.core.model.Comment
@@ -1963,67 +1964,63 @@ fun PlayerRoute(
                         }
                     }
                     "season" -> {
-                        val ink = MaterialTheme.colorScheme.onSurface
                         val accent = MaterialTheme.colorScheme.primary
-                        Text(
-                            detail?.seasonTitle?.ifBlank { null } ?: "合集",
-                            color = ink,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text("共 ${episodes.size} 集", color = ink, fontSize = 13.sp)
+                        val playingIndex = episodes.indexOfFirst { it.bvid == detail?.bvid }
+                        Row(
+                            Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                detail?.seasonTitle?.ifBlank { null } ?: "合集",
+                                modifier = Modifier.weight(1f, fill = false),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            BiliBadge(
+                                text = if (playingIndex >= 0) "${playingIndex + 1}/${episodes.size}" else "共 ${episodes.size} 集",
+                                tone = BiliBadgeTone.Accent,
+                                style = BiliBadgeStyle.Soft,
+                            )
+                        }
                         var lastSection = ""
-                        episodes.forEach { ep ->
+                        episodes.forEachIndexed { position, ep ->
                             if (ep.section.isNotBlank() && ep.section != lastSection) {
                                 lastSection = ep.section
-                                Text(
-                                    ep.section,
-                                    modifier = Modifier.padding(top = 8.dp),
-                                    color = ink,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
+                                BiliSectionTitle(ep.section, Modifier.padding(top = 4.dp))
                             }
                             val playing = ep.bvid == detail?.bvid
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (playing) accent.copy(alpha = 0.12f) else Color.Transparent)
-                                    .clickable { openEpisode(ep) }
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    if (ep.index > 0) ep.index.toString() else "",
-                                    modifier = Modifier.width(28.dp),
-                                    color = if (playing) accent else ink,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (playing) FontWeight.SemiBold else FontWeight.Normal,
+                            key(ep.bvid, ep.cid) {
+                                VideoListRow(
+                                    title = ep.title,
+                                    cover = ep.cover,
+                                    onClick = { if (!playing) openEpisode(ep) },
+                                    selected = playing,
+                                    coverWidth = 112.dp,
+                                    leading = {
+                                        Text(
+                                            (if (ep.index > 0) ep.index else position + 1).toString(),
+                                            modifier = Modifier.width(24.dp),
+                                            color = if (playing) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (playing) FontWeight.Bold else FontWeight.Medium,
+                                        )
+                                    },
+                                    meta = if (playing) {
+                                        {
+                                            BiliBadge(
+                                                text = "正在播放",
+                                                tone = BiliBadgeTone.Accent,
+                                                style = BiliBadgeStyle.Solid,
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
                                 )
-                                if (ep.cover.isNotBlank()) {
-                                    AsyncImage(
-                                        model = ep.cover,
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .width(96.dp)
-                                            .aspectRatio(16f / 10f)
-                                            .clip(RoundedCornerShape(6.dp)),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                }
-                                Column(Modifier.padding(start = 10.dp).weight(1f)) {
-                                    Text(
-                                        ep.title,
-                                        color = ink,
-                                        fontSize = 14.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    if (playing) {
-                                        Text("正在播放", modifier = Modifier.padding(top = 2.dp), color = accent, fontSize = 12.sp)
-                                    }
-                                }
                             }
                         }
                     }
