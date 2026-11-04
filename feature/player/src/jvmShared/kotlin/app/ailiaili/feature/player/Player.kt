@@ -122,6 +122,10 @@ import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliErrorState
 import app.ailiaili.core.designsystem.BiliLoadingState
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.UnfoldLess
@@ -1937,10 +1941,25 @@ fun PlayerRoute(
                             }
                         }
                         if (commentsMore) {
-                            TextButton(onClick = {
-                                val aid = detail?.aid ?: return@TextButton
-                                loadComments(aid, commentPage + 1, commentMode, append = true)
-                            }) { Text(if (commentLoading) "加载中…" else "更多评论") }
+                            FilledTonalButton(
+                                onClick = {
+                                    val aid = detail?.aid ?: return@FilledTonalButton
+                                    loadComments(aid, commentPage + 1, commentMode, append = true)
+                                },
+                                enabled = !commentLoading,
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            ) {
+                                if (commentLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("加载中…")
+                                } else {
+                                    Text("更多评论")
+                                }
+                            }
                         }
                     }
                     "season" -> {
@@ -2351,22 +2370,19 @@ private fun CommentBlock(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (comment.pinned) {
-                    Text(
-                        "置顶",
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(accent)
-                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.SemiBold,
+                    BiliBadge(
+                        text = "置顶",
+                        tone = BiliBadgeTone.Accent,
+                        style = BiliBadgeStyle.Solid,
                     )
                 }
                 Text(
                     comment.name.ifBlank { "用户" },
-                    modifier = Modifier.weight(1f, fill = false),
-                    color = ink,
-                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .clickable(enabled = comment.mid > 0) { onSpace(comment.mid) },
+                    color = if (comment.up) accent else ink,
+                    fontSize = if (nested) 13.sp else 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -2439,11 +2455,17 @@ private fun CommentBlock(
                 }
             }
             Row(
-                Modifier.padding(top = 2.dp),
+                Modifier.padding(top = 4.dp).offset(x = (-6).dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CommentAction(Icons.Filled.ThumbUp, comment.like.toString(), comment.liked) { onLike(comment) }
-                CommentAction(Icons.Filled.ThumbDown, "", comment.disliked) { onDislike(comment) }
+                CommentAction(
+                    Icons.Filled.ThumbUp,
+                    formatCount(comment.like.toLong()),
+                    comment.liked,
+                    description = "点赞",
+                ) { onLike(comment) }
+                CommentAction(Icons.Filled.ThumbDown, "", comment.disliked, description = "点踩") { onDislike(comment) }
                 CommentAction(Icons.AutoMirrored.Filled.Reply, "回复", false) { onReply(rootRpid, comment) }
             }
             if (!nested && (replies.isNotEmpty() || onExpand != null)) {
@@ -2451,9 +2473,9 @@ private fun CommentBlock(
                     Modifier
                         .padding(top = 6.dp)
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(MaterialTheme.shapes.medium)
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                 ) {
                     replies.forEach { reply ->
                         key(reply.rpid) {
@@ -2472,15 +2494,26 @@ private fun CommentBlock(
                         }
                     }
                     if (onExpand != null) {
-                        Text(
-                            "查看 ${comment.replyCount} 条回复",
+                        Row(
                             modifier = Modifier
-                                .padding(vertical = 6.dp)
-                                .clickable(onClick = onExpand),
-                            color = accent,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                                .clip(MaterialTheme.shapes.small)
+                                .clickable(onClick = onExpand)
+                                .padding(vertical = 6.dp, horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "查看 ${comment.replyCount} 条回复",
+                                color = accent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = accent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -2493,17 +2526,26 @@ private fun CommentAction(
     icon: ImageVector,
     label: String,
     on: Boolean,
+    description: String? = null,
     onClick: () -> Unit,
 ) {
-    val tint = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    val tint by animateColorAsState(
+        if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        label = "commentActionTint",
+    )
     Row(
         Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(MaterialTheme.shapes.small)
             .clickable(onClick = onClick)
             .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = label.ifBlank { null }, tint = tint, modifier = Modifier.size(16.dp))
+        Icon(
+            icon,
+            contentDescription = description ?: label.ifBlank { null },
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
         if (label.isNotEmpty()) {
             Text(label, modifier = Modifier.padding(start = 4.dp), color = tint, fontSize = 13.sp)
         }
