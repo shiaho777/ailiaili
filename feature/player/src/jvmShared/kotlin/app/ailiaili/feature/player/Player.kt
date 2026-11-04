@@ -61,7 +61,6 @@ import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -118,6 +117,7 @@ import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.setFullscreen
 import app.ailiaili.core.designsystem.BiliActionItem
+import app.ailiaili.core.designsystem.BiliAssistChip
 import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliErrorState
 import app.ailiaili.core.designsystem.BiliLoadingState
@@ -1687,9 +1687,9 @@ fun PlayerRoute(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 tags.take(12).forEach { tag ->
-                                    AssistChip(
+                                    BiliAssistChip(
+                                        label = tag,
                                         onClick = { onTag(tag) },
-                                        label = { Text(tag, maxLines = 1, color = ink) },
                                     )
                                 }
                             }

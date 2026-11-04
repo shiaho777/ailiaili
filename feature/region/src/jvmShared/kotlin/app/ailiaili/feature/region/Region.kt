@@ -15,13 +15,12 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.BiliFloatButton
 import app.ailiaili.core.designsystem.BiliHeaderAction
 import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.shellNavigationBottom
@@ -37,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
@@ -197,10 +197,20 @@ fun RegionRoute(
                 val moreError = vm.error
                 if (moreError != null && vm.items.isNotEmpty()) {
                     Row(
-                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 72.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(MaterialTheme.colorScheme.errorContainer)
+                            .padding(start = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(moreError, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            moreError,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                         TextButton(onClick = vm::loadMore) { Text("重试") }
                     }
                 }
@@ -209,12 +219,12 @@ fun RegionRoute(
                 Modifier.align(Alignment.BottomEnd).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                SmallFloatingActionButton(onClick = vm::reload) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "刷新")
-                }
-                SmallFloatingActionButton(onClick = { scope.launch { gridState.animateScrollToItem(0) } }) {
-                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "回到顶部")
-                }
+                BiliFloatButton(Icons.Filled.Refresh, "刷新", onClick = vm::reload)
+                BiliFloatButton(
+                    Icons.Filled.KeyboardArrowUp,
+                    "回到顶部",
+                    onClick = { scope.launch { gridState.animateScrollToItem(0) } },
+                )
             }
         }
     }
