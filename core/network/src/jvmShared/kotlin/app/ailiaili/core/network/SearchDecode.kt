@@ -3,6 +3,7 @@ package app.ailiaili.core.network
 import app.ailiaili.core.model.BangumiItem
 import app.ailiaili.core.model.ContentKind
 import app.ailiaili.core.model.SearchPage
+import app.ailiaili.core.model.SearchUser
 import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.normalizeUrl
 import app.ailiaili.core.model.pageSize
@@ -38,6 +39,21 @@ fun mergeBangumi(primary: List<BangumiItem>, extra: List<BangumiItem>): List<Ban
     }
 }
 
+fun parseSearchUser(e: JSONObject): SearchUser? {
+    val mid = e.lng("mid")
+    if (mid <= 0) return null
+    return SearchUser(
+        mid = mid,
+        name = e.str("uname").stripHtml(),
+        face = normalizeUrl(e.str("upic")),
+        sign = e.str("usign").stripHtml(),
+        fans = e.lng("fans"),
+        videos = e.lng("videos"),
+        level = e.int("level"),
+        official = e.obj("official_verify")?.str("desc").orEmpty(),
+    )
+}
+
 fun decodeSearchSuccess(
     kind: ContentKind,
     page: Int,
@@ -47,26 +63,40 @@ fun decodeSearchSuccess(
     val results = data?.arr("result")?.objects().orEmpty()
     val items: List<VideoItem>
     val bangumiItems: List<BangumiItem>
+    val userItems: List<SearchUser>
     when (kind) {
         ContentKind.Video -> {
             items = results.mapNotNull(::parseSearch)
             bangumiItems = emptyList()
+            userItems = emptyList()
         }
         ContentKind.Live -> {
             items = results.mapNotNull(::parseLive)
             bangumiItems = emptyList()
+            userItems = emptyList()
         }
         ContentKind.Bangumi -> {
             items = emptyList()
             bangumiItems = mergeBangumi(results.mapNotNull(::parseBangumiItem), extraFt)
+            userItems = emptyList()
+        }
+        ContentKind.User -> {
+            items = emptyList()
+            bangumiItems = emptyList()
+            userItems = results.mapNotNull(::parseSearchUser)
         }
     }
     val numResults = data?.int("numResults") ?: 0
-    val got = if (kind == ContentKind.Bangumi) bangumiItems.size else items.size
+    val got = when (kind) {
+        ContentKind.Bangumi -> bangumiItems.size
+        ContentKind.User -> userItems.size
+        else -> items.size
+    }
     return SearchPage(
         items = items,
         bangumiItems = bangumiItems,
         hasMore = searchHasMore(got, page, kind.pageSize(), numResults),
         blocked = false,
+        userItems = userItems,
     )
 }

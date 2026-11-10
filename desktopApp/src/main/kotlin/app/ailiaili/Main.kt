@@ -14,6 +14,7 @@ import androidx.compose.ui.window.Notification
 import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
@@ -25,6 +26,7 @@ import kotlin.math.roundToInt
 import java.awt.Dimension
 import java.awt.Frame
 import java.awt.GraphicsEnvironment
+import java.awt.Rectangle
 import java.awt.SystemTray
 import java.awt.Toolkit
 import java.util.prefs.Preferences
@@ -39,7 +41,16 @@ fun main() {
         val windowPrefs = remember { Preferences.userRoot().node("app/ailiaili/window") }
         val savedWidth = windowPrefs.getInt("width", 0)
         val savedHeight = windowPrefs.getInt("height", 0)
+        val savedX = windowPrefs.getInt("x", Int.MIN_VALUE)
+        val savedY = windowPrefs.getInt("y", Int.MIN_VALUE)
+        val screens = remember {
+            GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices
+                .map { it.defaultConfiguration.bounds }
+        }
+        val positionVisible = savedX != Int.MIN_VALUE && savedY != Int.MIN_VALUE &&
+            screens.any { it.intersects(Rectangle(savedX, savedY, 160, 120)) }
         val state = rememberWindowState(
+            position = if (positionVisible) WindowPosition(savedX.dp, savedY.dp) else WindowPosition.PlatformDefault,
             width = (savedWidth.takeIf { it in 720..4000 } ?: minOf(1280, workArea.width)).dp,
             height = (savedHeight.takeIf { it in 480..3000 } ?: minOf(800, workArea.height)).dp,
         )
@@ -48,6 +59,10 @@ fun main() {
             runCatching {
                 windowPrefs.putInt("width", state.size.width.value.roundToInt())
                 windowPrefs.putInt("height", state.size.height.value.roundToInt())
+                if (state.position.isSpecified) {
+                    windowPrefs.putInt("x", state.position.x.value.roundToInt())
+                    windowPrefs.putInt("y", state.position.y.value.roundToInt())
+                }
             }
         }
         val icon = painterResource("icon.png")

@@ -464,11 +464,23 @@ fun bangumiEpisodeDisplayTitle(title: String, longTitle: String): String =
 fun bangumiPlayTitle(seasonTitle: String, title: String, longTitle: String): String =
     "$seasonTitle - ${bangumiEpisodeDisplayTitle(title, longTitle)}"
 
+data class SearchUser(
+    val mid: Long,
+    val name: String,
+    val face: String = "",
+    val sign: String = "",
+    val fans: Long = 0,
+    val videos: Long = 0,
+    val level: Int = 0,
+    val official: String = "",
+)
+
 data class SearchPage(
     val items: List<VideoItem>,
     val bangumiItems: List<BangumiItem> = emptyList(),
     val hasMore: Boolean,
     val blocked: Boolean = false,
+    val userItems: List<SearchUser> = emptyList(),
 )
 
 data class DynamicPage(

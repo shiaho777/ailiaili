@@ -12,14 +12,17 @@ class SearchKindTest {
         assertEquals("video", ContentKind.Video.searchType())
         assertEquals("live_room", ContentKind.Live.searchType())
         assertEquals("media_bangumi", ContentKind.Bangumi.searchType())
+        assertEquals("bili_user", ContentKind.User.searchType())
         assertTrue(ContentKind.Video.signed())
         assertTrue(ContentKind.Live.signed())
         assertFalse(ContentKind.Bangumi.signed())
+        assertTrue(ContentKind.User.signed())
         assertNull(ContentKind.Video.searchReferer())
         assertEquals("https://search.bilibili.com/", ContentKind.Bangumi.searchReferer())
         assertEquals(20, ContentKind.Video.pageSize())
         assertEquals(40, ContentKind.Live.pageSize())
         assertEquals(20, ContentKind.Bangumi.pageSize())
+        assertEquals(20, ContentKind.User.pageSize())
     }
 
     @Test
@@ -47,6 +50,7 @@ class SearchKindTest {
         assertEquals("没有找到相关视频", searchEmptyMessage(ContentKind.Video))
         assertEquals("没有找到相关直播间", searchEmptyMessage(ContentKind.Live))
         assertEquals("没有找到相关番剧", searchEmptyMessage(ContentKind.Bangumi))
+        assertEquals("没有找到相关用户", searchEmptyMessage(ContentKind.User))
     }
 
     @Test

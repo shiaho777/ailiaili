@@ -35,6 +35,26 @@ class SearchDecodeTest {
     }
 
     @Test
+    fun parsesUserSearch() {
+        val data = JSONObject(
+            """
+            {"result":[{"mid":42,"uname":"<em>UP</em>主","upic":"//i0.hdslb.com/f.jpg","usign":"签名",
+              "fans":1234,"videos":56,"level":6,"official_verify":{"type":0,"desc":"认证"}}],
+             "numResults":1}
+            """.trimIndent(),
+        )
+        val page = decodeSearchSuccess(ContentKind.User, 1, data)
+        val user = page.userItems.single()
+        assertEquals(42L, user.mid)
+        assertEquals("UP主", user.name)
+        assertEquals("签名", user.sign)
+        assertEquals(1234L, user.fans)
+        assertEquals(6, user.level)
+        assertEquals("认证", user.official)
+        assertTrue(user.face.startsWith("https://"))
+    }
+
+    @Test
     fun documentaryOnlyLivesInFt() {
         val ft = parseBangumiItem(JSONObject("""{"season_id":9,"title":"人生一串","cover":"d","badge":"纪录片"}"""))!!
         val page = decodeSearchSuccess(ContentKind.Bangumi, 1, null, extraFt = listOf(ft))

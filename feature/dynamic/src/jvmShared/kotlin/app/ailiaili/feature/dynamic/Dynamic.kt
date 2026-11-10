@@ -42,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -66,6 +67,7 @@ import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.FilterAutoLoad
 import app.ailiaili.core.designsystem.BiliHeaderAction
 import app.ailiaili.core.designsystem.BiliPageHeader
+import app.ailiaili.core.designsystem.BiliSearchField
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.MetaRow
 import app.ailiaili.core.designsystem.MetaSpec
@@ -378,6 +380,7 @@ fun DynamicRoute(
     val navBottom = shellNavigationBottom()
     val haptic = LocalHapticFeedback.current
     val userRow = rememberLazyListState()
+    var userQuery by remember { mutableStateOf("") }
     LaunchedEffect(session.loggedIn) { vm.onEnter() }
     // 看板每分钟刷新一次；未读角标慢一拍（每 2 分钟），避免多打一次动态接口。
     // 切到别的页面时 DynamicRoute 离开组合，协程自动取消，不会在后台空转。
@@ -423,6 +426,15 @@ fun DynamicRoute(
             Row(Modifier.fillMaxSize()) {
             if (wide) {
                 LazyColumn(Modifier.width(232.dp).fillMaxHeight().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    item(key = "user-search") {
+                        BiliSearchField(
+                            value = userQuery,
+                            onValueChange = { userQuery = it },
+                            onSearch = {},
+                            placeholder = "搜索已关注的 UP",
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        )
+                    }
                     item(key = "all-users") {
                         UserFilterRow(
                             name = "全部动态",
@@ -434,7 +446,20 @@ fun DynamicRoute(
                             },
                         )
                     }
-                    items(vm.users, key = { it.mid }) { user ->
+                    val matchedUsers = vm.users.filter {
+                        userQuery.isBlank() || it.name.contains(userQuery.trim(), ignoreCase = true)
+                    }
+                    if (matchedUsers.isEmpty() && userQuery.isNotBlank()) {
+                        item(key = "user-no-match") {
+                            Text(
+                                "没有匹配的 UP",
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 12.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                    items(matchedUsers, key = { it.mid }) { user ->
                         UserFilterRow(
                             name = user.name,
                             face = user.face,

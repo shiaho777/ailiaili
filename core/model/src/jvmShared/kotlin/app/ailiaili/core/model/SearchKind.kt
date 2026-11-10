@@ -1,11 +1,12 @@
 package app.ailiaili.core.model
 
-enum class ContentKind { Video, Live, Bangumi }
+enum class ContentKind { Video, Live, Bangumi, User }
 
 fun ContentKind.searchType(): String = when (this) {
     ContentKind.Video -> "video"
     ContentKind.Live -> "live_room"
     ContentKind.Bangumi -> "media_bangumi"
+    ContentKind.User -> "bili_user"
 }
 
 fun ContentKind.signed(): Boolean = this != ContentKind.Bangumi
@@ -24,6 +25,7 @@ fun searchEmptyMessage(kind: ContentKind): String = when (kind) {
     ContentKind.Video -> "没有找到相关视频"
     ContentKind.Live -> "没有找到相关直播间"
     ContentKind.Bangumi -> "没有找到相关番剧"
+    ContentKind.User -> "没有找到相关用户"
 }
 
 /**

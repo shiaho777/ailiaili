@@ -14,15 +14,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Tv
@@ -52,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,7 +84,9 @@ import app.ailiaili.core.model.BangumiItem
 import app.ailiaili.core.model.ContentKind
 import app.ailiaili.core.model.UrlHit
 import app.ailiaili.core.model.UrlParser
+import app.ailiaili.core.model.SearchUser
 import app.ailiaili.core.model.VideoItem
+import app.ailiaili.core.model.formatCount
 import app.ailiaili.core.model.searchEmptyMessage
 import app.ailiaili.core.model.searchKindSwitch
 import app.ailiaili.core.model.searchKindSwitchShouldLoad
@@ -90,6 +99,7 @@ class SearchViewModel(initial: String) : ViewModel() {
     var kind by mutableStateOf(AppGraph.repo.settings.value.lastSearchKind)
     var items by mutableStateOf<List<VideoItem>>(emptyList())
     var bangumiItems by mutableStateOf<List<BangumiItem>>(emptyList())
+    var userItems by mutableStateOf<List<SearchUser>>(emptyList())
     var hot by mutableStateOf<List<String>>(emptyList())
     var loading by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
@@ -127,6 +137,7 @@ class SearchViewModel(initial: String) : ViewModel() {
         kind = next
         items = emptyList()
         bangumiItems = emptyList()
+        userItems = emptyList()
         error = null
         hasMore = false
         loading = switched.loading
@@ -159,11 +170,24 @@ class SearchViewModel(initial: String) : ViewModel() {
                         } else {
                             mergeBangumiBySeason(bangumiItems, pageData.bangumiItems)
                         }
-                        if (reset) items = emptyList()
+                        if (reset) {
+                            items = emptyList()
+                            userItems = emptyList()
+                        }
                     }
                     ContentKind.Video, ContentKind.Live -> {
                         items = if (reset) pageData.items else items + pageData.items
-                        if (reset) bangumiItems = emptyList()
+                        if (reset) {
+                            bangumiItems = emptyList()
+                            userItems = emptyList()
+                        }
+                    }
+                    ContentKind.User -> {
+                        userItems = if (reset) pageData.userItems else userItems + pageData.userItems
+                        if (reset) {
+                            items = emptyList()
+                            bangumiItems = emptyList()
+                        }
                     }
                 }
                 hasMore = pageData.hasMore
@@ -240,6 +264,11 @@ fun SearchRoute(
                     onClick = { vm.selectKind(ContentKind.Bangumi) },
                     label = { Text("番剧") },
                 )
+                BiliFilterChip(
+                    selected = vm.kind == ContentKind.User,
+                    onClick = { vm.selectKind(ContentKind.User) },
+                    label = { Text("用户") },
+                )
             }
             if (!vm.searched) {
                 Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -309,9 +338,19 @@ fun SearchRoute(
                 }
             } else {
                 val shown = vm.items.filter { ContentFilter.allows(it) }
-                val blockedOut = vm.kind != ContentKind.Bangumi &&
-                    vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
-                val empty = if (vm.kind == ContentKind.Bangumi) vm.bangumiItems.isEmpty() else shown.isEmpty() && !blockedOut
+                val shownUsers = vm.userItems.filter {
+                    ContentFilter.allows(VideoItem(author = it.name, ownerMid = it.mid))
+                }
+                val blockedOut = when (vm.kind) {
+                    ContentKind.Bangumi -> false
+                    ContentKind.User -> vm.userItems.isNotEmpty() && shownUsers.isEmpty() && ContentFilter.active
+                    else -> vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
+                }
+                val empty = when (vm.kind) {
+                    ContentKind.Bangumi -> vm.bangumiItems.isEmpty()
+                    ContentKind.User -> shownUsers.isEmpty() && !blockedOut
+                    else -> shown.isEmpty() && !blockedOut
+                }
                 FilterAutoLoad(
                     shownEmpty = blockedOut,
                     hasMore = vm.hasMore,
@@ -334,6 +373,13 @@ fun SearchRoute(
                         vm.kind == ContentKind.Bangumi -> BangumiGrid(
                             vm.bangumiItems,
                             onBangumi,
+                            onLoadMore = if (vm.hasMore) vm::loadMore else null,
+                        )
+                        vm.kind == ContentKind.User -> UserSearchList(
+                            users = shownUsers,
+                            onUser = { user ->
+                                onAuthor(VideoItem(ownerMid = user.mid, author = user.name, ownerFace = user.face))
+                            },
                             onLoadMore = if (vm.hasMore) vm::loadMore else null,
                         )
                         else -> VideoGrid(shown, onVideo, onAuthor, onLoadMore = if (vm.hasMore) vm::loadMore else null)
@@ -436,10 +482,119 @@ private fun BangumiCard(
     }
 }
 
+@Composable
+private fun UserSearchList(
+    users: List<SearchUser>,
+    onUser: (SearchUser) -> Unit,
+    onLoadMore: (() -> Unit)?,
+) {
+    val state = rememberLazyListState()
+    if (onLoadMore != null) {
+        LaunchedEffect(state, users.size) {
+            snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+                .collect { last ->
+                    if (users.isNotEmpty() && last >= users.size - 4) onLoadMore()
+                }
+        }
+    }
+    LazyColumn(
+        state = state,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(users, key = { it.mid }) { user ->
+            BiliSurfaceCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateItem()
+                    .clip(MaterialTheme.shapes.large)
+                    .clickable { onUser(user) },
+                contentPadding = PaddingValues(12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (user.face.isNotBlank()) {
+                        AsyncImage(
+                            model = user.face,
+                            contentDescription = user.name,
+                            modifier = Modifier.size(52.dp).clip(CircleShape),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Box(
+                            Modifier
+                                .size(52.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                user.name.take(1).ifBlank { "用" },
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                        }
+                    }
+                    Column(
+                        Modifier.weight(1f).padding(start = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                user.name.ifBlank { "用户" },
+                                color = MaterialTheme.colorScheme.onSurface,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (user.level > 0) {
+                                BiliBadge(
+                                    text = "LV${user.level}",
+                                    tone = BiliBadgeTone.Neutral,
+                                    style = BiliBadgeStyle.Soft,
+                                )
+                            }
+                            if (user.official.isNotBlank()) {
+                                BiliBadge(
+                                    text = user.official.take(8),
+                                    tone = BiliBadgeTone.Accent,
+                                    style = BiliBadgeStyle.Outline,
+                                )
+                            }
+                        }
+                        if (user.sign.isNotBlank()) {
+                            Text(
+                                user.sign,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        MetaRow(
+                            items = listOf(
+                                MetaSpec(Icons.Filled.Person, "${formatCount(user.fans)} 粉丝", MetricTone.Accent),
+                                MetaSpec(Icons.Filled.PlayArrow, "${formatCount(user.videos)} 投稿", MetricTone.Neutral),
+                            ),
+                            maxItems = 2,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 private fun searchIdleHint(kind: ContentKind): String = when (kind) {
     ContentKind.Video -> "输入关键词，搜索你想看的视频"
     ContentKind.Live -> "输入关键词，搜索你想看的直播间"
     ContentKind.Bangumi -> "输入关键词，搜索你想看的番剧"
+    ContentKind.User -> "输入关键词，搜索 UP 主"
 }
 
 private fun mergeBangumiBySeason(
