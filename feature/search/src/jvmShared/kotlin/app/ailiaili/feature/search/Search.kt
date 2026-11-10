@@ -388,13 +388,25 @@ private fun BangumiCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (item.indexShow.isNotBlank()) {
-                    MetaRow(
-                        items = listOf(
-                            MetaSpec(Icons.Filled.Tv, item.indexShow, MetricTone.Accent),
-                        ),
-                        maxItems = 1,
-                    )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (item.seasonTypeName.isNotBlank()) {
+                        BiliBadge(
+                            text = item.seasonTypeName,
+                            tone = BiliBadgeTone.Neutral,
+                            style = BiliBadgeStyle.Outline,
+                        )
+                    }
+                    if (item.indexShow.isNotBlank()) {
+                        MetaRow(
+                            items = listOf(
+                                MetaSpec(Icons.Filled.Tv, item.indexShow, MetricTone.Accent),
+                            ),
+                            maxItems = 1,
+                        )
+                    }
                 }
             }
         }
