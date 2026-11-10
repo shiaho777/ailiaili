@@ -22,6 +22,7 @@ import app.ailiaili.core.designsystem.BiliTheme
 import app.ailiaili.core.designsystem.InstallBiliImages
 import java.awt.Dimension
 import java.awt.Frame
+import java.awt.GraphicsEnvironment
 import java.awt.SystemTray
 import java.awt.Toolkit
 
@@ -30,7 +31,12 @@ fun main() {
     application {
         AppGraph.init()
         DesktopHost.exit = ::exitApplication
-        val state = rememberWindowState(width = 1280.dp, height = 800.dp)
+        // 创建窗口前先按主屏工作区夹一次，避免小屏 / 竖屏副屏上先出现一个超出屏幕的窗口。
+        val workArea = remember { GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds }
+        val state = rememberWindowState(
+            width = minOf(1280, workArea.width).dp,
+            height = minOf(800, workArea.height).dp,
+        )
         val icon = painterResource("icon.png")
         val trayOk = remember { SystemTray.isSupported() }
         val trayState = rememberTrayState()
@@ -83,9 +89,14 @@ fun main() {
             LaunchedEffect(Unit) {
                 val gc = window.graphicsConfiguration
                 val insets = Toolkit.getDefaultToolkit().getScreenInsets(gc)
-                val workWidth = (gc.bounds.width - insets.left - insets.right).dp
-                val workHeight = (gc.bounds.height - insets.top - insets.bottom).dp
-                window.minimumSize = Dimension(720, 480)
+                val workWidthUnits = gc.bounds.width - insets.left - insets.right
+                val workHeightUnits = gc.bounds.height - insets.top - insets.bottom
+                val workWidth = workWidthUnits.dp
+                val workHeight = workHeightUnits.dp
+                window.minimumSize = Dimension(
+                    minOf(720, workWidthUnits),
+                    minOf(480, workHeightUnits),
+                )
                 if (state.size.width > workWidth || state.size.height > workHeight) {
                     state.size = DpSize(
                         minOf(state.size.width, workWidth),
