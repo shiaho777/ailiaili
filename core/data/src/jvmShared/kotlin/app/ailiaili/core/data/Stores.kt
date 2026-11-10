@@ -91,6 +91,7 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     danmakuAreaPercent = o.optInt("danmakuAreaPercent", 25).coerceIn(25, 100),
     danmakuSmartFilter = o.optBoolean("danmakuSmartFilter", true),
     danmakuColorful = o.optBoolean("danmakuColorful", true),
+    danmakuPillBackground = o.optBoolean("danmakuPillBackground", true),
     danmakuBlockKeywords = o.optString("danmakuBlockKeywords"),
     danmakuFilterScroll = o.optBoolean("danmakuFilterScroll", true),
     danmakuFilterFixed = o.optBoolean("danmakuFilterFixed", true),
@@ -100,7 +101,12 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     noLogin1080 = o.optBoolean("noLogin1080", true),
     sponsorBlock = o.optBoolean("sponsorBlock", false),
     sponsorCategories = SponsorCategories.sanitize(o.optString("sponsorCategories")),
-    cdnMode = runCatching { CdnMode.valueOf(o.optString("cdnMode", "Auto")) }.getOrDefault(CdnMode.Auto),
+    cdnMode = if (!o.optBoolean("cdnModeMigrated", false)) {
+        // v1.6.2 起默认跟随服务端；老配置一次性迁移，之后用户手动切回自动测速仍会保留。
+        CdnMode.Server
+    } else {
+        runCatching { CdnMode.valueOf(o.optString("cdnMode", "Server")) }.getOrDefault(CdnMode.Server)
+    },
     cdnManualId = o.optString("cdnManualId", "ali").ifBlank { "ali" },
     blockPcdn = o.optBoolean("blockPcdn", true),
     bufferAuto = o.optBoolean("bufferAuto", true),
@@ -155,6 +161,7 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("danmakuAreaPercent", next.danmakuAreaPercent)
     .put("danmakuSmartFilter", next.danmakuSmartFilter)
     .put("danmakuColorful", next.danmakuColorful)
+    .put("danmakuPillBackground", next.danmakuPillBackground)
     .put("danmakuBlockKeywords", next.danmakuBlockKeywords)
     .put("danmakuFilterScroll", next.danmakuFilterScroll)
     .put("danmakuFilterFixed", next.danmakuFilterFixed)
@@ -165,6 +172,7 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("sponsorBlock", next.sponsorBlock)
     .put("sponsorCategories", SponsorCategories.sanitize(next.sponsorCategories))
     .put("cdnMode", next.cdnMode.name)
+    .put("cdnModeMigrated", true)
     .put("cdnManualId", next.cdnManualId)
     .put("blockPcdn", next.blockPcdn)
     .put("bufferAuto", next.bufferAuto)

@@ -273,6 +273,7 @@ internal fun parseDynamic(e: JSONObject): VideoItem? {
             ownerMid = author?.lng("mid") ?: e.lng("uid"),
             durationText = e.str("duration_text"),
             durationSec = e.int("duration"),
+            pubdate = e.lng("pubdate").takeIf { it > 0 } ?: e.lng("ctime"),
         )
     }
     val major = e.obj("modules")?.obj("module_dynamic")?.obj("major") ?: return null
@@ -295,6 +296,7 @@ internal fun parseDynamic(e: JSONObject): VideoItem? {
         ownerMid = author?.lng("mid") ?: 0,
         durationText = archive.str("duration_text"),
         durationSec = archive.int("duration"),
+        pubdate = author?.lng("pub_ts")?.takeIf { it > 0 } ?: archive.lng("pubdate"),
         viewCount = stat?.lng("view") ?: 0,
         danmakuCount = stat?.lng("danmaku") ?: 0,
     )

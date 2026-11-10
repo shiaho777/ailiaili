@@ -1,6 +1,7 @@
 package app.ailiaili.core.data
 
 import app.ailiaili.core.model.BlockedUp
+import app.ailiaili.core.model.CdnMode
 import app.ailiaili.core.model.ContentKind
 import app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
 import app.ailiaili.core.model.NETWORK_CACHING_MAX_MS
@@ -45,6 +46,14 @@ class SettingsCodecTest {
         val out = decodeAppSettings(JSONObject())
         assertTrue(out.bufferAuto)
         assertEquals(NETWORK_CACHING_DEFAULT_MS, out.networkCachingMs)
+    }
+
+    @Test
+    fun migratesOldCdnModeOnceThenKeepsManualChoice() {
+        val old = JSONObject("""{"cdnMode":"Auto"}""")
+        assertEquals(CdnMode.Server, decodeAppSettings(old).cdnMode)
+        val saved = encodeAppSettings(decodeAppSettings(old).copy(cdnMode = CdnMode.Auto))
+        assertEquals(CdnMode.Auto, decodeAppSettings(saved).cdnMode)
     }
 
     @Test

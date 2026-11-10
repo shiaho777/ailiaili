@@ -564,7 +564,7 @@ class BiliClient(
         val ps = mutableMapOf<String, String>()
         if (!offset.isNullOrBlank()) ps["offset"] = offset
         val data = get(
-            "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/nav",
+            "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all",
             ps,
             sign = true,
             referer = "https://t.bilibili.com/",
@@ -576,7 +576,7 @@ class BiliClient(
         DynamicPage(
             items = items,
             nextOffset = data.str("offset").ifBlank { null },
-            hasMore = data.int("has_more") == 1,
+            hasMore = data.optBoolean("has_more") || data.int("has_more") == 1,
         )
     }
 
@@ -768,7 +768,7 @@ class BiliClient(
         SpaceFeed(
             posts = posts,
             nextOffset = data.str("offset").ifBlank { null },
-            hasMore = data.int("has_more") == 1,
+            hasMore = data.optBoolean("has_more") || data.int("has_more") == 1,
         )
     }
 

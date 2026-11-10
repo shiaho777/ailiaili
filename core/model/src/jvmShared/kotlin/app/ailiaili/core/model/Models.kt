@@ -36,6 +36,19 @@ fun formatMonthDayHour(epochSec: Long): String {
     return "${pad2(date.month)}-${pad2(date.day)} ${pad2(date.hour)}:${pad2(date.minute)}"
 }
 
+/** 动态页「最近更新」用的相对时间；超过一周回落到月-日 时:分。 */
+fun formatRelativeTime(epochSec: Long, nowSec: Long = epochMs() / 1000): String {
+    if (epochSec <= 0) return ""
+    val diff = (nowSec - epochSec).coerceAtLeast(0)
+    return when {
+        diff < 60 -> "刚刚"
+        diff < 3_600 -> "${diff / 60} 分钟前"
+        diff < 86_400 -> "${diff / 3_600} 小时前"
+        diff < 7 * 86_400 -> "${diff / 86_400} 天前"
+        else -> formatMonthDayHour(epochSec)
+    }
+}
+
 private fun oneDecimal(n: Double): String {
     val rounded = kotlin.math.round(n * 10.0) / 10.0
     val asLong = rounded.toLong()
@@ -510,6 +523,8 @@ data class AppSettings(
     val danmakuAreaPercent: Int = 25,
     val danmakuSmartFilter: Boolean = true,
     val danmakuColorful: Boolean = true,
+    /** 半透明圆角胶囊底衬：亮画面上也能看清白字。 */
+    val danmakuPillBackground: Boolean = true,
     val danmakuBlockKeywords: String = "",
     /** 类型过滤。四个都开等于不过滤。关掉某一类才把它从画面去掉。 */
     val danmakuFilterScroll: Boolean = true,
@@ -521,7 +536,7 @@ data class AppSettings(
     val sponsorBlock: Boolean = false,
     /** 逗号分隔的 SponsorBlock category。默认只跳赞助广告。 */
     val sponsorCategories: String = SponsorCategories.DEFAULT,
-    val cdnMode: CdnMode = CdnMode.Auto,
+    val cdnMode: CdnMode = CdnMode.Server,
     val cdnManualId: String = "ali",
     /** 关掉之后会使用带 mcdn 的地址。默认丢掉这类线路。 */
     val blockPcdn: Boolean = true,

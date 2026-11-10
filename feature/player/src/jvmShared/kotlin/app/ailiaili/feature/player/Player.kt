@@ -288,6 +288,12 @@ fun PlayerRoute(
     var reacting by remember { mutableStateOf(setOf<Long>()) }
     var playing by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(false) }
+    // seek 落点确认期间 VLC 会短暂停住；这段时间不要误判成网络缓冲弹「正在缓冲」。
+    var seekGraceUntil by remember { mutableLongStateOf(0L) }
+    fun seekTo(ms: Long) {
+        seekGraceUntil = epochMs() + 1_800
+        engine.seekTo(ms)
+    }
     var qualityOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
@@ -717,7 +723,7 @@ fun PlayerRoute(
         var reported = false
         while (info != null && error == null) {
             delay(500)
-            if (scrubbing || !engine.isPlaying) {
+            if (scrubbing || !engine.isPlaying || epochMs() < seekGraceUntil) {
                 last = engine.currentPosition
                 still = 0
                 buffering = false
@@ -786,7 +792,7 @@ fun PlayerRoute(
                     if (hit != null) {
                         skippedState.value = seen + hit.startSec
                         undoAt = pos
-                        engine.seekTo((hit.endSec * 1000).toLong())
+                        seekTo((hit.endSec * 1000).toLong())
                         hint = "已跳过${SponsorCategories.label(hit.category)}"
                     }
                 }
@@ -908,11 +914,11 @@ fun PlayerRoute(
                         true
                     }
                     Key.DirectionLeft -> {
-                        engine.seekTo((engine.currentPosition - 5_000).coerceAtLeast(0))
+                        seekTo((engine.currentPosition - 5_000).coerceAtLeast(0))
                         true
                     }
                     Key.DirectionRight -> {
-                        engine.seekTo(engine.currentPosition + 5_000)
+                        seekTo(engine.currentPosition + 5_000)
                         true
                     }
                     Key.DirectionUp -> {
@@ -1049,7 +1055,7 @@ fun PlayerRoute(
                                             hint = null
                                         } else if (moved && liveRoom == null) {
                                             if (mode == 1) {
-                                                engine.seekTo(pendingSeek.coerceAtLeast(0L))
+                                                seekTo(pendingSeek.coerceAtLeast(0L))
                                                 showHint("滑到 ${clock(pendingSeek)}", linger = true)
                                             } else {
                                                 showHint(hint.orEmpty(), linger = true)
@@ -1076,11 +1082,11 @@ fun PlayerRoute(
                                                 val width = size.width.toFloat()
                                                 when {
                                                     x < width / 3f -> {
-                                                        engine.seekTo((engine.currentPosition - 10_000).coerceAtLeast(0L))
+                                                        seekTo((engine.currentPosition - 10_000).coerceAtLeast(0L))
                                                         showHint("后退 10 秒", linger = true)
                                                     }
                                                     x > width * 2f / 3f -> {
-                                                        engine.seekTo(engine.currentPosition + 10_000)
+                                                        seekTo(engine.currentPosition + 10_000)
                                                         showHint("前进 10 秒", linger = true)
                                                     }
                                                     else -> {
@@ -1195,7 +1201,7 @@ fun PlayerRoute(
                     Text(message, color = Color.White)
                     if (undoAt >= 0 && (message.startsWith("已跳过") || message.startsWith("已回到"))) {
                         TextButton(onClick = {
-                            engine.seekTo(undoAt)
+                            seekTo(undoAt)
                             undoAt = -1L
                             hint = null
                         }) { Text(if (message.startsWith("已回到")) "从头播放" else "撤回") }
@@ -1214,7 +1220,7 @@ fun PlayerRoute(
                     Text("已播完", color = Color.White)
                     FilledTonalButton(onClick = {
                         skippedStarts = emptySet()
-                        engine.seekTo(0)
+                        seekTo(0)
                         engine.play()
                         ended = false
                     }) {
@@ -1380,6 +1386,13 @@ fun PlayerRoute(
                     )
                 }
                 if (bvid != null && !compactChrome) {
+                    TextButton(onClick = {
+                        AppGraph.repo.updateSettings {
+                            it.copy(danmakuPillBackground = !it.danmakuPillBackground)
+                        }
+                    }) {
+                        Text(if (settings.danmakuPillBackground) "底衬" else "纯字", color = Color.White)
+                    }
                     Box {
                         TextButton(onClick = {
                             areaDraft = settings.danmakuAreaPercent.toFloat()
@@ -1457,7 +1470,7 @@ fun PlayerRoute(
                     playing = playing,
                     onScrubbing = { scrubbing = it },
                     onSeek = { ms ->
-                        engine.seekTo(ms)
+                        seekTo(ms)
                         if (ended) {
                             engine.play()
                             ended = false

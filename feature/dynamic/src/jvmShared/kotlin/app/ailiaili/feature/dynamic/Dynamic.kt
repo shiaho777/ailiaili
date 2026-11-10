@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -75,6 +76,7 @@ import app.ailiaili.core.designsystem.shellNavigationBottom
 import app.ailiaili.core.model.FollowUser
 import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.formatCount
+import app.ailiaili.core.model.formatRelativeTime
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -92,6 +94,9 @@ class DynamicViewModel : ViewModel() {
     var liveOpen by mutableStateOf(false)
     /** UP 主 mid → 未读投稿数。只在左栏/筛选条上显示，不持久化。 */
     var unread by mutableStateOf<Map<Long, Int>>(emptyMap())
+        private set
+    /** UP mid → 动态流里最近一条投稿的发布时间（秒）。用于左栏按最近更新排序。 */
+    var userActivity by mutableStateOf<Map<Long, Long>>(emptyMap())
         private set
     private var liveTicket = 0
     private var liveBusy = false
@@ -128,6 +133,7 @@ class DynamicViewModel : ViewModel() {
                 usersPage = 1
                 usersHasMore = page.hasMore
                 if (selected != null && page.items.none { it.mid == selected?.mid }) selected = null
+                sortUsers()
             }
             loadFeed(reset = true)
         }
@@ -185,7 +191,10 @@ class DynamicViewModel : ViewModel() {
         if (!AppGraph.repo.session.value.loggedIn) return
         unreadBusy = true
         viewModelScope.launch {
-            AppGraph.repo.dynamics(null).onSuccess { page -> updateUnread(page.items) }
+            AppGraph.repo.dynamics(null).onSuccess { page ->
+                updateUnread(page.items)
+                updateUserActivity(page.items)
+            }
             unreadBusy = false
         }
     }
@@ -217,6 +226,7 @@ class DynamicViewModel : ViewModel() {
                 // 左栏翻出新 UP 后按已缓存的动态流补算一次角标，
                 // 否则关注 30+ 人的账号往下滚出来的 UP 永远没有未读数。
                 if (selected == null) updateUnread(items)
+                sortUsers()
             }
             usersLoading = false
         }
@@ -253,6 +263,7 @@ class DynamicViewModel : ViewModel() {
                     hasMore = !page.nextOffset.isNullOrBlank() && page.nextOffset != previous
                     if (items.isEmpty()) error = "关注的 UP 最近没有视频投稿"
                     updateUnread(items)
+                    updateUserActivity(items)
                 }.onFailure {
                     if (items.isEmpty()) error = it.message
                     hasMore = false
@@ -319,6 +330,31 @@ class DynamicViewModel : ViewModel() {
         }
         AppGraph.dynamicSeen.flush()
         unread = next
+    }
+
+    /** 用动态流里的发布时间刷新每个 UP 的「最近更新」，并按它稳定排序左栏。 */
+    private fun updateUserActivity(source: List<VideoItem>) {
+        if (source.isEmpty()) return
+        val next = userActivity.toMutableMap()
+        source.forEach { item ->
+            if (item.ownerMid > 0 && item.pubdate > 0) {
+                next[item.ownerMid] = maxOf(next[item.ownerMid] ?: 0L, item.pubdate)
+            }
+        }
+        userActivity = next
+        sortUsers()
+    }
+
+    /**
+     * 有更新时间的按时间从新到旧；时间相同的按名字；
+     * 没有更新时间的排最后，并保持它们原来的相对顺序。
+     */
+    private fun sortUsers() {
+        if (users.size < 2) return
+        users = users.sortedWith(
+            compareByDescending<FollowUser> { userActivity[it.mid] ?: 0L }
+                .thenBy { if ((userActivity[it.mid] ?: 0L) > 0) it.name else "" },
+        )
     }
 
     /** 点开某个 UP（只看 TA 的投稿）= 已读：清角标，并把基准推到 TA 当前最新一条。 */
@@ -404,6 +440,7 @@ fun DynamicRoute(
                             face = user.face,
                             selected = vm.selected?.mid == user.mid,
                             newCount = vm.unread[user.mid] ?: 0,
+                            lastUpdate = vm.userActivity[user.mid] ?: 0,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                                 vm.select(user)
@@ -552,6 +589,7 @@ private fun UserFilterRow(
     face: String?,
     selected: Boolean,
     newCount: Int = 0,
+    lastUpdate: Long = 0,
     onClick: () -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
@@ -569,25 +607,44 @@ private fun UserFilterRow(
             Modifier.padding(horizontal = 8.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (face.isNullOrBlank()) {
+            if (newCount > 0) {
                 Box(
-                    Modifier.size(30.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.List,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp),
-                        tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    Modifier
+                        .padding(end = 6.dp)
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.error),
+                )
+            }
+            Box {
+                if (face.isNullOrBlank()) {
+                    Box(
+                        Modifier.size(30.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.List,
+                            contentDescription = null,
+                            modifier = Modifier.size(17.dp),
+                            tint = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    AsyncImage(
+                        model = face,
+                        contentDescription = name,
+                        modifier = Modifier.size(30.dp).clip(CircleShape),
+                        contentScale = ContentScale.Crop,
                     )
                 }
-            } else {
-                AsyncImage(
-                    model = face,
-                    contentDescription = name,
-                    modifier = Modifier.size(30.dp).clip(CircleShape),
-                    contentScale = ContentScale.Crop,
-                )
+                if (newCount > 0) {
+                    BiliBadge(
+                        text = if (newCount > 99) "99+" else newCount.toString(),
+                        modifier = Modifier.align(Alignment.BottomEnd).offset(x = 4.dp, y = 4.dp),
+                        tone = BiliBadgeTone.Accent,
+                        style = BiliBadgeStyle.Solid,
+                    )
+                }
             }
             Text(
                 text = name,
@@ -598,12 +655,13 @@ private fun UserFilterRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (newCount > 0) {
-                BiliBadge(
-                    text = if (newCount > 99) "99+" else newCount.toString(),
-                    modifier = Modifier.padding(start = 6.dp),
-                    tone = BiliBadgeTone.Accent,
-                    style = BiliBadgeStyle.Solid,
+            if (lastUpdate > 0) {
+                Text(
+                    formatRelativeTime(lastUpdate),
+                    modifier = Modifier.padding(start = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 10.sp,
+                    maxLines = 1,
                 )
             }
         }

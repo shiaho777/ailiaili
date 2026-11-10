@@ -8,7 +8,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
@@ -164,7 +167,7 @@ private class DanmakuNode(
             videoSec = videoSec,
             widthPx = size.width,
             heightPx = size.height,
-            laneHeightPx = 28.dp.toPx(),
+            laneHeightPx = (if (runtime.pillBackground) 36.dp else 28.dp).toPx(),
             topInsetPx = 6.dp.toPx(),
             gapPx = 12.dp.toPx(),
             density = this,
@@ -174,9 +177,21 @@ private class DanmakuNode(
         for (shot in runtime.shots) {
             val fade = shot.alpha(videoSec)
             if (fade <= 0f) continue
+            val x = shot.x(videoSec)
+            if (runtime.pillBackground) {
+                val padH = 6.dp.toPx()
+                val padV = 2.dp.toPx()
+                val height = shot.layout.size.height + padV * 2
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = 0.55f * fade),
+                    topLeft = Offset(x - padH, shot.y - padV),
+                    size = Size(shot.textW + padH * 2, height),
+                    cornerRadius = CornerRadius(height / 2, height / 2),
+                )
+            }
             drawText(
                 textLayoutResult = shot.layout,
-                topLeft = Offset(shot.x(videoSec), shot.y),
+                topLeft = Offset(x, shot.y),
                 alpha = fade,
             )
         }

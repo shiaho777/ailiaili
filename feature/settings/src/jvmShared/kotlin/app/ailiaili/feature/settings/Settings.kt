@@ -50,6 +50,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.HighQuality
@@ -234,6 +235,36 @@ fun SettingsRoute(
                 }
             }
             1 -> {
+                BiliSectionTitle("赞助片段", Modifier.padding(horizontal = 20.dp))
+                SettingsCard {
+                    BiliSwitchRow(
+                        title = "跳过赞助片段",
+                        checked = settings.sponsorBlock,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(sponsorBlock = on) } },
+                        supporting = "播到被标注的片段时跳到末尾，可随时撤回。默认关闭",
+                        icon = Icons.Filled.FastForward,
+                        tone = MetricTone.Coin,
+                    )
+                    BiliSettingsLabel(
+                        "跳过的类别",
+                        supporting = "数据来自网友标注，没人标过的视频不会跳。至少保留一类。",
+                    )
+                    RowChips {
+                        val selected = SponsorCategories.sanitize(settings.sponsorCategories).split(',').toSet()
+                        SponsorCategories.all.forEach { (id, label) ->
+                            BiliFilterChip(
+                                selected = id in selected,
+                                onClick = {
+                                    val next = if (id in selected) selected - id else selected + id
+                                    AppGraph.repo.updateSettings {
+                                        it.copy(sponsorCategories = SponsorCategories.sanitize(next.joinToString(",")))
+                                    }
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                }
                 if (isDesktopHost()) {
                     BiliSectionTitle("电脑快捷键", Modifier.padding(horizontal = 20.dp))
                     SettingsCard {
@@ -247,7 +278,7 @@ fun SettingsRoute(
                 }
                 BiliSectionTitle("画质与线路", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
-                    BiliSettingsLabel("默认画质")
+                    BiliSettingsLabel("画质")
                     RowChips {
                         qualities.forEach { qn ->
                             BiliFilterChip(
@@ -264,7 +295,7 @@ fun SettingsRoute(
                         supporting = "未登录时附带试看参数，最高到 1080P",
                         icon = Icons.Filled.HighQuality,
                     )
-                    BiliSettingsLabel("线路")
+                    BiliSettingsLabel("网络线路")
                     RowChips {
                         listOf(CdnMode.Auto to "自动测速", CdnMode.Server to "跟随服务端", CdnMode.Manual to "指定线路").forEach { (mode, label) ->
                             BiliFilterChip(
@@ -340,6 +371,7 @@ fun SettingsRoute(
                 }
                 BiliSectionTitle("弹幕", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
+                    BiliSettingsLabel("显示与过滤")
                     BiliSwitchRow(
                         title = "显示弹幕",
                         checked = settings.danmakuEnabled,
@@ -348,29 +380,12 @@ fun SettingsRoute(
                         tone = MetricTone.Danmaku,
                     )
                     BiliSwitchRow(
-                        title = "彩色弹幕",
-                        checked = settings.danmakuColorful,
-                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(danmakuColorful = on) } },
-                        icon = Icons.Filled.Palette,
-                        tone = MetricTone.Like,
-                    )
-                    BiliSwitchRow(
                         title = "智能屏蔽",
                         checked = settings.danmakuSmartFilter,
                         onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(danmakuSmartFilter = on) } },
                         supporting = "过滤超长和刷屏弹幕",
                         icon = Icons.Filled.AutoFixHigh,
                         tone = MetricTone.Online,
-                    )
-                    BiliSettingsLabel("弹幕显示区域 ${area.toInt()}%")
-                    Slider(
-                        value = area,
-                        onValueChange = { area = it },
-                        onValueChangeFinished = {
-                            AppGraph.repo.updateSettings { it.copy(danmakuAreaPercent = area.toInt()) }
-                        },
-                        valueRange = 25f..100f,
-                        modifier = Modifier.padding(horizontal = 16.dp),
                     )
                     BiliSettingsLabel(
                         "按类型过滤",
@@ -421,36 +436,32 @@ fun SettingsRoute(
                         placeholder = { Text("逗号、分号或换行分隔，re: 开头是正则") },
                         minLines = 2,
                     )
-                }
-                BiliSectionTitle("赞助片段", Modifier.padding(horizontal = 20.dp))
-                SettingsCard {
+                    BiliSettingsLabel("外观")
                     BiliSwitchRow(
-                        title = "跳过赞助片段",
-                        checked = settings.sponsorBlock,
-                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(sponsorBlock = on) } },
-                        supporting = "播到被标注的片段时跳到末尾，可随时撤回。默认关闭",
-                        icon = Icons.Filled.FastForward,
-                        tone = MetricTone.Coin,
+                        title = "彩色弹幕",
+                        checked = settings.danmakuColorful,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(danmakuColorful = on) } },
+                        icon = Icons.Filled.Palette,
+                        tone = MetricTone.Like,
                     )
-                    BiliSettingsLabel(
-                        "跳过的类别",
-                        supporting = "数据来自网友标注，没人标过的视频不会跳。至少保留一类。",
+                    BiliSwitchRow(
+                        title = "胶囊底衬",
+                        checked = settings.danmakuPillBackground,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(danmakuPillBackground = on) } },
+                        supporting = "半透明圆角背景，亮画面上也能看清白字",
+                        icon = Icons.Filled.ClosedCaption,
+                        tone = MetricTone.Danmaku,
                     )
-                    RowChips {
-                        val selected = SponsorCategories.sanitize(settings.sponsorCategories).split(',').toSet()
-                        SponsorCategories.all.forEach { (id, label) ->
-                            BiliFilterChip(
-                                selected = id in selected,
-                                onClick = {
-                                    val next = if (id in selected) selected - id else selected + id
-                                    AppGraph.repo.updateSettings {
-                                        it.copy(sponsorCategories = SponsorCategories.sanitize(next.joinToString(",")))
-                                    }
-                                },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
+                    BiliSettingsLabel("弹幕显示区域 ${area.toInt()}%")
+                    Slider(
+                        value = area,
+                        onValueChange = { area = it },
+                        onValueChangeFinished = {
+                            AppGraph.repo.updateSettings { it.copy(danmakuAreaPercent = area.toInt()) }
+                        },
+                        valueRange = 25f..100f,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
                 }
             }
             2 -> {

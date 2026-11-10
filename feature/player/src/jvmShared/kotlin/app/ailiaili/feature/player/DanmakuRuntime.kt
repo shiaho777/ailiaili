@@ -52,6 +52,7 @@ internal class DanmakuRuntime {
     private var cachedLineKey = 0
 
     val wantsFrames: Boolean get() = config.enabled || shots.isNotEmpty()
+    val pillBackground: Boolean get() = config.pill
 
     /**
      * 播放中用墙钟把采样进度补平滑。桌面 VLC 的 time() 往往几十到几百毫秒才跳一格，
@@ -139,6 +140,7 @@ internal class DanmakuRuntime {
         config.areaPercent = settings.danmakuAreaPercent.coerceIn(25, 100)
         config.paintColor = settings.danmakuColorful
         config.smart = settings.danmakuSmartFilter
+        config.pill = settings.danmakuPillBackground
         config.keywords = settings.danmakuBlockKeywords
         config.allowScroll = settings.danmakuFilterScroll
         config.allowFixed = settings.danmakuFilterFixed
@@ -526,6 +528,7 @@ internal class DanmakuRuntime {
         var areaPercent = 25
         var paintColor = true
         var smart = true
+        var pill = true
         var keywords = ""
         var allowScroll = true
         var allowFixed = true
