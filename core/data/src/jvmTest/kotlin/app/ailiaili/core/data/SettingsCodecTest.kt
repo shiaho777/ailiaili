@@ -1,5 +1,6 @@
 package app.ailiaili.core.data
 
+import app.ailiaili.core.model.BlockedUp
 import app.ailiaili.core.model.ContentKind
 import app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
 import app.ailiaili.core.model.NETWORK_CACHING_MAX_MS
@@ -44,6 +45,34 @@ class SettingsCodecTest {
         val out = decodeAppSettings(JSONObject())
         assertTrue(out.bufferAuto)
         assertEquals(NETWORK_CACHING_DEFAULT_MS, out.networkCachingMs)
+    }
+
+    @Test
+    fun roundTripsFilterRules() {
+        val src = decodeAppSettings(JSONObject()).copy(
+            filterTitleKeyword = "标题词",
+            filterUpKeyword = "UP词",
+            blockedUps = listOf(BlockedUp(123, "甲"), BlockedUp(0, "乙")),
+            blockedTitles = listOf("标题A", "标题B"),
+        )
+        val out = decodeAppSettings(encodeAppSettings(src))
+        assertEquals("标题词", out.filterTitleKeyword)
+        assertEquals("UP词", out.filterUpKeyword)
+        assertEquals(src.blockedUps, out.blockedUps)
+        assertEquals(src.blockedTitles, out.blockedTitles)
+    }
+
+    @Test
+    fun sanitizesBlankFilterRules() {
+        val json = JSONObject(
+            """
+            {"blockedUps":[{"mid":0,"name":"  "},{"mid":5,"name":""},{"mid":5,"name":"重复"}],
+             "blockedTitles":["  ","标题","标题"]}
+            """.trimIndent(),
+        )
+        val out = decodeAppSettings(json)
+        assertEquals(listOf(BlockedUp(5, "")), out.blockedUps)
+        assertEquals(listOf("标题"), out.blockedTitles)
     }
 
     @Test

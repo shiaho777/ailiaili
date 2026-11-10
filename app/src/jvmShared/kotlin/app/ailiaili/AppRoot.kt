@@ -29,6 +29,7 @@ import app.ailiaili.core.designsystem.BiliChrome
 import app.ailiaili.core.designsystem.BiliRail
 import app.ailiaili.core.designsystem.BiliRailItem
 import app.ailiaili.core.designsystem.BiliShell
+import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.LocalWindowForm
 import app.ailiaili.core.designsystem.ProvideWindowForm
 import app.ailiaili.core.designsystem.toChrome
@@ -284,6 +285,8 @@ private fun AppShell() {
     val vm = rememberShellViewModel()
     val haptic = LocalHapticFeedback.current
     val settings by AppGraph.repo.settings.collectAsState()
+    // 屏蔽规则只在启动时恢复一次，避免编辑关键词时被设置流回写打断。
+    LaunchedEffect(Unit) { ContentFilter.load(settings) }
     val form = LocalWindowForm.current
     var rereadDisclaimer by remember { mutableStateOf(false) }
     val (base, overlay) = playerLayers(vm.stack)

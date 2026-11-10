@@ -20,11 +20,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliFloatButton
 import app.ailiaili.core.designsystem.BiliHeaderAction
 import app.ailiaili.core.designsystem.BiliPageHeader
+import app.ailiaili.core.designsystem.ContentFilter
+import app.ailiaili.core.designsystem.FilterAutoLoad
 import app.ailiaili.core.designsystem.shellNavigationBottom
 import androidx.compose.material3.Surface
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -178,16 +182,30 @@ fun RegionRoute(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
+                val shown = vm.items.filter { ContentFilter.allows(it) }
+                FilterAutoLoad(
+                    shownEmpty = vm.items.isNotEmpty() && shown.isEmpty(),
+                    hasMore = vm.hasMore,
+                    loading = vm.loading || vm.loadingMore,
+                    onLoadMore = vm::loadMore,
+                )
                 LoadBox(
                     vm.loading || vm.loadingMore,
                     if (vm.items.isNotEmpty()) null else vm.error,
-                    vm.items.isEmpty(),
+                    shown.isEmpty(),
                     "这个分区暂时没有内容",
                     vm::reload,
                     Modifier.weight(1f),
                 ) {
-                    VideoGrid(
-                        vm.items,
+                    if (shown.isEmpty()) {
+                        BiliEmptyState(
+                            title = "这一页都被屏蔽了",
+                            message = ContentFilter.summary(),
+                            icon = Icons.Filled.FilterList,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else VideoGrid(
+                        shown,
                         onVideo,
                         onAuthor,
                         onLoadMore = if (vm.hasMore) vm::loadMore else null,

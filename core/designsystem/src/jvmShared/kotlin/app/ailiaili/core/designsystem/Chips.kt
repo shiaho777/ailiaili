@@ -3,6 +3,8 @@ package app.ailiaili.core.designsystem
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -76,4 +78,34 @@ fun BiliAssistChip(
 @Composable
 fun BiliChipIcon(content: @Composable () -> Unit) {
     androidx.compose.foundation.layout.Box(Modifier.size(18.dp)) { content() }
+}
+
+/** 屏蔽规则胶囊：点一下（或点右侧 ×）即可撤销。 */
+@Composable
+fun BiliRuleChip(
+    label: String,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    androidx.compose.material3.InputChip(
+        selected = false,
+        onClick = onRemove,
+        modifier = modifier,
+        shape = RoundedCornerShape(999.dp),
+        label = {
+            androidx.compose.material3.Text(
+                label,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        },
+        trailingIcon = {
+            androidx.compose.material3.Icon(
+                androidx.compose.material.icons.Icons.Filled.Close,
+                contentDescription = "移除屏蔽",
+                modifier = Modifier.size(16.dp),
+            )
+        },
+    )
 }

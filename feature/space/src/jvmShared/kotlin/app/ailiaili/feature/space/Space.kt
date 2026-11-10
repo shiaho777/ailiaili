@@ -70,6 +70,8 @@ import app.ailiaili.core.designsystem.BiliBackHeader
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
+import app.ailiaili.core.designsystem.ContentFilter
+import app.ailiaili.core.designsystem.FilterAutoLoad
 import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliErrorState
 import app.ailiaili.core.designsystem.BiliLoadingState
@@ -108,6 +110,8 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
     var info by mutableStateOf<SpaceInfo?>(null)
     var section by mutableStateOf(SpaceSection.Home)
     var items by mutableStateOf<List<VideoItem>>(emptyList())
+    /** 应用全站屏蔽规则后的投稿列表。 */
+    val visibleItems: List<VideoItem> get() = items.filter { ContentFilter.allows(it) }
     var videosReady by mutableStateOf(false)
     var videoError by mutableStateOf<String?>(null)
     var posts by mutableStateOf<List<SpacePost>?>(null)
@@ -437,6 +441,12 @@ fun SpaceRoute(
         snackbar.showSnackbar(message)
         if (vm.toast == message) vm.dismissToast()
     }
+    FilterAutoLoad(
+        shownEmpty = vm.section == SpaceSection.Videos && vm.items.isNotEmpty() && vm.visibleItems.isEmpty(),
+        hasMore = vm.hasMore,
+        loading = vm.loadingMore,
+        onLoadMore = vm::loadMore,
+    )
     LaunchedEffect(gridState, vm.section, vm.items.size, vm.posts?.size, vm.collectionVideos.size) {
         snapshotFlow { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .collect { last ->
@@ -546,16 +556,19 @@ private fun LazyGridScope.homeSections(
     item(key = "home-video-title", span = { GridItemSpan(maxLineSpan) }) {
         BiliSectionHeader(
             title = "最新投稿",
-            action = if (vm.items.size > 4) "全部" else null,
+            action = if (vm.visibleItems.size > 4) "全部" else null,
             onAction = { vm.select(SpaceSection.Videos) },
         )
     }
     when {
         !vm.videosReady -> item(key = "home-video-loading", span = { GridItemSpan(maxLineSpan) }) { CenterProgress() }
-        vm.items.isEmpty() -> item(key = "home-video-empty", span = { GridItemSpan(maxLineSpan) }) {
-            EmptyLine(vm.videoError ?: "该 UP 主暂无投稿", onRetry = if (vm.videoError != null) vm::reload else null)
+        vm.visibleItems.isEmpty() -> item(key = "home-video-empty", span = { GridItemSpan(maxLineSpan) }) {
+            EmptyLine(
+                vm.videoError ?: if (ContentFilter.active) "投稿都被屏蔽规则隐藏了" else "该 UP 主暂无投稿",
+                onRetry = if (vm.videoError != null) vm::reload else null,
+            )
         }
-        else -> gridItems(vm.items.take(4), key = { "home-${it.stableKey}" }) { item ->
+        else -> gridItems(vm.visibleItems.take(4), key = { "home-${it.stableKey}" }) { item ->
             VideoCard(item.withOwner(vm.ownerName()), onVideo, onAuthor = {}, Modifier.animateItem())
         }
     }
@@ -607,11 +620,14 @@ private fun LazyGridScope.videoSections(vm: SpaceViewModel, onVideo: (VideoItem)
     }
     when {
         !vm.videosReady -> item(key = "video-loading", span = { GridItemSpan(maxLineSpan) }) { CenterProgress() }
-        vm.items.isEmpty() -> item(key = "video-empty", span = { GridItemSpan(maxLineSpan) }) {
-            EmptyLine(vm.videoError ?: "该 UP 主暂无投稿", onRetry = if (vm.videoError != null) vm::reload else null)
+        vm.visibleItems.isEmpty() -> item(key = "video-empty", span = { GridItemSpan(maxLineSpan) }) {
+            EmptyLine(
+                vm.videoError ?: if (ContentFilter.active) "投稿都被屏蔽规则隐藏了" else "该 UP 主暂无投稿",
+                onRetry = if (vm.videoError != null) vm::reload else null,
+            )
         }
         else -> {
-            gridItems(vm.items, key = { it.stableKey + it.title }) { item ->
+            gridItems(vm.visibleItems, key = { it.stableKey + it.title }) { item ->
                 VideoCard(item.withOwner(vm.ownerName()), onVideo, onAuthor = {}, Modifier.animateItem())
             }
             if (vm.loadingMore) {

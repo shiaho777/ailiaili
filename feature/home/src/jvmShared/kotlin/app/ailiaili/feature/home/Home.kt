@@ -8,6 +8,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -33,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -55,7 +58,9 @@ import app.ailiaili.core.designsystem.BiliFilterChip
 import app.ailiaili.core.designsystem.BiliFloatButton
 import app.ailiaili.core.designsystem.BiliHeaderAction
 import app.ailiaili.core.designsystem.ContentFilter
+import app.ailiaili.core.designsystem.FilterAutoLoad
 import app.ailiaili.core.designsystem.BiliPageHeader
+import app.ailiaili.core.designsystem.BiliRuleChip
 import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.BiliSearchEntry
 import app.ailiaili.core.designsystem.BiliUnderlineTabs
@@ -66,6 +71,7 @@ import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.model.ThemeMode
 import app.ailiaili.core.model.VideoItem
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class HomeTab(val label: String) { Recommend("推荐"), Popular("热门"), Ranking("排行榜"), Live("直播") }
@@ -135,6 +141,7 @@ class HomeViewModel : ViewModel() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeRoute(
     onVideo: (VideoItem) -> Unit,
@@ -204,6 +211,11 @@ fun HomeRoute(
                 onSelect = { vm.select(HomeTab.entries[it]) },
             )
             var filterOpen by remember { mutableStateOf(false) }
+    // 关键词输入防抖落盘：不要每敲一个字就写一次设置文件。
+    LaunchedEffect(ContentFilter.title, ContentFilter.up) {
+        delay(300)
+        ContentFilter.persist()
+    }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -243,8 +255,48 @@ fun HomeRoute(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     contentPadding = PaddingValues(12.dp),
                 ) {
+                    if (ContentFilter.blockedUps.isNotEmpty()) {
+                        Text(
+                            "已屏蔽的 UP 主",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            ContentFilter.blockedUps.forEach { rule ->
+                                BiliRuleChip(
+                                    label = rule.name.ifBlank { "UID ${rule.mid}" },
+                                    onRemove = { ContentFilter.removeBlockedUp(rule) },
+                                )
+                            }
+                        }
+                    }
+                    if (ContentFilter.blockedTitles.isNotEmpty()) {
+                        Text(
+                            "已屏蔽的标题",
+                            modifier = Modifier.padding(top = 10.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            ContentFilter.blockedTitles.forEach { blocked ->
+                                BiliRuleChip(
+                                    label = blocked.take(24),
+                                    onRemove = { ContentFilter.removeBlockedTitle(blocked) },
+                                )
+                            }
+                        }
+                    }
                     Text(
                         "命中任意关键词就隐藏，多个词用空格或逗号分开",
+                        modifier = Modifier.padding(top = if (ContentFilter.blockedUps.isEmpty() && ContentFilter.blockedTitles.isEmpty()) 0.dp else 10.dp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -264,10 +316,21 @@ fun HomeRoute(
                         label = { Text("UP 主名称") },
                         shape = MaterialTheme.shapes.medium,
                     )
+                    if (ContentFilter.active) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = ContentFilter::clear) { Text("清除全部屏蔽") }
+                        }
+                    }
                 }
             }
             val shown = vm.items.filter { ContentFilter.allows(it) }
             val blockedOut = vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
+            FilterAutoLoad(
+                shownEmpty = blockedOut,
+                hasMore = vm.hasMore,
+                loading = vm.loading,
+                onLoadMore = vm::loadMore,
+            )
             PullToRefreshBox(
                 isRefreshing = vm.refreshing,
                 onRefresh = vm::refresh,

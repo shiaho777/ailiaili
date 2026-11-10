@@ -1,5 +1,6 @@
 package app.ailiaili
 
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -20,11 +21,13 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.DesktopHost
 import app.ailiaili.core.designsystem.BiliTheme
 import app.ailiaili.core.designsystem.InstallBiliImages
+import kotlin.math.roundToInt
 import java.awt.Dimension
 import java.awt.Frame
 import java.awt.GraphicsEnvironment
 import java.awt.SystemTray
 import java.awt.Toolkit
+import java.util.prefs.Preferences
 
 fun main() {
     if (!SingleInstance.tryAcquire()) return
@@ -33,10 +36,20 @@ fun main() {
         DesktopHost.exit = ::exitApplication
         // 创建窗口前先按主屏工作区夹一次，避免小屏 / 竖屏副屏上先出现一个超出屏幕的窗口。
         val workArea = remember { GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds }
+        val windowPrefs = remember { Preferences.userRoot().node("app/ailiaili/window") }
+        val savedWidth = windowPrefs.getInt("width", 0)
+        val savedHeight = windowPrefs.getInt("height", 0)
         val state = rememberWindowState(
-            width = minOf(1280, workArea.width).dp,
-            height = minOf(800, workArea.height).dp,
+            width = (savedWidth.takeIf { it in 720..4000 } ?: minOf(1280, workArea.width)).dp,
+            height = (savedHeight.takeIf { it in 480..3000 } ?: minOf(800, workArea.height)).dp,
         )
+        fun saveWindowSize() {
+            if (state.placement != WindowPlacement.Floating) return
+            runCatching {
+                windowPrefs.putInt("width", state.size.width.value.roundToInt())
+                windowPrefs.putInt("height", state.size.height.value.roundToInt())
+            }
+        }
         val icon = painterResource("icon.png")
         val trayOk = remember { SystemTray.isSupported() }
         val trayState = rememberTrayState()
@@ -70,11 +83,15 @@ fun main() {
                 Item("显示主界面", onClick = { showMain() })
                 Item("最小化到托盘", onClick = { hideMain() })
                 Separator()
-                Item("退出", onClick = { exitApplication() })
+                Item("退出", onClick = {
+                    saveWindowSize()
+                    exitApplication()
+                })
             }
         }
         Window(
             onCloseRequest = {
+                saveWindowSize()
                 val closeToTray = AppGraph.repo.settings.value.closeToTray
                 if (closeToTray && trayOk) hideMain() else exitApplication()
             },
@@ -114,6 +131,7 @@ fun main() {
                     window.requestFocus()
                 }
             }
+            DisposableEffect(Unit) { onDispose { saveWindowSize() } }
             InstallBiliImages()
             val settings by AppGraph.repo.settings.collectAsState()
             BiliTheme(settings.theme, settings.accentHex, settings.accentFollowSystem) {

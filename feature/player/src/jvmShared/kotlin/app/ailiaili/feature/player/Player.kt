@@ -68,6 +68,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import app.ailiaili.core.designsystem.BiliFilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -135,6 +136,7 @@ import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliSurfaceCard
+import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.MetaRow
 import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricChip
@@ -186,8 +188,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
-private val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+private val speeds = listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 4f)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -288,6 +291,7 @@ fun PlayerRoute(
     var qualityOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
+    var speedDraft by remember { mutableFloatStateOf(1f) }
     var fullscreen by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
@@ -1027,8 +1031,9 @@ fun PlayerRoute(
                                         kotlinx.coroutines.delay(320)
                                         if (!moved && liveRoom == null) {
                                             holding = true
-                                            speed = 2f
-                                            showHint("2 倍速", linger = false)
+                                            val holdSpeed = maxOf(2f, baseSpeed)
+                                            speed = holdSpeed
+                                            showHint(speedLabel(holdSpeed), linger = false)
                                         }
                                     }
                                 }
@@ -1399,7 +1404,10 @@ fun PlayerRoute(
                 }
                 if (liveRoom == null) {
                     Box {
-                        TextButton(onClick = { speedOpen = true }) {
+                        TextButton(onClick = {
+                            speedDraft = speed
+                            speedOpen = true
+                        }) {
                             Text(speedLabel(speed), color = Color.White)
                         }
                         DropdownMenu(expanded = speedOpen, onDismissRequest = { speedOpen = false }) {
@@ -1412,6 +1420,20 @@ fun PlayerRoute(
                                         baseSpeed = value
                                         runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
                                     },
+                                )
+                            }
+                            HorizontalDivider()
+                            Column(Modifier.padding(horizontal = 16.dp).width(220.dp)) {
+                                Text("自定义 ${speedLabel(speedDraft)}")
+                                Slider(
+                                    value = speedDraft,
+                                    onValueChange = { speedDraft = it },
+                                    onValueChangeFinished = {
+                                        speed = speedDraft
+                                        baseSpeed = speedDraft
+                                        runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
+                                    },
+                                    valueRange = 0.25f..4f,
                                 )
                             }
                         }
@@ -1747,9 +1769,10 @@ fun PlayerRoute(
                                 )
                             }
                         }
-                        if (related.isNotEmpty()) {
+                        val relatedShown = related.filter { ContentFilter.allows(it) }
+                        if (relatedShown.isNotEmpty()) {
                             BiliSectionTitle("相关推荐")
-                            related.take(12).forEach { item ->
+                            relatedShown.take(12).forEach { item ->
                                 key(item.stableKey) {
                                     VideoListRow(
                                         title = item.title,
@@ -2257,8 +2280,16 @@ private fun clock(ms: Long): String {
     return if (h > 0) "$h:$mm:$ss" else "$mm:$ss"
 }
 
-private fun speedLabel(value: Float): String =
-    if (value == value.toInt().toFloat()) "${value.toInt()}x" else "${value}x"
+private fun speedLabel(value: Float): String {
+    val hundredths = (value * 100).roundToInt()
+    val whole = hundredths / 100
+    val frac = hundredths % 100
+    return when {
+        frac == 0 -> "${whole}x"
+        frac % 10 == 0 -> "$whole.${frac / 10}x"
+        else -> "$whole.${frac.toString().padStart(2, '0')}x"
+    }
+}
 
 @Composable
 private fun VideoHeader(
@@ -2429,7 +2460,7 @@ private fun CommentBlock(
                     modifier = Modifier
                         .weight(1f, fill = false)
                         .clickable(enabled = comment.mid > 0) { onSpace(comment.mid) },
-                    color = if (comment.up) accent else ink,
+                    color = if (comment.up) accent else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = if (nested) 13.sp else 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -2465,7 +2496,7 @@ private fun CommentBlock(
                 SelectionContainer {
                     CommentRichText(
                         comment = comment,
-                        modifier = Modifier.padding(top = 4.dp),
+                        modifier = Modifier.padding(top = 6.dp),
                         color = ink,
                         accent = accent,
                     )
@@ -2525,7 +2556,13 @@ private fun CommentBlock(
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 ) {
-                    replies.forEach { reply ->
+                    replies.forEachIndexed { index, reply ->
+                        if (index > 0) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 4.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                            )
+                        }
                         key(reply.rpid) {
                             CommentBlock(
                                 reply,

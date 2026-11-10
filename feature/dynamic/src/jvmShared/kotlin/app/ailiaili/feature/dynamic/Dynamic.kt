@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
@@ -60,6 +61,8 @@ import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.ContentFilter
+import app.ailiaili.core.designsystem.FilterAutoLoad
 import app.ailiaili.core.designsystem.BiliHeaderAction
 import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.LoadBox
@@ -86,7 +89,7 @@ class DynamicViewModel : ViewModel() {
     var hasMore by mutableStateOf(false)
     var liveNow by mutableStateOf<List<VideoItem>>(emptyList())
     var liveLoading by mutableStateOf(false)
-    var liveOpen by mutableStateOf(true)
+    var liveOpen by mutableStateOf(false)
     /** UP 主 mid → 未读投稿数。只在左栏/筛选条上显示，不持久化。 */
     var unread by mutableStateOf<Map<Long, Int>>(emptyMap())
         private set
@@ -410,8 +413,9 @@ fun DynamicRoute(
                 }
             }
             Column(Modifier.weight(1f)) {
+            val shownLive = vm.liveNow.filter { ContentFilter.allows(it) }
             LiveBoard(
-                liveNow = vm.liveNow,
+                liveNow = shownLive,
                 loading = vm.liveLoading,
                 open = vm.liveOpen,
                 onToggle = { vm.liveOpen = !vm.liveOpen },
@@ -500,14 +504,34 @@ fun DynamicRoute(
                     }
                 }
             }
+            val shown = vm.items.filter { ContentFilter.allows(it) }
+            val blockedOut = vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
+            FilterAutoLoad(
+                shownEmpty = blockedOut,
+                hasMore = vm.hasMore,
+                loading = vm.loading,
+                onLoadMore = vm::loadMore,
+            )
             PullToRefreshBox(
                 isRefreshing = vm.loading && vm.items.isNotEmpty(),
                 onRefresh = vm::refresh,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                LoadBox(vm.loading, vm.error, vm.items.isEmpty(), "关注的 UP 还没有新动态", vm::refresh) {
-                    VideoGrid(
-                        vm.items,
+                LoadBox(vm.loading, vm.error, shown.isEmpty() && !blockedOut, "关注的 UP 还没有新动态", vm::refresh) {
+                    if (blockedOut) {
+                        BiliEmptyState(
+                            title = "这一页都被屏蔽了",
+                            message = ContentFilter.summary(),
+                            icon = Icons.Filled.FilterList,
+                            modifier = Modifier.fillMaxSize(),
+                            action = {
+                                androidx.compose.material3.TextButton(onClick = { ContentFilter.clear() }) {
+                                    Text("清除屏蔽")
+                                }
+                            },
+                        )
+                    } else VideoGrid(
+                        shown,
                         onVideo,
                         onAuthor,
                         onLoadMore = if (vm.hasMore) vm::loadMore else null,

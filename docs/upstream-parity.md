@@ -1,4 +1,4 @@
-# 上游对齐记录（BiliDesk v1.5.3）
+# 上游对齐记录（BiliDesk v1.6.0）
 
 本文件记录 ailiaili 从 [ABING1111/BiliDesk](https://github.com/ABING1111/BiliDesk)
 借鉴的行为、接口和交互。代码全部用 Kotlin / Compose 重写，不是逐行移植。
@@ -16,6 +16,12 @@
 | v1.5.3 | 关注直播改用官方 PC 直播页 `GetWebList` 接口，一次拿回全部在播主播；回到动态页和 60 秒轮询都会刷新 | `BiliClient.followingLive` / `DynamicViewModel.onEnter` |
 | v1.5.3 | 动态页左栏 UP 未读角标：本地记录上次看到的 bvid，点开该 UP 清零，首次运行只建基准 | `DynamicSeenStore` / `Dynamic.kt` |
 | v1.5.3 | 竖屏副屏 / 窄窗口适配：初始窗口按工作区夹取、最小尺寸使用逻辑点、播放器窄宽度收起次要控制项 | `desktopApp/Main.kt` / `Player.kt` |
+| v1.5.4 | 倍速弹层：预设 + 自定义 0.25–4.0x；长按快进目标取 max(2x, 当前速率) | `Player.kt` |
+| v1.5.4 | 关注直播看板默认收起，标题行常驻 | `Dynamic.kt` |
+| v1.5.4 | 桌面主窗口尺寸记忆（只记常规尺寸，最大化/全屏不覆盖） | `desktopApp/Main.kt` |
+| v1.6.0 | 屏蔽升级：精确 UP / 标题规则持久化，卡片右键一键屏蔽，覆盖首页、搜索、分区、收藏、历史、动态流、关注直播、稍后再看、个人空间与相关推荐 | `ContentFilter.kt` / `Components.kt` / `ListRows.kt` |
+| v1.6.0 | 首页屏蔽面板显示规则标签，可单独撤销；列表被筛空时自动补下一页 | `Home.kt` / `FilterAutoLoad` |
+| v1.6.0 | 评论昵称改为次要色、加大昵称与正文间距、楼中楼回复之间加分隔线 | `Player.kt` |
 | v1.4.1 / v1.4.2 | 图片预览支持缩放、拖动、双击 1x/2x | `AvatarPreview.kt` |
 | v1.4.2 | 视频卡封面长按 / 右键预览 | `Components.kt` |
 | v1.5.1 | 自动 / 手动网络缓冲策略，按 CDN 实测带宽挑选预读深度 | `BufferPolicy.kt` / `Settings.kt` |
@@ -28,6 +34,9 @@
 | 上游能力 | 原因 |
 |---|---|
 | .NET 10 / WPF 云母 / 亚克力 / Inno 安装器 | Windows WPF 专属，Compose Multiplatform 不适用 |
+| v1.5.4 播放器闪白 / 原生层 WM_ERASEBKGND | WPF 宿主窗口专属，Compose 播放层没有这套原生窗口路径 |
+| v1.6.0 动态左栏未读红点 | 上游 v1.6.3 已恢复为数字角标，本项目直接保留数字角标 |
+| v1.6.0 多任务下载进度中心 | 本项目只有播放页单任务缓存，没有并发下载队列 |
 | 账号密码登录 + 极验 | 依赖 WebView2，四平台没有同一套实现 |
 | 短视频本地下载并合流 MP4 | 需要跨平台 MP4 muxer；当前用 durl 单流覆盖大部分 seek 场景 |
 | 自定义下载路径 | Android 需要 SAF 持久授权，跨平台交互不一致 |

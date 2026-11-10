@@ -1,6 +1,7 @@
 package app.ailiaili.core.data
 
 import app.ailiaili.core.model.AppSettings
+import app.ailiaili.core.model.BlockedUp
 import app.ailiaili.core.model.CacheEntry
 import app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
 import app.ailiaili.core.model.NETWORK_CACHING_MAX_MS
@@ -121,6 +122,30 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     playerVolume = o.optDouble("playerVolume", 0.8).toFloat().coerceIn(0f, 1f),
     lastSearchKind = runCatching { ContentKind.valueOf(o.optString("lastSearchKind", "Video")) }
         .getOrDefault(ContentKind.Video),
+    filterTitleKeyword = o.optString("filterTitleKeyword"),
+    filterUpKeyword = o.optString("filterUpKeyword"),
+    blockedUps = run {
+        val arr = o.optJSONArray("blockedUps") ?: return@run emptyList()
+        buildList {
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                val mid = item.optLong("mid").coerceAtLeast(0)
+                val name = item.optString("name").trim().take(80)
+                if (mid > 0 || name.isNotBlank()) add(BlockedUp(mid, name))
+                if (size >= 200) break
+            }
+        }.distinctBy { if (it.mid > 0) "m${it.mid}" else "n${it.name}" }
+    },
+    blockedTitles = run {
+        val arr = o.optJSONArray("blockedTitles") ?: return@run emptyList()
+        buildList {
+            for (i in 0 until arr.length()) {
+                val title = arr.optString(i).trim()
+                if (title.isNotBlank()) add(title.take(200))
+                if (size >= 200) break
+            }
+        }.distinct()
+    },
 )
 
 internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
@@ -152,6 +177,20 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("closeToTray", next.closeToTray)
     .put("playerVolume", next.playerVolume.coerceIn(0f, 1f).toDouble())
     .put("lastSearchKind", next.lastSearchKind.name)
+    .put("filterTitleKeyword", next.filterTitleKeyword)
+    .put("filterUpKeyword", next.filterUpKeyword)
+    .put("blockedUps", JSONArray().apply {
+        next.blockedUps.forEach { rule ->
+            put(
+                JSONObject()
+                    .put("mid", rule.mid)
+                    .put("name", rule.name),
+            )
+        }
+    })
+    .put("blockedTitles", JSONArray().apply {
+        next.blockedTitles.forEach { put(it) }
+    })
 
 class SearchHistory(private val file: AppFile) {
     private val _items = MutableStateFlow<List<String>>(emptyList())

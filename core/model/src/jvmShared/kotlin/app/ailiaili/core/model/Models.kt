@@ -497,6 +497,12 @@ data class CdnLine(val id: String, val name: String, val host: String) {
 /** 壳层导航。Auto 按窗口宽高在底栏和侧栏之间切换。 */
 enum class ShellLayout { Auto, Bottom, Rail }
 
+/** 用户手动屏蔽的 UP 主。mid 用于精确匹配，name 用于没有 mid 的列表。 */
+data class BlockedUp(
+    val mid: Long = 0,
+    val name: String = "",
+)
+
 data class AppSettings(
     val theme: ThemeMode = ThemeMode.System,
     val shellLayout: ShellLayout = ShellLayout.Auto,
@@ -535,6 +541,14 @@ data class AppSettings(
     val closeToTray: Boolean = true,
     val playerVolume: Float = 0.8f,
     val lastSearchKind: ContentKind = ContentKind.Video,
+    /** 标题关键词屏蔽，多个词用空格/逗号分开。 */
+    val filterTitleKeyword: String = "",
+    /** UP 主名称关键词屏蔽。 */
+    val filterUpKeyword: String = "",
+    /** 一键屏蔽的 UP 主（精确规则）。 */
+    val blockedUps: List<BlockedUp> = emptyList(),
+    /** 一键屏蔽的视频标题（精确规则）。 */
+    val blockedTitles: List<String> = emptyList(),
 ) {
     val disclaimerAccepted: Boolean get() = acceptedDisclaimerVersion >= DISCLAIMER_VERSION
 }

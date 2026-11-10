@@ -15,11 +15,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,11 +53,14 @@ fun VideoListRow(
     /** 没有封面时是否保留占位。纯文字列表（如番剧选集）可以关掉。 */
     coverPlaceholder: Boolean = true,
     onLongClick: (() -> Unit)? = null,
+    author: String = "",
+    ownerMid: Long = 0,
     leading: (@Composable () -> Unit)? = null,
     meta: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    var menuOpen by remember(title, author) { mutableStateOf(false) }
     val background by animateColorAsState(
         if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
         label = "videoListRowBg",
@@ -71,6 +78,7 @@ fun VideoListRow(
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
+            .secondaryClick { menuOpen = true }
             .padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -118,5 +126,25 @@ fun VideoListRow(
             meta?.invoke()
         }
         trailing?.invoke(this)
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            if (author.isNotBlank() || ownerMid > 0) {
+                DropdownMenuItem(
+                    text = { Text("屏蔽此 UP 主") },
+                    onClick = {
+                        menuOpen = false
+                        ContentFilter.blockUp(ownerMid, author)
+                    },
+                )
+            }
+            if (title.isNotBlank()) {
+                DropdownMenuItem(
+                    text = { Text("屏蔽此标题") },
+                    onClick = {
+                        menuOpen = false
+                        ContentFilter.blockTitle(title)
+                    },
+                )
+            }
+        }
     }
 }

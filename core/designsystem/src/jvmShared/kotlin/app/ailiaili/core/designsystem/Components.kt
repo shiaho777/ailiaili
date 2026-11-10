@@ -29,6 +29,8 @@ import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -138,6 +140,7 @@ fun VideoCard(
     modifier: Modifier = Modifier,
 ) {
     var previewCover by remember(item.cover) { mutableStateOf(false) }
+    var menuOpen by remember(item.stableKey) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
     Surface(
         modifier = modifier
@@ -155,7 +158,7 @@ fun VideoCard(
                     onLongClick = { if (item.cover.isNotBlank()) previewCover = true },
                 )
                 .secondaryClick {
-                    if (item.cover.isNotBlank()) previewCover = true
+                    menuOpen = true
                 },
         ) {
             VideoCover(item)
@@ -212,6 +215,35 @@ fun VideoCard(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+            }
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (item.cover.isNotBlank()) {
+                    DropdownMenuItem(
+                        text = { Text("预览封面") },
+                        onClick = {
+                            menuOpen = false
+                            previewCover = true
+                        },
+                    )
+                }
+                if (item.author.isNotBlank() || item.ownerMid > 0) {
+                    DropdownMenuItem(
+                        text = { Text("屏蔽此 UP 主") },
+                        onClick = {
+                            menuOpen = false
+                            ContentFilter.blockUp(item.ownerMid, item.author)
+                        },
+                    )
+                }
+                if (item.title.isNotBlank()) {
+                    DropdownMenuItem(
+                        text = { Text("屏蔽此标题") },
+                        onClick = {
+                            menuOpen = false
+                            ContentFilter.blockTitle(item.title)
+                        },
+                    )
                 }
             }
         }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Tv
@@ -61,7 +62,10 @@ import app.ailiaili.core.designsystem.BiliAssistChip
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
+import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliSurfaceCard
+import app.ailiaili.core.designsystem.ContentFilter
+import app.ailiaili.core.designsystem.FilterAutoLoad
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.LocalWindowForm
 import app.ailiaili.core.designsystem.MetaRow
@@ -304,16 +308,35 @@ fun SearchRoute(
                     }
                 }
             } else {
-                val empty = if (vm.kind == ContentKind.Bangumi) vm.bangumiItems.isEmpty() else vm.items.isEmpty()
+                val shown = vm.items.filter { ContentFilter.allows(it) }
+                val blockedOut = vm.kind != ContentKind.Bangumi &&
+                    vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
+                val empty = if (vm.kind == ContentKind.Bangumi) vm.bangumiItems.isEmpty() else shown.isEmpty() && !blockedOut
+                FilterAutoLoad(
+                    shownEmpty = blockedOut,
+                    hasMore = vm.hasMore,
+                    loading = vm.loading,
+                    onLoadMore = vm::loadMore,
+                )
                 LoadBox(vm.loading, vm.error, empty, searchEmptyMessage(vm.kind), { vm.search() }) {
-                    if (vm.kind == ContentKind.Bangumi) {
-                        BangumiGrid(
+                    when {
+                        blockedOut -> BiliEmptyState(
+                            title = "这些结果都被屏蔽了",
+                            message = ContentFilter.summary(),
+                            icon = Icons.Filled.FilterList,
+                            modifier = Modifier.fillMaxSize(),
+                            action = {
+                                androidx.compose.material3.TextButton(onClick = { ContentFilter.clear() }) {
+                                    Text("清除屏蔽")
+                                }
+                            },
+                        )
+                        vm.kind == ContentKind.Bangumi -> BangumiGrid(
                             vm.bangumiItems,
                             onBangumi,
                             onLoadMore = if (vm.hasMore) vm::loadMore else null,
                         )
-                    } else {
-                        VideoGrid(vm.items, onVideo, onAuthor, onLoadMore = if (vm.hasMore) vm::loadMore else null)
+                        else -> VideoGrid(shown, onVideo, onAuthor, onLoadMore = if (vm.hasMore) vm::loadMore else null)
                     }
                 }
             }

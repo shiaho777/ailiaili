@@ -223,6 +223,8 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                             VideoListRow(
                                 title = item.title,
                                 cover = item.cover,
+                                author = item.author,
+                                ownerMid = item.ownerMid,
                                 badge = item.durationText,
                                 selected = editing && isPicked,
                                 modifier = Modifier.background(MaterialTheme.colorScheme.background),
@@ -381,6 +383,8 @@ fun FavVideosRoute(
                             VideoListRow(
                                 title = item.title,
                                 cover = item.cover,
+                                author = item.author,
+                                ownerMid = item.ownerMid,
                                 onClick = toggle,
                                 modifier = Modifier.animateItem(),
                                 badge = item.durationText,
@@ -466,6 +470,8 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
                         VideoListRow(
                             title = item.title,
                             cover = item.cover,
+                            author = item.author,
+                            ownerMid = item.ownerMid,
                             badge = item.durationText,
                             selected = editing && item.stableKey in picked,
                             onClick = { if (editing) toggle() else onVideo(item) },
