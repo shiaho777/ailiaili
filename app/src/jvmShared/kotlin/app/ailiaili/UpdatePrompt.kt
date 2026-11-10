@@ -1,5 +1,7 @@
 package app.ailiaili
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -10,8 +12,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.openUrl
+import app.ailiaili.core.designsystem.BiliBadge
+import app.ailiaili.core.designsystem.BiliBadgeStyle
+import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.network.JSONObject
 import app.ailiaili.core.network.SharedHttp
 import app.ailiaili.core.network.get
@@ -21,7 +28,7 @@ import kotlinx.coroutines.withContext
 
 private const val CURRENT_VERSION = "1.3.0"
 
-private data class UpdateNote(val tag: String, val page: String, val message: String)
+private data class UpdateNote(val tag: String, val page: String)
 
 @Composable
 fun UpdatePrompt(enabled: Boolean, skippedVersion: String) {
@@ -34,8 +41,28 @@ fun UpdatePrompt(enabled: Boolean, skippedVersion: String) {
     val message = note ?: return
     AlertDialog(
         onDismissRequest = { note = null },
-        title = { Text("有新版本") },
-        text = { Text(message.message) },
+        title = { Text("发现新版本") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    BiliBadge(
+                        text = "当前 $CURRENT_VERSION",
+                        tone = BiliBadgeTone.Neutral,
+                        style = BiliBadgeStyle.Soft,
+                    )
+                    Text("→")
+                    BiliBadge(
+                        text = message.tag,
+                        tone = BiliBadgeTone.Accent,
+                        style = BiliBadgeStyle.Solid,
+                    )
+                }
+                Text("新版本已经发布，可以前往下载页查看更新内容。")
+            }
+        },
         confirmButton = {
             TextButton(onClick = {
                 if (message.page.isNotBlank()) openUrl(message.page)
@@ -71,6 +98,6 @@ private suspend fun newerRelease(skipped: String): UpdateNote? = withContext(ioD
         val page = json.optString("html_url")
         if (tag.isBlank() || tag == CURRENT_VERSION) return@runCatching null
         if (tag.equals(skipped.removePrefix("v"), ignoreCase = true)) return@runCatching null
-        UpdateNote(tag, page, "最新发布 $tag\n$page")
+        UpdateNote(tag, page)
     }.getOrNull()
 }
