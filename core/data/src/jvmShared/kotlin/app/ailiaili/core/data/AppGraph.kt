@@ -13,6 +13,8 @@ object AppGraph {
         private set
     lateinit var cache: OfflineCache
         private set
+    lateinit var dynamicSeen: DynamicSeenStore
+        private set
     lateinit var http: HttpEngine
         private set
 
@@ -22,6 +24,7 @@ object AppGraph {
         val sessionStore = SessionStore(AppFile(dir, "session.json")).apply { load() }
         settings = SettingsStore(AppFile(dir, "settings.json")).apply { load() }
         searchHistory = SearchHistory(AppFile(dir, "search-history.json")).apply { load() }
+        dynamicSeen = DynamicSeenStore(AppFile(dir, "dynamic-seen.json")).apply { load() }
         cache = OfflineCache(AppFile(dir, "vcache"))
         http = SharedHttp.default
         val client = BiliClient(

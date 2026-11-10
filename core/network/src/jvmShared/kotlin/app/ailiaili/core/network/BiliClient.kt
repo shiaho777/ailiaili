@@ -885,41 +885,25 @@ class BiliClient(
     /**
      * 我关注的主播里正在直播的列表。
      *
-     * 两段式：先拿关注列表的 mid，再批量查直播状态。直播状态接口只认
-     * `application/json` 请求体，form 会报 invalid params，所以走 postJson。
+     * 直接走官方 PC 直播页左栏「关注」面板的接口，一次请求拿回全部正在直播的
+     * 主播，不再受关注列表第一页 30 人的限制。
+     *
+     * 旧的两段式（先 /x/relation/followings 再 POST
+     * /room/v1/Room/get_status_info_by_uids）有两个问题：
+     * 状态接口只认 form 编码，JSON 请求会返回 invalid params；
+     * 而且只查关注列表第一页，关注数超过 30 时后面的人开播永远看不到。
      */
-    suspend fun followingLive(limit: Int = 30): Result<List<VideoItem>> = api {
+    suspend fun followingLive(): Result<List<VideoItem>> = api {
         ensureBuvid()
-        val me = session().dedeUserId?.toLongOrNull()
-            ?: userState().getOrNull()?.mid
-            ?: 0L
-        if (me <= 0) error("请先登录后查看关注直播")
-        val take = limit.coerceIn(1, 50)
-        val page = get(
-            "https://api.bilibili.com/x/relation/followings",
-            mapOf("vmid" to me.toString(), "ps" to take.toString(), "pn" to "1"),
-            referer = "https://space.bilibili.com/",
+        val resp = get(
+            "https://api.live.bilibili.com/xlive/web-ucenter/v1/xfetter/GetWebList",
+            mapOf("hit_ab" to "true"),
+            referer = "https://live.bilibili.com/",
         )
-        if (page.code == -101) error("请先登录")
-        if (page.code != 0) error(friendly(page.code, page.message ?: "获取关注列表失败"))
-        val mids = page.data?.arr("list")?.objects().orEmpty()
-            .mapNotNull { it.lng("mid").takeIf { m -> m in 1..4_000_000_000L } }
-            .distinct()
-            .take(take)
-        if (mids.isEmpty()) return@api emptyList()
-
-        val body = """{"uids":[${mids.joinToString(",")}]}"""
-        val resp = http.postJson(
-            "https://api.live.bilibili.com/room/v1/Room/get_status_info_by_uids",
-            body,
-            defaultHeaders("https://live.bilibili.com/", session().cookieHeader()),
-        )
-        val text = resp.bodyText.trimStart()
-        if (!text.startsWith("{")) error("查询直播状态失败")
-        val root = runCatching { JSONObject(text) }.getOrElse { error("查询直播状态失败") }
-        val code = root.optInt("code")
-        if (code != 0) error(friendly(code, root.optString("message").ifBlank { "查询直播状态失败" }))
-        parseFollowingLive(root.optJSONObject("data") ?: return@api emptyList())
+        if (resp.code != 0) error(friendly(resp.code, resp.message ?: "查询关注直播失败"))
+        // code=0 但没有 data 当作「没人在播」：失败分支会保留上一次列表，
+        // 主播下播后看板会一直挂着旧条目。
+        parseFollowingLive(resp.data ?: return@api emptyList())
     }
 
     private fun parseSpaceCollection(e: JSONObject, series: Boolean): SpaceCollection? {

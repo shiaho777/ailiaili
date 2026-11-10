@@ -957,6 +957,9 @@ fun PlayerRoute(
         fun Stage(modifier: Modifier) {
         BoxWithConstraints(modifier) {
             val fillStage = fullscreen || splitPlayer
+            // 视频区窄于 560dp 时收起次要控制项（弹幕区域、听视频），
+            // 否则竖屏副屏/窄窗口下顶栏会挤成一团甚至被裁掉。
+            val compactChrome = maxWidth < 560.dp
             val stageHeight = if (fillStage) {
                 if (maxHeight == androidx.compose.ui.unit.Dp.Infinity) 300.dp else maxHeight
             } else {
@@ -1328,7 +1331,7 @@ fun PlayerRoute(
                         }
                     }
                 }
-                if (liveRoom == null && local == null && info != null) {
+                if (liveRoom == null && local == null && info != null && !compactChrome) {
                     TextButton(onClick = {
                         val pos = engine.currentPosition
                         if (listening) {
@@ -1371,7 +1374,7 @@ fun PlayerRoute(
                         tint = Color.White,
                     )
                 }
-                if (bvid != null) {
+                if (bvid != null && !compactChrome) {
                     Box {
                         TextButton(onClick = {
                             areaDraft = settings.danmakuAreaPercent.toFloat()

@@ -1,4 +1,4 @@
-# 上游对齐记录（BiliDesk v1.5.2）
+# 上游对齐记录（BiliDesk v1.5.3）
 
 本文件记录 ailiaili 从 [ABING1111/BiliDesk](https://github.com/ABING1111/BiliDesk)
 借鉴的行为、接口和交互。代码全部用 Kotlin / Compose 重写，不是逐行移植。
@@ -13,6 +13,9 @@
 | v1.5.0 | 游客搜索风控降级：裸端点 → 换 buvid 重试 | `BiliClient.search` / `rotateBuvid` |
 | v1.4.0 | 评论图片显示、@ 提及高亮、自定义表情内联 | `Comment` / `parseComment` / `CommentText.kt` |
 | v1.4.0 | 动态页「关注直播」看板 | `BiliClient.followingLive` / `Dynamic.kt` |
+| v1.5.3 | 关注直播改用官方 PC 直播页 `GetWebList` 接口，一次拿回全部在播主播；回到动态页和 60 秒轮询都会刷新 | `BiliClient.followingLive` / `DynamicViewModel.onEnter` |
+| v1.5.3 | 动态页左栏 UP 未读角标：本地记录上次看到的 bvid，点开该 UP 清零，首次运行只建基准 | `DynamicSeenStore` / `Dynamic.kt` |
+| v1.5.3 | 竖屏副屏 / 窄窗口适配：初始窗口按工作区夹取、最小尺寸按 dp 换算、播放器窄宽度收起次要控制项 | `desktopApp/Main.kt` / `Player.kt` |
 | v1.4.1 / v1.4.2 | 图片预览支持缩放、拖动、双击 1x/2x | `AvatarPreview.kt` |
 | v1.4.2 | 视频卡封面长按 / 右键预览 | `Components.kt` |
 | v1.5.1 | 自动 / 手动网络缓冲策略，按 CDN 实测带宽挑选预读深度 | `BufferPolicy.kt` / `Settings.kt` |

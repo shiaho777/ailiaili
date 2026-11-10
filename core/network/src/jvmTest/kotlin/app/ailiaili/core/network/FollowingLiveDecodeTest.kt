@@ -2,56 +2,50 @@ package app.ailiaili.core.network
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class FollowingLiveDecodeTest {
     @Test
-    fun keepsOnlyLiveRoomsAndSortsByPopularity() {
+    fun keepsOnlyLiveRoomsAndUsesFace() {
         val data = JSONObject(
             """
-            {
-              "1001": {
-                "room_id": 1001,
-                "title": "正在直播 A",
-                "uname": "主播A",
-                "uid": 11,
-                "live_status": 1,
-                "user_cover": "//i0.hdslb.com/a.jpg",
-                "online": 30
-              },
-              "1002": {
-                "room_id": 1002,
-                "title": "正在直播 B",
-                "uname": "主播B",
-                "uid": 12,
-                "live_status": 1,
-                "cover": "//i0.hdslb.com/b.jpg",
-                "online": 90
-              },
-              "1003": {
-                "room_id": 1003,
-                "title": "没开播",
-                "uname": "主播C",
-                "uid": 13,
-                "live_status": 0,
-                "online": 999
-              },
-              "1004": {
-                "room_id": 1004,
-                "title": "轮播",
-                "uname": "主播D",
-                "uid": 14,
-                "live_status": 2,
-                "online": 999
-              }
-            }
+            {"rooms":[
+              {"room_id":101,"uid":11,"uname":"主播A","title":"<em>标题</em>","live_status":1,
+               "face":"//i0.hdslb.com/a.jpg","online":0},
+              {"room_id":102,"uid":12,"uname":"主播B","title":"未开播","live_status":0,
+               "face":"//i0.hdslb.com/b.jpg"},
+              {"room_id":101,"uid":11,"uname":"主播A","title":"重复房间","live_status":1},
+              {"roomid":103,"uid":13,"nickname":"主播C","title":"轮播","live_status":1,
+               "cover_from_user":"//i0.hdslb.com/c.jpg"}
+            ]}
             """.trimIndent(),
         )
-
         val items = parseFollowingLive(data)
-        assertEquals(listOf(1002L, 1001L), items.map { it.roomId })
-        assertEquals("主播B", items[0].author)
-        assertEquals("https://i0.hdslb.com/b.jpg", items[0].cover)
-        assertEquals("直播中", items[0].durationText)
-        assertEquals(90L, items[0].viewCount)
+        assertEquals(2, items.size)
+        assertEquals(101L, items[0].roomId)
+        assertEquals("主播A", items[0].author)
+        assertEquals("标题", items[0].title)
+        assertTrue(items[0].cover.startsWith("https://"))
+        assertEquals(103L, items[1].roomId)
+        assertEquals("主播C", items[1].author)
+    }
+
+    @Test
+    fun fallsBackToListAndSortsByOnline() {
+        val data = JSONObject(
+            """
+            {"list":[
+              {"room_id":201,"uid":21,"uname":"冷门","title":"A","live_status":1,"online":3},
+              {"room_id":202,"uid":22,"uname":"热门","title":"B","live_status":1,"online":900}
+            ]}
+            """.trimIndent(),
+        )
+        val items = parseFollowingLive(data)
+        assertEquals(listOf(202L, 201L), items.map { it.roomId })
+    }
+
+    @Test
+    fun emptyDataMeansNobodyLive() {
+        assertTrue(parseFollowingLive(JSONObject("{}")).isEmpty())
     }
 }

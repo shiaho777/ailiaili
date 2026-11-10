@@ -73,6 +73,7 @@ import app.ailiaili.core.model.FollowUser
 import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.formatCount
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class DynamicViewModel : ViewModel() {
@@ -86,7 +87,12 @@ class DynamicViewModel : ViewModel() {
     var liveNow by mutableStateOf<List<VideoItem>>(emptyList())
     var liveLoading by mutableStateOf(false)
     var liveOpen by mutableStateOf(true)
+    /** UP 主 mid → 未读投稿数。只在左栏/筛选条上显示，不持久化。 */
+    var unread by mutableStateOf<Map<Long, Int>>(emptyMap())
+        private set
     private var liveTicket = 0
+    private var liveBusy = false
+    private var unreadBusy = false
     private var usersPage by mutableIntStateOf(1)
     private var usersLoading = false
     private var offset: String? = null
@@ -100,6 +106,7 @@ class DynamicViewModel : ViewModel() {
             users = emptyList()
             items = emptyList()
             liveNow = emptyList()
+            unread = emptyMap()
             error = "请先登录后查看动态"
             return
         }
@@ -112,7 +119,7 @@ class DynamicViewModel : ViewModel() {
                 return@launch
             }
             selfMid = mid
-            loadLive()
+            refreshLive()
             AppGraph.repo.followings(mid, 1).onSuccess { page ->
                 users = page.items
                 usersPage = 1
@@ -124,17 +131,59 @@ class DynamicViewModel : ViewModel() {
     }
 
     /**
+     * 进入动态页。页面实例是长期缓存的：从别的页面切回来时不能只靠首次加载，
+     * 否则关注直播看板和未读角标会永远停在「第一次进动态页」那一刻。
+     * 已加载过就只做两次轻量刷新，不动右栏列表和滚动位置。
+     */
+    fun onEnter() {
+        if (!AppGraph.repo.session.value.loggedIn) {
+            refresh()
+            return
+        }
+        if (users.isEmpty()) {
+            refresh()
+            return
+        }
+        refreshLive(showLoading = liveNow.isEmpty())
+        refreshUnreadBadges()
+    }
+
+    /**
      * 关注直播看板。与动态流并行加载，失败静默：看板是锦上添花，
      * 不能因为它给整页报错。
+     *
+     * showLoading=false 用于后台轮询：没人在播时不要让空态文案每分钟闪一下。
+     * liveBusy 挡住定时器与人工刷新撞车，避免两路结果先后覆盖。
      */
-    private fun loadLive() {
+    fun refreshLive(showLoading: Boolean = true) {
+        if (liveBusy) return
         val current = ++liveTicket
-        liveLoading = true
+        liveBusy = true
+        if (showLoading) liveLoading = true
         viewModelScope.launch {
             val result = AppGraph.repo.followingLive()
+            liveBusy = false
             if (current != liveTicket) return@launch
             liveLoading = false
+            // 失败保留上一次列表：主播下播后接口返回空列表会正常覆盖，
+            // 网络抖动则不该把看板清空。
             result.onSuccess { liveNow = it }
+        }
+    }
+
+    /**
+     * 只刷新左栏未读角标，不动右栏列表。
+     *
+     * 不能复用 loadFeed：那会清空列表并弹整页 loading，用户只是切回来瞄一眼角标，
+     * 不该被强制回到顶部。这里单独拉第一页动态就够了。
+     */
+    fun refreshUnreadBadges() {
+        if (unreadBusy || users.isEmpty() || selected != null) return
+        if (!AppGraph.repo.session.value.loggedIn) return
+        unreadBusy = true
+        viewModelScope.launch {
+            AppGraph.repo.dynamics(null).onSuccess { page -> updateUnread(page.items) }
+            unreadBusy = false
         }
     }
 
@@ -146,6 +195,8 @@ class DynamicViewModel : ViewModel() {
 
     fun select(user: FollowUser) {
         if (selected?.mid == user.mid) return
+        // 点开某个 UP = 已读：清角标，并把基准推到 TA 当前最新一条。
+        clearUnread(user)
         selected = user
         loadFeed(reset = true)
     }
@@ -160,6 +211,9 @@ class DynamicViewModel : ViewModel() {
                 val known = users.map { it.mid }.toSet()
                 users = users + page.items.filter { it.mid !in known }
                 usersHasMore = page.hasMore
+                // 左栏翻出新 UP 后按已缓存的动态流补算一次角标，
+                // 否则关注 30+ 人的账号往下滚出来的 UP 永远没有未读数。
+                if (selected == null) updateUnread(items)
             }
             usersLoading = false
         }
@@ -195,6 +249,7 @@ class DynamicViewModel : ViewModel() {
                     items = if (reset) fresh else items + fresh
                     hasMore = !page.nextOffset.isNullOrBlank() && page.nextOffset != previous
                     if (items.isEmpty()) error = "关注的 UP 最近没有视频投稿"
+                    updateUnread(items)
                 }.onFailure {
                     if (items.isEmpty()) error = it.message
                     hasMore = false
@@ -210,12 +265,66 @@ class DynamicViewModel : ViewModel() {
                     items = if (reset) fresh else items + fresh
                     hasMore = list.size >= 30
                     if (items.isEmpty()) error = "该 UP 暂时没有投稿视频"
+                    clearUnread(up)
                 }.onFailure {
                     if (items.isEmpty()) error = it.message
                     hasMore = false
                 }
             }
         }
+    }
+
+    /**
+     * 用一页动态条目刷新左栏各 UP 的未读角标。
+     *
+     * 规则（基准存在 [AppGraph.dynamicSeen]，本地判断、不请求接口）：
+     * · 没有基准的 UP：只把 TA 当前最新一条记成基准，不打角标；
+     * · 基准与最新一条相同：角标清零；
+     * · 不同：角标数 = 这一页里排在基准那条之前的该 UP 投稿数
+     *   （基准那条已经翻出本页时，本页所有该 UP 的条目都算新的）。
+     * 本页没有出现的 UP 不动：接口只给近期条目，无从判断「没更新」。
+     */
+    private fun updateUnread(source: List<VideoItem>) {
+        if (users.isEmpty()) return
+        // 动态流按时间倒序，每个 UP 先遇到的就是最新一条。
+        val newest = LinkedHashMap<Long, String>()
+        source.forEach { item ->
+            if (item.ownerMid > 0 && item.bvid.isNotBlank() && !newest.containsKey(item.ownerMid)) {
+                newest[item.ownerMid] = item.bvid
+            }
+        }
+        val next = unread.toMutableMap()
+        users.forEach { user ->
+            val top = newest[user.mid] ?: return@forEach
+            val seen = AppGraph.dynamicSeen.seen(user.mid)
+            if (seen == null) {
+                AppGraph.dynamicSeen.put(user.mid, top)
+                next.remove(user.mid)
+                return@forEach
+            }
+            if (seen == top) {
+                next.remove(user.mid)
+                return@forEach
+            }
+            var count = 0
+            for (item in source) {
+                if (item.ownerMid != user.mid) continue
+                if (item.bvid == seen) break
+                count++
+            }
+            if (count > 0) next[user.mid] = count else next.remove(user.mid)
+        }
+        AppGraph.dynamicSeen.flush()
+        unread = next
+    }
+
+    /** 点开某个 UP（只看 TA 的投稿）= 已读：清角标，并把基准推到 TA 当前最新一条。 */
+    private fun clearUnread(user: FollowUser) {
+        items.firstOrNull { it.ownerMid == user.mid && it.bvid.isNotBlank() }?.let {
+            AppGraph.dynamicSeen.put(user.mid, it.bvid)
+        }
+        AppGraph.dynamicSeen.flush()
+        if (unread.containsKey(user.mid)) unread = unread - user.mid
     }
 }
 
@@ -230,7 +339,19 @@ fun DynamicRoute(
     val navBottom = shellNavigationBottom()
     val haptic = LocalHapticFeedback.current
     val userRow = rememberLazyListState()
-    LaunchedEffect(session.loggedIn) { vm.refresh() }
+    LaunchedEffect(session.loggedIn) { vm.onEnter() }
+    // 看板每分钟刷新一次；未读角标慢一拍（每 2 分钟），避免多打一次动态接口。
+    // 切到别的页面时 DynamicRoute 离开组合，协程自动取消，不会在后台空转。
+    LaunchedEffect(session.loggedIn) {
+        if (!session.loggedIn) return@LaunchedEffect
+        var tick = 0
+        while (true) {
+            delay(60_000)
+            tick++
+            vm.refreshLive(showLoading = false)
+            if (tick % 2 == 0) vm.refreshUnreadBadges()
+        }
+    }
     LaunchedEffect(userRow, vm.users.size, vm.usersHasMore) {
         snapshotFlow { userRow.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .collect { last ->
@@ -279,6 +400,7 @@ fun DynamicRoute(
                             name = user.name,
                             face = user.face,
                             selected = vm.selected?.mid == user.mid,
+                            newCount = vm.unread[user.mid] ?: 0,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                                 vm.select(user)
@@ -329,10 +451,23 @@ fun DynamicRoute(
                                 }
                             },
                             label = {
-                                Text(
-                                    user.name,
-                                    fontWeight = if (vm.selected?.mid == user.mid) FontWeight.SemiBold else FontWeight.Normal,
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Text(
+                                        user.name,
+                                        fontWeight = if (vm.selected?.mid == user.mid) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                    val count = vm.unread[user.mid] ?: 0
+                                    if (count > 0) {
+                                        BiliBadge(
+                                            text = if (count > 99) "99+" else count.toString(),
+                                            tone = BiliBadgeTone.Accent,
+                                            style = BiliBadgeStyle.Solid,
+                                        )
+                                    }
+                                }
                             },
                         )
                     }
@@ -392,6 +527,7 @@ private fun UserFilterRow(
     name: String,
     face: String?,
     selected: Boolean,
+    newCount: Int = 0,
     onClick: () -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
@@ -438,6 +574,14 @@ private fun UserFilterRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (newCount > 0) {
+                BiliBadge(
+                    text = if (newCount > 99) "99+" else newCount.toString(),
+                    modifier = Modifier.padding(start = 6.dp),
+                    tone = BiliBadgeTone.Accent,
+                    style = BiliBadgeStyle.Solid,
+                )
+            }
         }
     }
 }

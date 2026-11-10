@@ -218,31 +218,37 @@ internal fun decodeDurl(data: JSONObject): PlayInfo? {
 }
 
 /**
- * 解析 `/room/v1/Room/get_status_info_by_uids` 的 data。
+ * 解析 `/xlive/web-ucenter/v1/xfetter/GetWebList` 的 data。
  * 只收 live_status == 1（直播中），0=未开播、2=轮播都不算。
+ *
+ * `hit_ab=true` 时接口把 online/live_time 置 0，头像用 face 比房间封面更像「人」。
+ * rooms 与 list 内容相同，rooms 缺失时退回 list。
  */
 internal fun parseFollowingLive(data: JSONObject): List<VideoItem> {
-    val items = mutableListOf<VideoItem>()
-    val keys = data.keys()
-    while (keys.hasNext()) {
-        val e = data.obj(keys.next()) ?: continue
-        if (e.int("live_status") != 1) continue
-        val roomId = e.lng("room_id").takeIf { it > 0 } ?: e.lng("short_id")
-        if (roomId <= 0) continue
-        val cover = e.str("user_cover")
-            .ifBlank { e.str("cover") }
+    val rooms = data.arr("rooms") ?: data.arr("list") ?: return emptyList()
+    val seenRooms = mutableSetOf<Long>()
+    val items = rooms.objects().mapNotNull { e ->
+        if (e.int("live_status") != 1) return@mapNotNull null
+        var roomId = e.lng("room_id")
+        if (roomId <= 0) roomId = e.lng("roomid")
+        if (roomId <= 0) roomId = e.lng("short_id")
+        if (roomId <= 0 || !seenRooms.add(roomId)) return@mapNotNull null
+        val cover = e.str("face")
+            .ifBlank { e.str("cover_from_user") }
             .ifBlank { e.str("keyframe") }
-        items += VideoItem(
+            .ifBlank { e.str("room_cover") }
+        VideoItem(
             roomId = roomId,
             title = e.str("title").stripHtml(),
-            author = e.str("uname"),
+            author = e.str("uname").ifBlank { e.str("nickname") },
             ownerMid = e.lng("uid"),
             cover = normalizeUrl(cover),
             durationText = "直播中",
             viewCount = e.lng("online"),
         )
     }
-    return items.sortedByDescending { it.viewCount }
+    // hit_ab=true 时 online 恒为 0，此时保持接口原顺序。
+    return if (items.any { it.viewCount > 0 }) items.sortedByDescending { it.viewCount } else items
 }
 
 internal fun parseDynamic(e: JSONObject): VideoItem? {
