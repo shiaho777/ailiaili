@@ -3,6 +3,7 @@ package app.ailiaili.core.data
 import app.ailiaili.core.model.BlockedUp
 import app.ailiaili.core.model.CdnMode
 import app.ailiaili.core.model.ContentKind
+import app.ailiaili.core.model.RecommendSource
 import app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
 import app.ailiaili.core.model.NETWORK_CACHING_MAX_MS
 import app.ailiaili.core.network.JSONObject
@@ -46,6 +47,13 @@ class SettingsCodecTest {
         val out = decodeAppSettings(JSONObject())
         assertTrue(out.bufferAuto)
         assertEquals(NETWORK_CACHING_DEFAULT_MS, out.networkCachingMs)
+    }
+
+    @Test
+    fun roundTripsRecommendSource() {
+        val src = decodeAppSettings(JSONObject()).copy(recommendSource = RecommendSource.App)
+        val out = decodeAppSettings(encodeAppSettings(src))
+        assertEquals(RecommendSource.App, out.recommendSource)
     }
 
     @Test

@@ -567,6 +567,9 @@ data class CdnLine(val id: String, val name: String, val host: String) {
 /** 壳层导航。Auto 按窗口宽高在底栏和侧栏之间切换。 */
 enum class ShellLayout { Auto, Bottom, Rail }
 
+/** 首页推荐来源。Web = 网页版推荐，App = 客户端推荐流。 */
+enum class RecommendSource { Web, App }
+
 /** 用户手动屏蔽的 UP 主。mid 用于精确匹配，name 用于没有 mid 的列表。 */
 data class BlockedUp(
     val mid: Long = 0,
@@ -576,6 +579,7 @@ data class BlockedUp(
 data class AppSettings(
     val theme: ThemeMode = ThemeMode.System,
     val shellLayout: ShellLayout = ShellLayout.Auto,
+    val recommendSource: RecommendSource = RecommendSource.Web,
     val danmakuEnabled: Boolean = true,
     val danmakuAreaPercent: Int = 25,
     val danmakuSmartFilter: Boolean = true,

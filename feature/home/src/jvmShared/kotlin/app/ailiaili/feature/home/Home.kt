@@ -84,8 +84,16 @@ class HomeViewModel : ViewModel() {
     var error by mutableStateOf<String?>(null)
     var page by mutableIntStateOf(1)
     var hasMore by mutableStateOf(true)
+    private var source = AppGraph.repo.settings.value.recommendSource
 
     init { refresh() }
+
+    fun onSourceChanged() {
+        val next = AppGraph.repo.settings.value.recommendSource
+        if (next == source) return
+        source = next
+        if (tab == HomeTab.Recommend) refresh()
+    }
 
     fun select(next: HomeTab) {
         if (tab == next) return
@@ -154,6 +162,7 @@ fun HomeRoute(
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val settings by AppGraph.repo.settings.collectAsState()
+    LaunchedEffect(settings.recommendSource) { vm.onSourceChanged() }
     val greeting = remember { greetingNow() }
     val away by remember {
         derivedStateOf { grid.firstVisibleItemIndex > 0 || grid.firstVisibleItemScrollOffset > 240 }

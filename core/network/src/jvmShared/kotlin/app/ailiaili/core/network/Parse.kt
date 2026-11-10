@@ -10,6 +10,7 @@ import app.ailiaili.core.model.VideoDetail
 import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.VideoPage
 import app.ailiaili.core.model.formatSeconds
+import app.ailiaili.core.model.UrlParser
 import app.ailiaili.core.model.normalizeUrl
 import app.ailiaili.core.model.formatMonthDayHour
 import app.ailiaili.core.model.parseMentions
@@ -52,6 +53,43 @@ internal fun parseRecommend(e: JSONObject): VideoItem? {
     val followed = e.int("is_followed") == 1 ||
         e.obj("rcmd_reason")?.int("reason_type") == 1
     return if (followed) item.copy(authorFollowed = true) else item
+}
+
+/** App 端推荐流：goto=av 的卡片，字段在 args / player_args 里。 */
+internal fun parseAppRecommend(e: JSONObject): VideoItem? {
+    if (e.str("goto") != "av" && e.str("card_goto") != "av") return null
+    val args = e.obj("args")
+    val player = e.obj("player_args")
+    val aid = args?.lng("aid") ?: e.str("param").toLongOrNull() ?: 0L
+    if (aid <= 0) return null
+    val bvid = UrlParser.avToBv(aid)
+    if (bvid.isBlank()) return null
+    return VideoItem(
+        bvid = bvid,
+        aid = aid,
+        cid = player?.lng("cid") ?: 0,
+        title = e.str("title").stripHtml(),
+        cover = normalizeUrl(e.str("cover")),
+        author = args?.str("up_name").orEmpty(),
+        ownerMid = args?.lng("up_id") ?: 0,
+        durationText = e.str("cover_right_text"),
+        durationSec = player?.int("duration") ?: 0,
+        viewCount = parseCountText(e.str("cover_left_text_1")),
+        danmakuCount = parseCountText(e.str("cover_left_text_2")),
+    )
+}
+
+/** "26.8万" / "1.2亿" / "217" → 数字。解析不了就当 0。 */
+internal fun parseCountText(raw: String): Long {
+    val text = raw.trim()
+    if (text.isEmpty()) return 0
+    val unit = when {
+        text.endsWith("万") -> 10_000L
+        text.endsWith("亿") -> 100_000_000L
+        else -> 1L
+    }
+    val number = text.removeSuffix("万").removeSuffix("亿").toDoubleOrNull() ?: return 0
+    return (number * unit).toLong()
 }
 
 internal fun parseSearch(e: JSONObject): VideoItem? {

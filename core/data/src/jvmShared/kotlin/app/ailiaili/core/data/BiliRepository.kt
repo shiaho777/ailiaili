@@ -140,7 +140,8 @@ class BiliRepositoryImpl(
     override suspend fun ranking() = client.ranking()
     override suspend fun regionRank(rid: Int) = client.regionRank(rid)
     override suspend fun regionFeed(tid: Int, displayId: Int) = client.regionFeed(tid, displayId)
-    override suspend fun recommend(brush: Int) = client.recommend(brush)
+    override suspend fun recommend(brush: Int) =
+        client.recommend(brush, settingsStore.current.recommendSource)
     override suspend fun search(keyword: String, page: Int, kind: ContentKind) = client.search(keyword, page, kind)
     override suspend fun bangumiDetail(seasonId: Long) = client.bangumiDetail(seasonId)
     override suspend fun hotSearch() = client.hotSearch()

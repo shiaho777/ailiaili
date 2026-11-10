@@ -77,6 +77,7 @@ import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.shellBottomPadding
 import app.ailiaili.core.model.CdnLine
 import app.ailiaili.core.model.CdnMode
+import app.ailiaili.core.model.RecommendSource
 import app.ailiaili.core.model.ShellLayout
 import app.ailiaili.core.model.ThemeMode
 import app.ailiaili.core.model.qnLabel
@@ -118,6 +119,27 @@ fun SettingsRoute(
         }
         when (tab) {
             0 -> {
+                BiliSectionTitle("内容", Modifier.padding(horizontal = 20.dp))
+                SettingsCard {
+                    BiliSettingsLabel(
+                        "推荐来源",
+                        supporting = "网页版推荐更稳，App 端推荐更接近手机客户端。切换后立即重拉首页推荐。",
+                    )
+                    RowChips {
+                        listOf(
+                            RecommendSource.Web to "网页版",
+                            RecommendSource.App to "App 端",
+                        ).forEach { (source, label) ->
+                            BiliFilterChip(
+                                selected = settings.recommendSource == source,
+                                onClick = {
+                                    AppGraph.repo.updateSettings { it.copy(recommendSource = source) }
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                }
                 BiliSectionTitle("外观", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
                     BiliSettingsLabel("标签栏", supporting = "自动：手机竖屏用底部，平板和电脑窗口用左侧。也可以固定某一种。")

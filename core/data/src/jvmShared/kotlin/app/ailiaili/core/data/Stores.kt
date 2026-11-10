@@ -9,6 +9,7 @@ import app.ailiaili.core.model.NETWORK_CACHING_MIN_MS
 import app.ailiaili.core.model.CdnMode
 import app.ailiaili.core.model.ContentKind
 import app.ailiaili.core.model.PlayInfo
+import app.ailiaili.core.model.RecommendSource
 import app.ailiaili.core.model.Session
 import app.ailiaili.core.model.ShellLayout
 import app.ailiaili.core.model.SponsorCategories
@@ -87,6 +88,8 @@ class SettingsStore(private val file: AppFile) {
 internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     theme = runCatching { ThemeMode.valueOf(o.optString("theme", "System")) }.getOrDefault(ThemeMode.System),
     shellLayout = runCatching { ShellLayout.valueOf(o.optString("shellLayout", "Auto")) }.getOrDefault(ShellLayout.Auto),
+    recommendSource = runCatching { RecommendSource.valueOf(o.optString("recommendSource", "Web")) }
+        .getOrDefault(RecommendSource.Web),
     danmakuEnabled = o.optBoolean("danmakuEnabled", true),
     danmakuAreaPercent = o.optInt("danmakuAreaPercent", 25).coerceIn(25, 100),
     danmakuSmartFilter = o.optBoolean("danmakuSmartFilter", true),
@@ -157,6 +160,7 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
 internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("theme", next.theme.name)
     .put("shellLayout", next.shellLayout.name)
+    .put("recommendSource", next.recommendSource.name)
     .put("danmakuEnabled", next.danmakuEnabled)
     .put("danmakuAreaPercent", next.danmakuAreaPercent)
     .put("danmakuSmartFilter", next.danmakuSmartFilter)

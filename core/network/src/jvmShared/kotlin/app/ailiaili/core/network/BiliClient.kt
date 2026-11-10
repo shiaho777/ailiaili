@@ -20,6 +20,7 @@ import app.ailiaili.core.model.MsgSession
 import app.ailiaili.core.model.PlayInfo
 import app.ailiaili.core.model.audioQnLabel
 import app.ailiaili.core.model.QrStatus
+import app.ailiaili.core.model.RecommendSource
 import app.ailiaili.core.model.QrTicket
 import app.ailiaili.core.model.SearchPage
 import app.ailiaili.core.model.Session
@@ -159,8 +160,12 @@ class BiliClient(
         page
     }
 
-    suspend fun recommend(brush: Int = 1): Result<List<VideoItem>> = api {
+    suspend fun recommend(
+        brush: Int = 1,
+        source: RecommendSource = RecommendSource.Web,
+    ): Result<List<VideoItem>> = api {
         ensureBuvid()
+        if (source == RecommendSource.App) return@api recommendApp(brush)
         val cursor = brush.coerceAtLeast(1).toString()
         val params = mutableMapOf(
             "fresh_type" to "4",
@@ -179,6 +184,27 @@ class BiliClient(
         if (items.isEmpty()) error("推荐为空")
         items
     }.recoverCatching { popular(1).getOrThrow() }
+
+    private suspend fun recommendApp(brush: Int): List<VideoItem> {
+        val data = get(
+            "https://app.bilibili.com/x/v2/feed/index",
+            mapOf(
+                "build" to "1",
+                "mobi_app" to "android",
+                "platform" to "android",
+                "idx" to brush.coerceAtLeast(1).toString(),
+                "pull" to "0",
+                "login_event" to "0",
+                "network" to "wifi",
+                "style" to "2",
+                "av" to "0",
+            ),
+            referer = "https://www.bilibili.com/",
+        ).data ?: error("推荐为空")
+        val items = data.arr("items")?.objects().orEmpty().mapNotNull(::parseAppRecommend)
+        if (items.isEmpty()) error("推荐为空")
+        return items
+    }
 
     suspend fun search(
         keyword: String,
