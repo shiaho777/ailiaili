@@ -40,6 +40,9 @@ import app.ailiaili.core.model.searchReferer
 import app.ailiaili.core.model.searchType
 import app.ailiaili.core.model.signed
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1408,6 +1411,41 @@ class BiliClient(
             qualities = qualities,
             liveStartSec = data.lng("live_time"),
             ownerMid = data.lng("uid"),
+        )
+    }
+
+    suspend fun liveDanmakuInfo(roomId: Long): Result<LiveDanmakuInfo> = api {
+        ensureBuvid()
+        val resp = get(
+            "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
+            mapOf("id" to roomId.toString(), "type" to "0"),
+            sign = true,
+            referer = "https://live.bilibili.com/$roomId",
+        )
+        if (resp.code != 0) error(friendly(resp.code, resp.message ?: "弹幕服务器信息获取失败"))
+        val data = resp.data ?: error("弹幕服务器信息获取失败")
+        val host = data.arr("host_list")?.optJSONObject(0) ?: error("弹幕服务器列表为空")
+        val name = host.str("host")
+        if (name.isBlank()) error("弹幕服务器地址为空")
+        LiveDanmakuInfo(
+            host = name,
+            port = host.int("wss_port").takeIf { it > 0 } ?: 443,
+            token = data.str("token"),
+        )
+    }
+
+    fun liveDanmaku(roomId: Long): Flow<LiveDanmaku> = flow {
+        val info = liveDanmakuInfo(roomId).getOrThrow()
+        val uid = session().dedeUserId?.toLongOrNull() ?: 0L
+        emitAll(
+            LiveDanmakuConnection(
+                host = info.host,
+                port = info.port,
+                token = info.token,
+                roomId = roomId,
+                uid = uid,
+                cookie = session().cookieHeader(),
+            ).messages(),
         )
     }
 

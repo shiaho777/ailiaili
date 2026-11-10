@@ -39,6 +39,8 @@
 | v1.7.2 | 缓存前选择清晰度（360P–1080P 等接口真实返回档位） | `Player.kt` / `BiliRepository.playAt` |
 | v1.7.2 | 直播清晰度：解析 `accept_qn` / `g_qn_desc`，播放器菜单切换；顺带修复直播 URL 漏拼 `url_info.extra` 导致的 403 | `BiliClient.livePlay` / `Player.kt` |
 | v1.7.2 | 直播主播信息面板：头像、昵称、分区、人在看、关注数、已开播时长，可进主页 | `BiliClient.liveRoomInfo` / `Player.kt` |
+| v1.7.2 | 直播弹幕：WebSocket 鉴权/心跳/zlib 解压，复用点播弹幕渲染与胶囊底衬 | `LiveDanmaku.kt` / `Player.kt` |
+| v1.7.2 | WBI mixin 截断到前 32 位，修复直播弹幕等签名接口稳定 -352 | `Wbi.kt` |
 | v1.4.1 / v1.4.2 | 图片预览支持缩放、拖动、双击 1x/2x | `AvatarPreview.kt` |
 | v1.4.2 | 视频卡封面长按 / 右键预览 | `Components.kt` |
 | v1.5.1 | 自动 / 手动网络缓冲策略，按 CDN 实测带宽挑选预读深度 | `BufferPolicy.kt` / `Settings.kt` |
@@ -57,7 +59,7 @@
 | v1.6.3 删除弹幕关键词屏蔽 | 保留该功能作为高级选项；智能屏蔽仍默认开启 |
 | v1.6.4 进度条悬停时间气泡 | 当前只在拖动时显示预览气泡，桌面悬停待补 |
 | v1.6.5 全局平滑滚轮 / 滚轮速度 | Compose 没有 WPF 那种全局 ScrollViewer 钩子，需要逐列表接管滚轮，暂缓 |
-| v1.7.2 直播弹幕 | 需要直播间 WebSocket 鉴权、brotli 解压与断线重连，工程量较大 |
+| v1.7.2 直播右侧弹幕列表 / 粉丝团与房管徽章 | 当前只做了画面内滚动弹幕，聊天列表与身份徽章未接 |
 | v1.7.2 下载保存位置 | 当前固定存到应用缓存，尚未接跨平台文件选择器 |
 | v1.7.2 推荐源网页版 / App 端切换 | App 端推荐接口与游标独立，暂未接入 |
 | 账号密码登录 + 极验 | 依赖 WebView2，四平台没有同一套实现 |

@@ -38,6 +38,7 @@ internal fun DanmakuOverlay(
     comments: List<Danmaku>,
     settings: AppSettings,
     frozen: Boolean = false,
+    live: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val measurer = rememberTextMeasurer(cacheSize = 256)
@@ -52,7 +53,7 @@ internal fun DanmakuOverlay(
             .fillMaxSize()
             .clipToBounds()
             .clearAndSetSemantics {}
-            .then(DanmakuElement(runtime, player, measurer, frozen)),
+            .then(DanmakuElement(runtime, player, measurer, frozen, live)),
     )
 }
 
@@ -61,14 +62,16 @@ private class DanmakuElement(
     private val player: PlayerEngine,
     private val measurer: TextMeasurer,
     private val frozen: Boolean,
+    private val live: Boolean,
 ) : ModifierNodeElement<DanmakuNode>() {
-    override fun create() = DanmakuNode(runtime, player, measurer, frozen)
+    override fun create() = DanmakuNode(runtime, player, measurer, frozen, live)
 
     override fun update(node: DanmakuNode) {
         node.runtime = runtime
         node.rebindPlayer(player)
         node.measurer = measurer
         node.frozen = frozen
+        node.live = live
     }
 
     override fun equals(other: Any?): Boolean {
@@ -76,7 +79,8 @@ private class DanmakuElement(
         return runtime === other.runtime &&
             player === other.player &&
             measurer === other.measurer &&
-            frozen == other.frozen
+            frozen == other.frozen &&
+            live == other.live
     }
 
     override fun hashCode(): Int {
@@ -84,6 +88,7 @@ private class DanmakuElement(
         hash = 31 * hash + player.hashCode()
         hash = 31 * hash + measurer.hashCode()
         hash = 31 * hash + frozen.hashCode()
+        hash = 31 * hash + live.hashCode()
         return hash
     }
 }
@@ -93,6 +98,7 @@ private class DanmakuNode(
     var player: PlayerEngine,
     var measurer: TextMeasurer,
     var frozen: Boolean,
+    var live: Boolean,
 ) : Modifier.Node(), DrawModifierNode {
     private var clock: Job? = null
     @Volatile private var frameNanos = 0L
@@ -150,7 +156,7 @@ private class DanmakuNode(
     override fun ContentDrawScope.draw() {
         drawContent()
         val durationMs = runCatching { player.duration }.getOrDefault(0L)
-        val sample = if (durationMs <= 0L) {
+        val sample = if (!live && durationMs <= 0L) {
             Double.NaN
         } else {
             runCatching { player.currentPosition / 1000.0 }.getOrDefault(0.0)

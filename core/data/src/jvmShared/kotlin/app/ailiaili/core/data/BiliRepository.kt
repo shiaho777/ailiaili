@@ -14,6 +14,7 @@ import app.ailiaili.core.model.MsgItem
 import app.ailiaili.core.model.NavStat
 import app.ailiaili.core.model.MsgSession
 import app.ailiaili.core.model.LivePlayInfo
+import app.ailiaili.core.network.LiveDanmaku
 import app.ailiaili.core.model.LiveRoomInfo
 import app.ailiaili.core.model.PlayInfo
 import app.ailiaili.core.model.QrStatus
@@ -101,6 +102,7 @@ interface BiliRepository {
     suspend fun liveList(page: Int): Result<List<VideoItem>>
     suspend fun livePlay(roomId: Long, qn: Int = 0): Result<LivePlayInfo>
     suspend fun liveRoomInfo(roomId: Long): Result<LiveRoomInfo>
+    fun liveDanmaku(roomId: Long): kotlinx.coroutines.flow.Flow<LiveDanmaku>
     suspend fun like(bvid: String, liked: Boolean): Result<Unit>
     suspend fun hasLiked(aid: Long): Result<Boolean>
     suspend fun coin(aid: Long, bvid: String, count: Int = 1): Result<Unit>
@@ -196,6 +198,7 @@ class BiliRepositoryImpl(
     override suspend fun liveList(page: Int) = client.liveList(page)
     override suspend fun livePlay(roomId: Long, qn: Int) = client.livePlay(roomId, qn)
     override suspend fun liveRoomInfo(roomId: Long) = client.liveRoomInfo(roomId)
+    override fun liveDanmaku(roomId: Long) = client.liveDanmaku(roomId)
     override suspend fun like(bvid: String, liked: Boolean) =
         client.like(bvid, liked).also { if (it.isSuccess) videoCache.invalidate(bvid) }
     override suspend fun hasLiked(aid: Long) = client.hasLiked(aid)

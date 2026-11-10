@@ -50,7 +50,10 @@ internal fun signParams(params: MutableMap<String, String>, mixin: String) {
 internal fun mixinKey(img: String, sub: String): String {
     val raw = img + sub
     return buildString(32) {
-        for (i in MIXIN_TAB) if (i < raw.length) append(raw[i])
+        for (i in MIXIN_TAB) {
+            if (length >= 32) break
+            if (i < raw.length) append(raw[i])
+        }
     }
 }
 

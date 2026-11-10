@@ -192,6 +192,7 @@ import kotlinx.coroutines.CoroutineScope
 
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -707,6 +708,16 @@ fun PlayerRoute(
         }
     }
 
+    LaunchedEffect(liveRoom, settings.danmakuEnabled) {
+        val room = liveRoom ?: return@LaunchedEffect
+        if (!settings.danmakuEnabled) return@LaunchedEffect
+        AppGraph.repo.liveDanmaku(room)
+            .catch { }
+            .collect { msg ->
+                val sec = runCatching { engine.currentPosition / 1000.0 }.getOrDefault(0.0)
+                danmaku = (danmaku + Danmaku(sec, msg.text, msg.mode, msg.color)).takeLast(400)
+            }
+    }
     LaunchedEffect(bvid, liveRoom, local?.bvid, attempt) {
         if (liveRoom != null || local != null) listening = false
         coroutineScope {
@@ -718,6 +729,7 @@ fun PlayerRoute(
                 }
                 liveRoom != null -> {
                     val play = AppGraph.repo.livePlay(liveRoom)
+                    danmaku = emptyList()
                     ready.join()
                     play.onSuccess { got ->
                         livePlayInfo = got
@@ -1055,13 +1067,14 @@ fun PlayerRoute(
                     contentScale = ContentScale.Crop,
                 )
             }
-            if (bvid != null && info != null && settings.danmakuEnabled) {
+            if ((bvid != null && info != null || liveRoom != null) && settings.danmakuEnabled) {
                 if (!listening) {
                     DanmakuOverlay(
                         engine,
                         danmaku,
                         settings,
                         frozen = buffering || scrubbing,
+                        live = liveRoom != null,
                     )
                 }
             }
