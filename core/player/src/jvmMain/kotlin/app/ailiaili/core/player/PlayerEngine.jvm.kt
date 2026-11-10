@@ -243,7 +243,7 @@ actual class PlayerEngine actual constructor() {
         seeking = false
         statusMessage = null
         val options = buildList {
-            add(":http-referrer=https://www.bilibili.com/")
+            add(if (live) ":http-referrer=https://live.bilibili.com/" else ":http-referrer=https://www.bilibili.com/")
             add(":http-user-agent=$USER_AGENT")
             add(":network-caching=$networkCaching")
             if (!slave.isNullOrBlank()) add(":input-slave=$slave")

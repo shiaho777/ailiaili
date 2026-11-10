@@ -12,6 +12,9 @@ import app.ailiaili.core.model.DynamicPage
 import app.ailiaili.core.model.FavFolder
 import app.ailiaili.core.model.FollowUser
 import app.ailiaili.core.model.ItemPage
+import app.ailiaili.core.model.LivePlayInfo
+import app.ailiaili.core.model.LiveQuality
+import app.ailiaili.core.model.LiveRoomInfo
 import app.ailiaili.core.model.MsgItem
 import app.ailiaili.core.model.MsgSession
 import app.ailiaili.core.model.PlayInfo
@@ -1358,7 +1361,7 @@ class BiliClient(
         error(last)
     }
 
-    suspend fun livePlay(roomId: Long): Result<String> = api {
+    suspend fun livePlay(roomId: Long, qn: Int = 0): Result<LivePlayInfo> = api {
         ensureBuvid()
         val data = get(
             "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo",
@@ -1366,7 +1369,7 @@ class BiliClient(
                 "room_id" to roomId.toString(),
                 "no_playurl" to "0",
                 "mask" to "1",
-                "qn" to "0",
+                "qn" to qn.coerceAtLeast(0).toString(),
                 "platform" to "web",
                 "protocol" to "0,1",
                 "format" to "0,1,2",
@@ -1375,7 +1378,65 @@ class BiliClient(
             referer = "https://live.bilibili.com/$roomId",
         ).data ?: error("直播地址获取失败")
         if (data.int("live_status") == 0) error("主播还没有开播")
-        pickLiveUrl(data) ?: error("没有可用的直播流")
+        val url = pickLiveUrl(data) ?: error("没有可用的直播流")
+        val playurl = data.obj("playurl_info")?.obj("playurl")
+        val labels = playurl?.arr("g_qn_desc")?.objects().orEmpty()
+            .associate { it.int("qn") to it.str("desc") }
+        val accepted = linkedSetOf<Int>()
+        playurl?.arr("stream")?.objects().orEmpty().forEach { stream ->
+            stream.arr("format")?.objects().orEmpty().forEach { format ->
+                format.arr("codec")?.objects().orEmpty().forEach { codec ->
+                    val arr = codec.arr("accept_qn") ?: return@forEach
+                    for (i in 0 until arr.length()) arr.optInt(i).takeIf { it > 0 }?.let(accepted::add)
+                }
+            }
+        }
+        val current = playurl?.arr("stream")?.objects().orEmpty()
+            .firstNotNullOfOrNull { stream ->
+                stream.arr("format")?.objects().orEmpty()
+                    .firstNotNullOfOrNull { format ->
+                        format.arr("codec")?.objects().orEmpty()
+                            .firstNotNullOfOrNull { codec -> codec.int("current_qn").takeIf { it > 0 } }
+                    }
+            } ?: qn
+        val qualities = accepted.ifEmpty { labels.keys }
+            .map { LiveQuality(it, labels[it] ?: "Q$it") }
+            .sortedByDescending { it.qn }
+        LivePlayInfo(
+            url = url,
+            currentQn = current,
+            qualities = qualities,
+            liveStartSec = data.lng("live_time"),
+            ownerMid = data.lng("uid"),
+        )
+    }
+
+    suspend fun liveRoomInfo(roomId: Long): Result<LiveRoomInfo> = api {
+        ensureBuvid()
+        val data = get(
+            "https://api.live.bilibili.com/room/v1/Room/get_info",
+            mapOf("room_id" to roomId.toString()),
+            referer = "https://live.bilibili.com/$roomId",
+        ).data ?: error("直播间信息获取失败")
+        if (data.int("live_status") == 0) error("主播还没有开播")
+        val anchor = runCatching {
+            get(
+                "https://api.live.bilibili.com/live_user/v1/UserInfo/get_anchor_in_room",
+                mapOf("roomid" to roomId.toString()),
+                referer = "https://live.bilibili.com/$roomId",
+            ).data?.obj("info")
+        }.getOrNull()
+        LiveRoomInfo(
+            title = data.str("title"),
+            ownerName = anchor?.str("uname").orEmpty(),
+            ownerFace = app.ailiaili.core.model.normalizeUrl(anchor?.str("face").orEmpty()),
+            ownerMid = anchor?.lng("uid") ?: data.lng("uid"),
+            online = data.lng("online"),
+            attention = data.lng("attention"),
+            area = listOf(data.str("parent_area_name"), data.str("area_name"))
+                .filter { it.isNotBlank() }
+                .joinToString(" · "),
+        )
     }
 
     suspend fun like(bvid: String, liked: Boolean): Result<Unit> = postOk(
@@ -1744,8 +1805,10 @@ class BiliClient(
             for (format in stream.arr("format")?.objects().orEmpty()) {
                 for (codec in format.arr("codec")?.objects().orEmpty()) {
                     val base = codec.str("base_url")
-                    val host = codec.arr("url_info")?.optJSONObject(0)?.str("host").orEmpty()
-                    if (base.isNotBlank() && host.isNotBlank()) return host + base
+                    val info = codec.arr("url_info")?.optJSONObject(0)
+                    val host = info?.str("host").orEmpty()
+                    val extra = info?.str("extra").orEmpty()
+                    if (base.isNotBlank() && host.isNotBlank()) return host + base + extra
                 }
             }
         }

@@ -175,6 +175,29 @@ data class Quality(val qn: Int, val label: String)
  */
 fun shouldPreferDurl(qn: Int): Boolean = qn in 1..64
 
+data class LiveQuality(
+    val qn: Int,
+    val label: String,
+)
+
+data class LivePlayInfo(
+    val url: String,
+    val currentQn: Int,
+    val qualities: List<LiveQuality> = emptyList(),
+    val liveStartSec: Long = 0,
+    val ownerMid: Long = 0,
+)
+
+data class LiveRoomInfo(
+    val title: String,
+    val ownerName: String,
+    val ownerFace: String,
+    val ownerMid: Long,
+    val online: Long,
+    val attention: Long,
+    val area: String,
+)
+
 data class AudioQuality(
     val id: Int,
     val label: String,

@@ -13,6 +13,8 @@ import app.ailiaili.core.model.ItemPage
 import app.ailiaili.core.model.MsgItem
 import app.ailiaili.core.model.NavStat
 import app.ailiaili.core.model.MsgSession
+import app.ailiaili.core.model.LivePlayInfo
+import app.ailiaili.core.model.LiveRoomInfo
 import app.ailiaili.core.model.PlayInfo
 import app.ailiaili.core.model.QrStatus
 import app.ailiaili.core.model.QrTicket
@@ -97,7 +99,8 @@ interface BiliRepository {
     suspend fun msgHistory(talkerId: Long): Result<List<MsgItem>>
     suspend fun sendMsg(receiverId: Long, text: String): Result<Unit>
     suspend fun liveList(page: Int): Result<List<VideoItem>>
-    suspend fun livePlay(roomId: Long): Result<String>
+    suspend fun livePlay(roomId: Long, qn: Int = 0): Result<LivePlayInfo>
+    suspend fun liveRoomInfo(roomId: Long): Result<LiveRoomInfo>
     suspend fun like(bvid: String, liked: Boolean): Result<Unit>
     suspend fun hasLiked(aid: Long): Result<Boolean>
     suspend fun coin(aid: Long, bvid: String, count: Int = 1): Result<Unit>
@@ -191,7 +194,8 @@ class BiliRepositoryImpl(
     override suspend fun msgHistory(talkerId: Long) = client.msgHistory(talkerId)
     override suspend fun sendMsg(receiverId: Long, text: String) = client.sendMsg(receiverId, text)
     override suspend fun liveList(page: Int) = client.liveList(page)
-    override suspend fun livePlay(roomId: Long) = client.livePlay(roomId)
+    override suspend fun livePlay(roomId: Long, qn: Int) = client.livePlay(roomId, qn)
+    override suspend fun liveRoomInfo(roomId: Long) = client.liveRoomInfo(roomId)
     override suspend fun like(bvid: String, liked: Boolean) =
         client.like(bvid, liked).also { if (it.isSuccess) videoCache.invalidate(bvid) }
     override suspend fun hasLiked(aid: Long) = client.hasLiked(aid)

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -176,6 +177,8 @@ import app.ailiaili.core.model.ioDispatcher
 import app.ailiaili.core.model.formatCount
 import app.ailiaili.core.model.formatDay
 import app.ailiaili.core.model.qnLabel
+import app.ailiaili.core.model.LivePlayInfo
+import app.ailiaili.core.model.LiveRoomInfo
 import app.ailiaili.core.player.PlaybackListener
 import app.ailiaili.core.player.PlayerEngine
 import app.ailiaili.core.player.VideoSurface
@@ -234,6 +237,8 @@ fun PlayerRoute(
     var error by remember { mutableStateOf<String?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<PlayInfo?>(null) }
+    var livePlayInfo by remember { mutableStateOf<LivePlayInfo?>(null) }
+    var liveRoomInfo by remember { mutableStateOf<LiveRoomInfo?>(null) }
     var listening by remember { mutableStateOf(false) }
     var listenClock by remember { mutableStateOf("00:00") }
     var avatarPreview by remember { mutableStateOf<String?>(null) }
@@ -714,16 +719,20 @@ fun PlayerRoute(
                 liveRoom != null -> {
                     val play = AppGraph.repo.livePlay(liveRoom)
                     ready.join()
-                    play.onSuccess {
+                    play.onSuccess { got ->
+                        livePlayInfo = got
                         engine.networkCachingMs = BufferPolicy.resolve(
                             kind = BufferMediaKind.Live,
                             shortVideo = false,
                             userMs = settings.networkCachingMs,
                             auto = settings.bufferAuto,
                             measuredBytesPerSecond = CdnPicker.lastMeasuredBytesPerSecond,
-                            stallBoostMs = CdnPicker.stallBoostMs(it),
+                            stallBoostMs = CdnPicker.stallBoostMs(got.url),
                         )
-                        engine.playLive(it)
+                        engine.playLive(got.url)
+                        scope.launch {
+                            AppGraph.repo.liveRoomInfo(liveRoom).onSuccess { liveRoomInfo = it }
+                        }
                     }.onFailure { error = it.message }
                 }
                 !bvid.isNullOrBlank() -> {
@@ -1398,6 +1407,35 @@ fun PlayerRoute(
                         }
                     }
                 }
+                val room = liveRoom
+                val liveInfo = livePlayInfo
+                if (room != null && liveInfo != null && liveInfo.qualities.size > 1) {
+                    Box {
+                        TextButton(onClick = { qualityOpen = true }) {
+                            Text(
+                                liveInfo.qualities.firstOrNull { it.qn == liveInfo.currentQn }?.label ?: "清晰度",
+                                color = Color.White,
+                            )
+                        }
+                        DropdownMenu(expanded = qualityOpen, onDismissRequest = { qualityOpen = false }) {
+                            liveInfo.qualities.forEach { quality ->
+                                DropdownMenuItem(
+                                    text = { Text(quality.label) },
+                                    onClick = {
+                                        qualityOpen = false
+                                        scope.launch {
+                                            AppGraph.repo.livePlay(room, quality.qn).onSuccess { got ->
+                                                livePlayInfo = got
+                                                engine.playLive(got.url)
+                                                toast = "清晰度已切换为 ${quality.label}"
+                                            }.onFailure { toast = it.message ?: "切换清晰度失败" }
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
                 if (liveRoom == null && local == null && info != null && !compactChrome) {
                     TextButton(onClick = {
                         val pos = engine.currentPosition
@@ -1608,6 +1646,58 @@ fun PlayerRoute(
                         toast = "标题已复制"
                     },
                 )
+                val liveRoomNow = liveRoomInfo
+                if (liveRoomNow != null && liveRoomNow.ownerName.isNotBlank()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (liveRoomNow.ownerFace.isNotBlank()) {
+                                AsyncImage(
+                                    model = liveRoomNow.ownerFace,
+                                    contentDescription = liveRoomNow.ownerName,
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .clickable(enabled = liveRoomNow.ownerMid > 0) { onSpace(liveRoomNow.ownerMid) },
+                                    contentScale = ContentScale.Crop,
+                                )
+                                Spacer(Modifier.width(12.dp))
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    liveRoomNow.ownerName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.clickable(enabled = liveRoomNow.ownerMid > 0) {
+                                        onSpace(liveRoomNow.ownerMid)
+                                    },
+                                )
+                                if (liveRoomNow.area.isNotBlank()) {
+                                    Text(
+                                        liveRoomNow.area,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                                MetaRow(
+                                    items = buildList {
+                                        add(MetaSpec(Icons.Filled.Visibility, "${formatCount(liveRoomNow.online)} 人在看", MetricTone.Online))
+                                        add(MetaSpec(Icons.Filled.Favorite, "${formatCount(liveRoomNow.attention)} 关注", MetricTone.Favorite))
+                                        val start = livePlayInfo?.liveStartSec ?: 0
+                                        if (start > 0) {
+                                            val minutes = ((epochMs() / 1000 - start) / 60).coerceAtLeast(0)
+                                            val text = if (minutes >= 60) "已开播 ${minutes / 60} 小时 ${minutes % 60} 分" else "已开播 $minutes 分钟"
+                                            add(MetaSpec(Icons.Filled.Schedule, text, MetricTone.Neutral))
+                                        }
+                                    },
+                                    maxItems = 3,
+                                )
+                            }
+                        }
+                    }
+                }
                 val owner = detail?.owner?.ifBlank { null } ?: seedAuthor
                 val mid = detail?.ownerMid?.takeIf { it > 0 } ?: seedOwnerMid
                 val face = detail?.ownerFace?.ifBlank { null } ?: seedOwnerFace

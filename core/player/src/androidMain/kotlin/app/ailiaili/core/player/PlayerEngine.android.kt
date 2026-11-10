@@ -14,6 +14,7 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.CaptionStyleCompat
@@ -153,7 +154,19 @@ actual class PlayerEngine actual constructor() {
             else -> null
         }
         val item = MediaItem.Builder().setUri(url).apply { if (mime != null) setMimeType(mime) }.build()
-        player.setMediaItem(item)
+        val props = mutableMapOf(
+            "Referer" to "https://live.bilibili.com/",
+            "Origin" to "https://live.bilibili.com",
+        )
+        runCatching {
+            val cookie = app.ailiaili.core.data.AppGraph.repo.session.value.cookieHeader()
+            if (cookie.isNotBlank()) props["Cookie"] = cookie
+        }
+        val liveHttp = DefaultHttpDataSource.Factory()
+            .setUserAgent(USER_AGENT)
+            .setDefaultRequestProperties(props)
+            .setAllowCrossProtocolRedirects(true)
+        player.setMediaSource(DefaultMediaSourceFactory(liveHttp).createMediaSource(item))
         player.prepare()
         player.playWhenReady = true
     }

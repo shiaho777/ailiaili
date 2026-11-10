@@ -37,6 +37,8 @@
 | v1.7.2 | 首页推荐「已关注」标签：`is_followed` 或 `rcmd_reason.reason_type == 1` | `Parse.kt` / `BiliClient.recommend` / `Components.kt` |
 | v1.7.2 | 视频标题一键复制 + 评论区回到顶部 | `Player.kt` |
 | v1.7.2 | 缓存前选择清晰度（360P–1080P 等接口真实返回档位） | `Player.kt` / `BiliRepository.playAt` |
+| v1.7.2 | 直播清晰度：解析 `accept_qn` / `g_qn_desc`，播放器菜单切换；顺带修复直播 URL 漏拼 `url_info.extra` 导致的 403 | `BiliClient.livePlay` / `Player.kt` |
+| v1.7.2 | 直播主播信息面板：头像、昵称、分区、人在看、关注数、已开播时长，可进主页 | `BiliClient.liveRoomInfo` / `Player.kt` |
 | v1.4.1 / v1.4.2 | 图片预览支持缩放、拖动、双击 1x/2x | `AvatarPreview.kt` |
 | v1.4.2 | 视频卡封面长按 / 右键预览 | `Components.kt` |
 | v1.5.1 | 自动 / 手动网络缓冲策略，按 CDN 实测带宽挑选预读深度 | `BufferPolicy.kt` / `Settings.kt` |
@@ -55,10 +57,9 @@
 | v1.6.3 删除弹幕关键词屏蔽 | 保留该功能作为高级选项；智能屏蔽仍默认开启 |
 | v1.6.4 进度条悬停时间气泡 | 当前只在拖动时显示预览气泡，桌面悬停待补 |
 | v1.6.5 全局平滑滚轮 / 滚轮速度 | Compose 没有 WPF 那种全局 ScrollViewer 钩子，需要逐列表接管滚轮，暂缓 |
-| v1.7.2 直播弹幕 / 直播清晰度 / 主播信息面板 | 需要直播间 WebSocket 鉴权、brotli 解压和清晰度协商，工程量较大 |
+| v1.7.2 直播弹幕 | 需要直播间 WebSocket 鉴权、brotli 解压与断线重连，工程量较大 |
 | v1.7.2 下载保存位置 | 当前固定存到应用缓存，尚未接跨平台文件选择器 |
 | v1.7.2 推荐源网页版 / App 端切换 | App 端推荐接口与游标独立，暂未接入 |
-| v1.7.2 评论限流冷却自动重试 | 当前失败后手动重试，尚未做指数退避 |
 | 账号密码登录 + 极验 | 依赖 WebView2，四平台没有同一套实现 |
 | 短视频本地下载并合流 MP4 | 需要跨平台 MP4 muxer；当前用 durl 单流覆盖大部分 seek 场景 |
 | 自定义下载路径 | Android 需要 SAF 持久授权，跨平台交互不一致 |
