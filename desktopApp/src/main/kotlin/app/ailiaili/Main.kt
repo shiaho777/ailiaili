@@ -78,24 +78,18 @@ fun main() {
             icon = icon,
         ) {
             // 竖屏副屏 / 小屏：初始窗口不能比工作区还大，否则右侧按钮会跑到屏幕外。
-            // Compose 的 dp 与 AWT 像素之间差一个屏幕缩放，最小尺寸也要按同一比例换算，
-            // 否则 Retina 上 720px 实际只有 360dp，布局会被压坏。
+            // AWT 的窗口尺寸和 screen bounds 都是逻辑点（HiDPI 下由系统自行缩放），
+            // 所以这里直接用点值，不要再乘屏幕缩放。
             LaunchedEffect(Unit) {
                 val gc = window.graphicsConfiguration
-                val scale = gc.defaultTransform.scaleX.toFloat().takeIf { it > 0f } ?: 1f
                 val insets = Toolkit.getDefaultToolkit().getScreenInsets(gc)
-                val workWidth = (gc.bounds.width - insets.left - insets.right) / scale
-                val workHeight = (gc.bounds.height - insets.top - insets.bottom) / scale
-                window.minimumSize = Dimension(
-                    (720 * scale).toInt(),
-                    (480 * scale).toInt(),
-                )
-                val maxWidth = workWidth.dp
-                val maxHeight = workHeight.dp
-                if (state.size.width > maxWidth || state.size.height > maxHeight) {
+                val workWidth = (gc.bounds.width - insets.left - insets.right).dp
+                val workHeight = (gc.bounds.height - insets.top - insets.bottom).dp
+                window.minimumSize = Dimension(720, 480)
+                if (state.size.width > workWidth || state.size.height > workHeight) {
                     state.size = DpSize(
-                        minOf(state.size.width, maxWidth),
-                        minOf(state.size.height, maxHeight),
+                        minOf(state.size.width, workWidth),
+                        minOf(state.size.height, workHeight),
                     )
                 }
             }
