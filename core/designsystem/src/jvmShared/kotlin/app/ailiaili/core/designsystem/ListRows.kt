@@ -46,6 +46,8 @@ fun VideoListRow(
     badge: String = "",
     selected: Boolean = false,
     coverWidth: Dp = 136.dp,
+    /** 没有封面时是否保留占位。纯文字列表（如番剧选集）可以关掉。 */
+    coverPlaceholder: Boolean = true,
     onLongClick: (() -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null,
     meta: (@Composable () -> Unit)? = null,
@@ -74,28 +76,30 @@ fun VideoListRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         leading?.invoke()
-        Box(
-            Modifier
-                .width(coverWidth)
-                .aspectRatio(16f / 10f)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-        ) {
-            if (cover.isNotBlank()) {
-                AsyncImage(
-                    model = cover,
-                    contentDescription = title,
-                    modifier = Modifier.matchParentSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-            if (badge.isNotBlank()) {
-                BiliBadge(
-                    text = badge,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp),
-                    tone = BiliBadgeTone.Dark,
-                    style = BiliBadgeStyle.Solid,
-                )
+        if (cover.isNotBlank() || coverPlaceholder) {
+            Box(
+                Modifier
+                    .width(coverWidth)
+                    .aspectRatio(16f / 10f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            ) {
+                if (cover.isNotBlank()) {
+                    AsyncImage(
+                        model = cover,
+                        contentDescription = title,
+                        modifier = Modifier.matchParentSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+                if (badge.isNotBlank()) {
+                    BiliBadge(
+                        text = badge,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp),
+                        tone = BiliBadgeTone.Dark,
+                        style = BiliBadgeStyle.Solid,
+                    )
+                }
             }
         }
         Column(

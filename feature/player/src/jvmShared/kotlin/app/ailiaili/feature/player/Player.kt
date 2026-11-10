@@ -1696,68 +1696,76 @@ fun PlayerRoute(
                         }
                         val desc = detail?.desc.orEmpty()
                         val descLong = desc.length > 80 || desc.count { it == '\n' } >= 4
-                        if (desc.isBlank()) {
-                            Text(
-                                if (descReady) "没有简介" else "加载中…",
-                                color = ink,
-                                fontSize = 15.sp,
-                            )
-                        } else {
-                            Text(
-                                desc,
-                                color = ink,
-                                fontSize = 15.sp,
-                                lineHeight = 22.sp,
-                                maxLines = if (descOpen) Int.MAX_VALUE else 4,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            if (descLong) {
+                        BiliSurfaceCard(
+                            Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Text(
-                                    if (descOpen) "收起" else "展开",
-                                    modifier = Modifier.clickable { descOpen = !descOpen },
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 14.sp,
+                                    "简介",
+                                    modifier = Modifier.weight(1f),
+                                    color = ink,
+                                    style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold,
+                                )
+                                if (descLong) {
+                                    Text(
+                                        if (descOpen) "收起" else "展开",
+                                        modifier = Modifier
+                                            .clip(CircleShape)
+                                            .clickable { descOpen = !descOpen }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                            when {
+                                desc.isBlank() -> Text(
+                                    if (descReady) "没有简介" else "加载中…",
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 14.sp,
+                                )
+                                else -> Text(
+                                    desc,
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 14.sp,
+                                    lineHeight = 21.sp,
+                                    maxLines = if (descOpen) Int.MAX_VALUE else 4,
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
                         if (related.isNotEmpty()) {
                             BiliSectionTitle("相关推荐")
                             related.take(12).forEach { item ->
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { onOpenVideo(item) }
-                                        .padding(vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    if (item.cover.isNotBlank()) {
-                                        AsyncImage(
-                                            model = item.cover,
-                                            contentDescription = null,
-                                            modifier = Modifier
-                                                .width(112.dp)
-                                                .aspectRatio(16f / 10f)
-                                                .clip(RoundedCornerShape(8.dp)),
-                                            contentScale = ContentScale.Crop,
-                                        )
-                                    }
-                                    Column(Modifier.padding(start = 10.dp).weight(1f)) {
-                                        Text(item.title, color = ink, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        MetaRow(
-                                            items = listOfNotNull(
-                                                item.author.takeIf { it.isNotBlank() }?.let {
-                                                    MetaSpec(Icons.Filled.Person, it, MetricTone.Neutral)
-                                                },
-                                                formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
-                                                    MetaSpec(Icons.Filled.Visibility, "$it 播放", MetricTone.Online)
-                                                },
-                                            ),
-                                            maxItems = 2,
-                                            modifier = Modifier.padding(top = 4.dp),
-                                        )
-                                    }
+                                key(item.stableKey) {
+                                    VideoListRow(
+                                        title = item.title,
+                                        cover = item.cover,
+                                        onClick = { onOpenVideo(item) },
+                                        coverWidth = 112.dp,
+                                        badge = item.durationText,
+                                        meta = {
+                                            MetaRow(
+                                                items = listOfNotNull(
+                                                    item.author.takeIf { it.isNotBlank() }?.let {
+                                                        MetaSpec(Icons.Filled.Person, it, MetricTone.Neutral)
+                                                    },
+                                                    formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
+                                                        MetaSpec(Icons.Filled.Visibility, "$it 播放", MetricTone.Online)
+                                                    },
+                                                ),
+                                                maxItems = 2,
+                                            )
+                                        },
+                                    )
                                 }
                             }
                         }
