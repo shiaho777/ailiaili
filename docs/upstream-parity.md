@@ -1,4 +1,4 @@
-# 上游对齐记录（BiliDesk v1.6.4）
+# 上游对齐记录（BiliDesk v1.7.2，已对齐部分）
 
 本文件记录 ailiaili 从 [ABING1111/BiliDesk](https://github.com/ABING1111/BiliDesk)
 借鉴的行为、接口和交互。代码全部用 Kotlin / Compose 重写，不是逐行移植。
@@ -31,6 +31,10 @@
 | v1.6.4 | 搜索新增「用户」分类，支持 UP 主结果、粉丝/投稿数、认证与主页跳转 | `Search.kt` / `SearchDecode.kt` |
 | v1.6.4 | 桌面主窗口位置记忆，与尺寸一起保存；位置不在任何屏幕内时回退居中 | `desktopApp/Main.kt` |
 | v1.6.4 | 拖动进度条时浮出目标时间气泡（拖动预览已有） | `PlayerTransport.kt` |
+| v1.7.0 | 相关推荐封面、评论区头像显示修复 | 本项目用 Coil + LazyGrid，本身按需加载 |
+| v1.7.0 | 封面内存窗口 / 切页白屏 / 页面叠加 | Compose LazyGrid 自带虚拟化，页面切换用 AnimatedContent 淡入淡出 |
+| v1.7.2 | 首页推荐「已关注」标签：`is_followed` 或 `rcmd_reason.reason_type == 1` | `Parse.kt` / `BiliClient.recommend` / `Components.kt` |
+| v1.7.2 | 视频标题一键复制 + 评论区回到顶部 | `Player.kt` |
 | v1.4.1 / v1.4.2 | 图片预览支持缩放、拖动、双击 1x/2x | `AvatarPreview.kt` |
 | v1.4.2 | 视频卡封面长按 / 右键预览 | `Components.kt` |
 | v1.5.1 | 自动 / 手动网络缓冲策略，按 CDN 实测带宽挑选预读深度 | `BufferPolicy.kt` / `Settings.kt` |
@@ -50,6 +54,10 @@
 | v1.6.4 音质档位（Hi-Res / 杜比） | 需要播放接口返回多音轨并做音轨切换，当前只取默认音轨 |
 | v1.6.4 进度条悬停时间气泡 | 当前只在拖动时显示预览气泡，桌面悬停待补 |
 | v1.6.5 全局平滑滚轮 / 滚轮速度 | Compose 没有 WPF 那种全局 ScrollViewer 钩子，需要逐列表接管滚轮，暂缓 |
+| v1.7.2 直播弹幕 / 直播清晰度 / 主播信息面板 | 需要直播间 WebSocket 鉴权、brotli 解压和清晰度协商，工程量较大 |
+| v1.7.2 下载可选清晰度与保存位置 | 需要 DASH 双流合流与跨平台文件选择器，当前只有单任务缓存 |
+| v1.7.2 推荐源网页版 / App 端切换 | App 端推荐接口与游标独立，暂未接入 |
+| v1.7.2 评论限流冷却自动重试 | 当前失败后手动重试，尚未做指数退避 |
 | 账号密码登录 + 极验 | 依赖 WebView2，四平台没有同一套实现 |
 | 短视频本地下载并合流 MP4 | 需要跨平台 MP4 muxer；当前用 durl 单流覆盖大部分 seek 场景 |
 | 自定义下载路径 | Android 需要 SAF 持久授权，跨平台交互不一致 |

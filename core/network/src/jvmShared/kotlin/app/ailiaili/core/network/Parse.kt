@@ -45,6 +45,15 @@ internal fun parseVideo(e: JSONObject): VideoItem? {
     )
 }
 
+/** 推荐流条目：过滤非视频卡片，并解析「已关注」标记。 */
+internal fun parseRecommend(e: JSONObject): VideoItem? {
+    if (e.str("goto").isNotEmpty() && e.str("goto") != "av") return null
+    val item = parseVideo(e) ?: return null
+    val followed = e.int("is_followed") == 1 ||
+        e.obj("rcmd_reason")?.int("reason_type") == 1
+    return if (followed) item.copy(authorFollowed = true) else item
+}
+
 internal fun parseSearch(e: JSONObject): VideoItem? {
     val bvid = e.str("bvid")
     if (bvid.isBlank()) return null

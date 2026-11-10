@@ -207,6 +207,13 @@ fun VideoCard(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        if (item.authorFollowed) {
+                            BiliBadge(
+                                text = "已关注",
+                                tone = BiliBadgeTone.Accent,
+                                style = BiliBadgeStyle.Solid,
+                            )
+                        }
                         Text(
                             item.author,
                             style = MaterialTheme.typography.labelMedium,

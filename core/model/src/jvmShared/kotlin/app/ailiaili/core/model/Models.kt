@@ -111,6 +111,8 @@ data class VideoItem(
     val favoriteCount: Long = 0,
     val pubdate: Long = 0,
     val reason: String = "",
+    /** 推荐流里该 UP 是否已被当前账号关注。 */
+    val authorFollowed: Boolean = false,
     val roomId: Long = 0,
     /** 空间列表先只有播放数。补齐弹幕和点赞之前不显示这一行，避免数字闪一下。 */
     val statsReady: Boolean = true,

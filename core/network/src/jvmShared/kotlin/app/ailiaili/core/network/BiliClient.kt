@@ -167,10 +167,7 @@ class BiliClient(
             params,
             sign = true,
         ).data ?: error("推荐为空")
-        val items = data.arr("item")?.objects().orEmpty().mapNotNull { e ->
-            if (e.str("goto").isNotEmpty() && e.str("goto") != "av") return@mapNotNull null
-            parseVideo(e)
-        }
+        val items = data.arr("item")?.objects().orEmpty().mapNotNull(::parseRecommend)
         if (items.isEmpty()) error("推荐为空")
         items
     }.recoverCatching { popular(1).getOrThrow() }

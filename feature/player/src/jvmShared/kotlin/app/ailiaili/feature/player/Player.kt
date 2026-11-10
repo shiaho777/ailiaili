@@ -46,8 +46,10 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.Person
@@ -107,7 +109,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -255,6 +259,7 @@ fun PlayerRoute(
     var hint by remember { mutableStateOf<String?>(null) }
     var ended by remember { mutableStateOf(false) }
     val settings by AppGraph.repo.settings.collectAsState()
+    val clipboard = LocalClipboardManager.current
     var volume by remember { mutableFloatStateOf(settings.playerVolume.coerceIn(0f, 1f)) }
     fun setVolume(next: Float) {
         val v = next.coerceIn(0f, 1f)
@@ -1517,7 +1522,15 @@ fun PlayerRoute(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                VideoHeader(title = title, detail = detail, onlineText = onlineText)
+                VideoHeader(
+                    title = title,
+                    detail = detail,
+                    onlineText = onlineText,
+                    onCopyTitle = {
+                        clipboard.setText(AnnotatedString(title))
+                        toast = "标题已复制"
+                    },
+                )
                 val owner = detail?.owner?.ifBlank { null } ?: seedAuthor
                 val mid = detail?.ownerMid?.takeIf { it > 0 } ?: seedOwnerMid
                 val face = detail?.ownerFace?.ifBlank { null } ?: seedOwnerFace
@@ -1840,6 +1853,17 @@ fun PlayerRoute(
                                 )
                             }
                             Spacer(Modifier.weight(1f))
+                            IconButton(
+                                onClick = { scope.launch { scroll.animateScrollTo(0) } },
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.KeyboardArrowUp,
+                                    contentDescription = "回到顶部",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                             BiliFilterChip(
                                 selected = commentMode == 3,
                                 onClick = { switchSort(3) },
@@ -2309,6 +2333,7 @@ private fun VideoHeader(
     title: String,
     detail: VideoDetail?,
     onlineText: String?,
+    onCopyTitle: () -> Unit,
 ) {
     BiliSurfaceCard(
         modifier = Modifier.fillMaxWidth(),
@@ -2335,6 +2360,17 @@ private fun VideoHeader(
                     lineHeight = 28.sp,
                 ),
             )
+            IconButton(
+                onClick = onCopyTitle,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    Icons.Filled.ContentCopy,
+                    contentDescription = "复制标题",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (detail != null) {
             val d = detail
