@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -63,7 +64,9 @@ import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.BiliErrorState
 import app.ailiaili.core.designsystem.BiliHeaderAction
+import app.ailiaili.core.designsystem.BiliLoadingState
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.model.MsgItem
@@ -269,7 +272,16 @@ fun ChatRoute(talkerId: Long, name: String, onBack: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             Box(Modifier.weight(1f)) {
                 if (vm.loading && vm.items.isEmpty()) {
-                    LoadBox(loading = true, error = null, empty = true, emptyText = "", onRetry = vm::reload) {}
+                    BiliLoadingState(
+                        modifier = Modifier.align(Alignment.Center),
+                        label = "正在加载聊天记录…",
+                    )
+                } else if (vm.items.isEmpty() && vm.error != null) {
+                    BiliErrorState(
+                        message = vm.error.orEmpty(),
+                        onRetry = vm::reload,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
                 } else if (vm.items.isEmpty()) {
                     BiliEmptyState(
                         title = "还没有聊天记录",
@@ -296,13 +308,24 @@ fun ChatRoute(talkerId: Long, name: String, onBack: () -> Unit) {
                     }
                 }
             }
-            vm.error?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
+            vm.error?.let { message ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(start = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        message,
+                        modifier = Modifier.weight(1f),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(onClick = vm::reload) { Text("重试") }
+                }
             }
             ChatInputBar(
                 draft = vm.draft,
