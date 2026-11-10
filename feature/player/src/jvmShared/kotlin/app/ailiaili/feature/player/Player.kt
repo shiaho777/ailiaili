@@ -178,6 +178,7 @@ import app.ailiaili.core.model.formatCount
 import app.ailiaili.core.model.formatDay
 import app.ailiaili.core.model.qnLabel
 import app.ailiaili.core.model.LivePlayInfo
+import app.ailiaili.core.network.LiveDanmaku
 import app.ailiaili.core.model.LiveRoomInfo
 import app.ailiaili.core.player.PlaybackListener
 import app.ailiaili.core.player.PlayerEngine
@@ -240,6 +241,7 @@ fun PlayerRoute(
     var info by remember { mutableStateOf<PlayInfo?>(null) }
     var livePlayInfo by remember { mutableStateOf<LivePlayInfo?>(null) }
     var liveRoomInfo by remember { mutableStateOf<LiveRoomInfo?>(null) }
+    var liveChat by remember { mutableStateOf<List<LiveDanmaku>>(emptyList()) }
     var listening by remember { mutableStateOf(false) }
     var listenClock by remember { mutableStateOf("00:00") }
     var avatarPreview by remember { mutableStateOf<String?>(null) }
@@ -711,12 +713,16 @@ fun PlayerRoute(
     LaunchedEffect(liveRoom, settings.danmakuEnabled) {
         val room = liveRoom ?: return@LaunchedEffect
         if (!settings.danmakuEnabled) return@LaunchedEffect
-        AppGraph.repo.liveDanmaku(room)
-            .catch { }
-            .collect { msg ->
-                val sec = runCatching { engine.currentPosition / 1000.0 }.getOrDefault(0.0)
-                danmaku = (danmaku + Danmaku(sec, msg.text, msg.mode, msg.color)).takeLast(400)
-            }
+        while (true) {
+            AppGraph.repo.liveDanmaku(room)
+                .catch { }
+                .collect { msg ->
+                    liveChat = (liveChat + msg).takeLast(120)
+                    val sec = runCatching { engine.currentPosition / 1000.0 }.getOrDefault(0.0)
+                    danmaku = (danmaku + Danmaku(sec, msg.text, msg.mode, msg.color)).takeLast(400)
+                }
+            delay(3_000)
+        }
     }
     LaunchedEffect(bvid, liveRoom, local?.bvid, attempt) {
         if (liveRoom != null || local != null) listening = false
@@ -730,6 +736,7 @@ fun PlayerRoute(
                 liveRoom != null -> {
                     val play = AppGraph.repo.livePlay(liveRoom)
                     danmaku = emptyList()
+                    liveChat = emptyList()
                     ready.join()
                     play.onSuccess { got ->
                         livePlayInfo = got
@@ -1873,16 +1880,22 @@ fun PlayerRoute(
                     panel == "comments" -> "comments"
                     else -> "intro"
                 }
-                BiliContentTabs(
-                    labels = listOf("简介", "评论"),
-                    selected = if (showingSeason) -1 else if (shown == "comments") 1 else 0,
-                    onSelect = { panel = if (it == 0) "intro" else "comments" },
-                    actionLabel = if (episodes.size > 1) "合集" else null,
-                    actionOn = showingSeason,
-                    onAction = { panel = if (panel == "season") "intro" else "season" },
-                )
-                when (shown) {
-                    "intro" -> {
+                if (liveRoom == null) {
+                    BiliContentTabs(
+                        labels = listOf("简介", "评论"),
+                        selected = if (showingSeason) -1 else if (shown == "comments") 1 else 0,
+                        onSelect = { panel = if (it == 0) "intro" else "comments" },
+                        actionLabel = if (episodes.size > 1) "合集" else null,
+                        actionOn = showingSeason,
+                        onAction = { panel = if (panel == "season") "intro" else "season" },
+                    )
+                }
+                when {
+                    liveRoom != null -> {
+                        BiliSectionTitle("直播弹幕")
+                        LiveChatList(liveChat)
+                    }
+                    shown == "intro" -> {
                         val ink = MaterialTheme.colorScheme.onSurface
                         if (tags.isNotEmpty()) {
                             FlowRow(
@@ -1974,7 +1987,7 @@ fun PlayerRoute(
                             }
                         }
                     }
-                    "comments" -> {
+                    shown == "comments" -> {
                         val switchSort: (Int) -> Unit = { mode ->
                             if (mode != commentMode) {
                                 commentMode = mode
@@ -2186,7 +2199,7 @@ fun PlayerRoute(
                             }
                         }
                     }
-                    "season" -> {
+                    shown == "season" -> {
                         val accent = MaterialTheme.colorScheme.primary
                         val playingIndex = episodes.indexOfFirst { it.bvid == detail?.bvid }
                         Row(
@@ -2518,6 +2531,65 @@ private fun clock(ms: Long): String {
     val mm = m.toString().padStart(2, '0')
     val ss = s.toString().padStart(2, '0')
     return if (h > 0) "$h:$mm:$ss" else "$mm:$ss"
+}
+
+@Composable
+private fun LiveChatList(messages: List<LiveDanmaku>) {
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        if (messages.isEmpty()) {
+            Text(
+                "等待弹幕…",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            return@Column
+        }
+        messages.takeLast(80).forEach { message ->
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                if (message.admin) {
+                    BiliBadge(text = "房管", tone = BiliBadgeTone.Accent, style = BiliBadgeStyle.Solid)
+                } else if (message.guard > 0) {
+                    BiliBadge(
+                        text = when (message.guard) {
+                            1 -> "总督"
+                            2 -> "提督"
+                            else -> "舰长"
+                        },
+                        tone = BiliBadgeTone.Warning,
+                        style = BiliBadgeStyle.Solid,
+                    )
+                }
+                if (message.medalName.isNotBlank()) {
+                    BiliBadge(
+                        text = "${message.medalName}${message.medalLevel}".take(12),
+                        tone = BiliBadgeTone.Neutral,
+                        style = BiliBadgeStyle.Soft,
+                    )
+                }
+                if (message.user.isNotBlank()) {
+                    Text(
+                        message.user,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                    )
+                }
+                Text(
+                    message.text,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
 }
 
 private fun speedLabel(value: Float): String {

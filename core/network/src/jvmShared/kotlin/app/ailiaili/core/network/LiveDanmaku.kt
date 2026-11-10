@@ -27,6 +27,10 @@ data class LiveDanmaku(
     val uid: Long = 0,
     val color: Int = 0xFFFFFF,
     val mode: Int = 1,
+    val admin: Boolean = false,
+    val guard: Int = 0,
+    val medalName: String = "",
+    val medalLevel: Int = 0,
 )
 
 data class LiveDanmakuInfo(
@@ -136,12 +140,17 @@ internal class LiveDanmakuConnection(
         if (text.isEmpty()) return
         val user = info.optJSONArray(2)
         val meta = info.optJSONArray(0)
+        val medal = info.optJSONArray(3)
         out += LiveDanmaku(
             text = text,
             user = user?.optString(1).orEmpty(),
             uid = user?.optString(0)?.toLongOrNull() ?: 0L,
             color = meta?.optInt(3) ?: 0xFFFFFF,
             mode = meta?.optInt(1) ?: 1,
+            admin = user?.optInt(2) == 1,
+            guard = info.optInt(7).takeIf { it in 1..3 } ?: 0,
+            medalName = medal?.optString(1).orEmpty(),
+            medalLevel = medal?.optInt(0) ?: 0,
         )
     }
 
