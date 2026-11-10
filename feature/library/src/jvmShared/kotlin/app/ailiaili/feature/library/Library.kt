@@ -45,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -67,6 +68,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import app.ailiaili.core.designsystem.BiliAssistChip
@@ -289,6 +291,26 @@ fun FavoritesRoute(onBack: () -> Unit, onOpen: (FavFolder) -> Unit) {
                             onClick = { onOpen(folder) },
                             modifier = Modifier.animateItem(),
                             coverWidth = 112.dp,
+                            coverPlaceholder = false,
+                            leading = if (folder.cover.isBlank()) {
+                                {
+                                    Box(
+                                        Modifier
+                                            .size(44.dp)
+                                            .clip(MaterialTheme.shapes.medium)
+                                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Folder,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            } else {
+                                null
+                            },
                             meta = {
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     BiliBadge(
