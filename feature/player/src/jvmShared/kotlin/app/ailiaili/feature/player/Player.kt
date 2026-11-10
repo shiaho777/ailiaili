@@ -246,6 +246,7 @@ fun PlayerRoute(
     var commentMode by remember { mutableIntStateOf(3) }
     var commentLoading by remember { mutableStateOf(false) }
     var commentError by remember { mutableStateOf<String?>(null) }
+    var commentCooldownUntil by remember { mutableLongStateOf(0L) }
     var replyExtra by remember { mutableStateOf<Map<Long, List<Comment>>>(emptyMap()) }
     var replyPage by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
     var replyDone by remember { mutableStateOf(setOf<Long>()) }
@@ -301,6 +302,7 @@ fun PlayerRoute(
     }
     var qualityOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
+    var audioOpen by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var speedDraft by remember { mutableFloatStateOf(1f) }
     var fullscreen by remember { mutableStateOf(false) }
@@ -309,6 +311,8 @@ fun PlayerRoute(
     var composerExpanded by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableFloatStateOf(-1f) }
+    var cacheOpen by remember { mutableStateOf(false) }
+    var cacheQn by remember { mutableIntStateOf(0) }
     var attempt by remember { mutableIntStateOf(0) }
     val form = LocalWindowForm.current
     val desktop = isDesktopHost()
@@ -336,6 +340,39 @@ fun PlayerRoute(
         scope.launch(ioDispatcher) {
             if (now) HistorySync.reportNow(aid, cid, sec, id)
             else HistorySync.report(aid, cid, sec, id)
+        }
+    }
+    fun cacheToDisk(play: PlayInfo) {
+        val d = detail ?: return
+        downloading = true
+        downloadProgress = -1f
+        var lastProgressAt = 0L
+        scope.launch {
+            runCatching {
+                withContext(ioDispatcher) {
+                    AppGraph.cache.download(
+                        d.bvid,
+                        d.title,
+                        d.pic,
+                        play,
+                        AppGraph.http,
+                    ) { done, total ->
+                        if (done - lastProgressAt >= 512 * 1024 || done == total) {
+                            lastProgressAt = done
+                            val ratio = if (total > 0) {
+                                (done.toFloat() / total).coerceIn(0f, 1f)
+                            } else {
+                                -1f
+                            }
+                            scope.launch { downloadProgress = ratio }
+                        }
+                    }
+                }
+                toast = "已缓存到离线缓存"
+                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            }.onFailure { toast = it.message ?: "缓存失败" }
+            downloading = false
+            downloadProgress = -1f
         }
     }
     fun toggleLike() {
@@ -488,7 +525,21 @@ fun PlayerRoute(
                 commentsMore = got.hasMore
                 if (got.total > 0) commentTotal = got.total
                 commentError = null
-            }.onFailure { commentError = it.message ?: "评论加载失败" }
+                commentCooldownUntil = 0L
+            }.onFailure { failure ->
+                val message = failure.message ?: "评论加载失败"
+                commentError = message
+                val risk = message.contains("风控") || message.contains("-412") || message.contains("频繁")
+                if (risk && commentCooldownUntil == 0L) {
+                    commentCooldownUntil = epochMs() + 30_000
+                    commentError = "$message（30 秒后自动重试）"
+                    scope.launch {
+                        delay(30_000)
+                        commentCooldownUntil = 0L
+                        loadComments(aid, pageNum, mode, append)
+                    }
+                }
+            }
             commentLoading = false
         }
     }
@@ -763,7 +814,7 @@ fun PlayerRoute(
         }
     }
 
-    LaunchedEffect(chrome, playing, scrubbing, qualityOpen, speedOpen, volumeOpen, areaOpen) {
+    LaunchedEffect(chrome, playing, scrubbing, qualityOpen, speedOpen, audioOpen, volumeOpen, areaOpen) {
         if (chrome && playing && !scrubbing && !qualityOpen && !speedOpen && !volumeOpen && !areaOpen) {
             delay(3500)
             chrome = false
@@ -1457,6 +1508,32 @@ fun PlayerRoute(
                         }
                     }
                 }
+                val inf = info
+                if (inf != null && inf.audioQualities.size > 1 && !compactChrome) {
+                    Box {
+                        TextButton(onClick = { audioOpen = true }) {
+                            Text(
+                                inf.audioQualities.firstOrNull { it.id == inf.audioQn }?.label ?: "音质",
+                                color = Color.White,
+                            )
+                        }
+                        DropdownMenu(expanded = audioOpen, onDismissRequest = { audioOpen = false }) {
+                            inf.audioQualities.forEach { quality ->
+                                DropdownMenuItem(
+                                    text = { Text(quality.label) },
+                                    onClick = {
+                                        audioOpen = false
+                                        val pos = engine.currentPosition
+                                        val next = inf.copy(audioUrl = quality.url, audioQn = quality.id)
+                                        info = next
+                                        engine.play(next, pos, audioOnly = listening)
+                                        toast = "音质已切换为 ${quality.label}"
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
                 IconButton(onClick = {
                     fullscreen = !fullscreen
                     haptic.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -1648,38 +1725,8 @@ fun PlayerRoute(
                             active = MaterialTheme.colorScheme.primary,
                         ) {
                             val play = info ?: return@Act
-                            val d = detail ?: return@Act
-                            downloading = true
-                            downloadProgress = -1f
-                            var lastProgressAt = 0L
-                            scope.launch {
-                                runCatching {
-                                    kotlinx.coroutines.withContext(app.ailiaili.core.model.ioDispatcher) {
-                                        AppGraph.cache.download(
-                                            d.bvid,
-                                            d.title,
-                                            d.pic,
-                                            play,
-                                            AppGraph.http,
-                                        ) { done, total ->
-                                            // 每 512KB 或结束时更新一次，避免每 64KB 触发一次重组。
-                                            if (done - lastProgressAt >= 512 * 1024 || done == total) {
-                                                lastProgressAt = done
-                                                val ratio = if (total > 0) {
-                                                    (done.toFloat() / total).coerceIn(0f, 1f)
-                                                } else {
-                                                    -1f
-                                                }
-                                                scope.launch { downloadProgress = ratio }
-                                            }
-                                        }
-                                    }
-                                    toast = "已缓存到离线缓存"
-                                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                }.onFailure { toast = it.message ?: "缓存失败" }
-                                downloading = false
-                                downloadProgress = -1f
-                            }
+                            cacheQn = play.actualQn
+                            cacheOpen = true
                         }
                     }
                 }
@@ -2112,6 +2159,59 @@ fun PlayerRoute(
                 if (detailsReady) Details(Modifier.weight(1f))
                 else Spacer(Modifier.weight(1f))
             }
+        }
+        if (cacheOpen) {
+            val play = info
+            val d = detail
+            AlertDialog(
+                onDismissRequest = { cacheOpen = false },
+                title = { Text("缓存视频") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "选择清晰度",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            play?.qualities.orEmpty().forEach { quality ->
+                                BiliFilterChip(
+                                    selected = cacheQn == quality.qn,
+                                    onClick = { cacheQn = quality.qn },
+                                    label = { Text(quality.label) },
+                                )
+                            }
+                        }
+                        Text(
+                            "保存到应用缓存，可在「我的 → 离线缓存」查看。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = play != null && d != null && cacheQn > 0,
+                        onClick = {
+                            cacheOpen = false
+                            val target = play ?: return@TextButton
+                            val detailNow = d ?: return@TextButton
+                            val cid = page?.cid ?: detailNow.cid
+                            scope.launch {
+                                AppGraph.repo.playAt(detailNow.bvid, cid, cacheQn, forceDash = true)
+                                    .onSuccess { got -> cacheToDisk(got) }
+                                    .onFailure { toast = it.message ?: "获取清晰度失败" }
+                            }
+                        },
+                    ) { Text("开始缓存") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { cacheOpen = false }) { Text("取消") }
+                },
+            )
         }
         if (coinOpen) {
             val balance = myCoins

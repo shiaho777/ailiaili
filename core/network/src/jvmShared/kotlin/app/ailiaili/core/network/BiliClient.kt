@@ -1,6 +1,7 @@
 package app.ailiaili.core.network
 
 import app.ailiaili.core.model.AppSettings
+import app.ailiaili.core.model.AudioQuality
 import app.ailiaili.core.model.BangumiDetail
 import app.ailiaili.core.model.BangumiItem
 import app.ailiaili.core.model.Comment
@@ -14,6 +15,7 @@ import app.ailiaili.core.model.ItemPage
 import app.ailiaili.core.model.MsgItem
 import app.ailiaili.core.model.MsgSession
 import app.ailiaili.core.model.PlayInfo
+import app.ailiaili.core.model.audioQnLabel
 import app.ailiaili.core.model.QrStatus
 import app.ailiaili.core.model.QrTicket
 import app.ailiaili.core.model.SearchPage
@@ -338,9 +340,10 @@ class BiliClient(
         cid: Long,
         settings: AppSettings,
         forceDash: Boolean = false,
+        qnOverride: Int? = null,
     ): Result<PlayInfo> = api {
         ensureBuvid()
-        val qn = settings.defaultQn
+        val qn = qnOverride?.coerceAtLeast(0)?.takeIf { it > 0 } ?: settings.defaultQn
 
         // 720P 及以下优先走 durl 合流单流：桌面 VLC 对 DASH 双流的远距离
         // seek 不可靠，而 durl 是普通 MP4，拖动进度条一次到位。
@@ -355,7 +358,7 @@ class BiliClient(
             "bvid" to bvid,
             "cid" to cid.toString(),
             "qn" to qn.toString(),
-            "fnval" to "16",
+            "fnval" to "4048",
             "fnver" to "0",
             "fourk" to "1",
         )
@@ -1669,23 +1672,32 @@ class BiliClient(
         val videoCands = urlsOf(chosen)
         if (videoCands.isEmpty()) return null
         val videoUrl = CdnPicker.pickVideo(videoCands, settings)
-        var audioUrl: String? = null
         val audios = dash.arr("audio")?.objects().orEmpty()
-        val aac = audios.filter { it.str("codecs").startsWith("mp4a", ignoreCase = true) }
-        val audio = (aac.ifEmpty { audios }).maxByOrNull { it.lng("bandwidth") }
-        if (audio != null) {
-            val ac = urlsOf(audio)
-            if (ac.isNotEmpty()) audioUrl = CdnPicker.pickAudio(ac, videoUrl, settings)
-        }
+        val audioQualities = audios.mapNotNull { track ->
+            val urls = urlsOf(track)
+            if (urls.isEmpty()) return@mapNotNull null
+            val id = track.int("id")
+            AudioQuality(
+                id = id,
+                label = audioQnLabel(id),
+                url = CdnPicker.pickAudio(urls, videoUrl, settings),
+                bandwidth = track.lng("bandwidth"),
+            )
+        }.distinctBy { it.id }.sortedBy { it.id }
+        // 默认优先 AAC（兼容性最好），同档取最高码率；没有 AAC 才用杜比 / Hi-Res。
+        val aac = audioQualities.filter { it.id in 30216..30280 }
+        val selectedAudio = (aac.ifEmpty { audioQualities }).maxByOrNull { it.bandwidth }
         return PlayInfo(
             videoUrl = videoUrl,
-            audioUrl = audioUrl,
+            audioUrl = selectedAudio?.url,
             backupUrls = videoCands.filter { it != videoUrl },
             durationMs = durationMs,
             qualities = qualities,
             actualQn = bestId,
             width = chosen.int("width"),
             height = chosen.int("height"),
+            audioQn = selectedAudio?.id ?: 0,
+            audioQualities = audioQualities,
         )
     }
 

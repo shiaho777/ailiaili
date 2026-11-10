@@ -175,6 +175,22 @@ data class Quality(val qn: Int, val label: String)
  */
 fun shouldPreferDurl(qn: Int): Boolean = qn in 1..64
 
+data class AudioQuality(
+    val id: Int,
+    val label: String,
+    val url: String,
+    val bandwidth: Long = 0,
+)
+
+fun audioQnLabel(id: Int): String = when (id) {
+    30216 -> "64K"
+    30232 -> "132K"
+    30280 -> "192K"
+    30250 -> "杜比全景声"
+    30251 -> "Hi-Res 无损"
+    else -> if (id > 0) "音质 $id" else "音质"
+}
+
 data class PlayInfo(
     val videoUrl: String,
     val audioUrl: String?,
@@ -184,6 +200,10 @@ data class PlayInfo(
     val actualQn: Int,
     val width: Int = 0,
     val height: Int = 0,
+    /** 当前选中的音轨 id（30216/30232/30280/30250/30251）。 */
+    val audioQn: Int = 0,
+    /** 接口返回的全部可用音轨，按音质从低到高。 */
+    val audioQualities: List<AudioQuality> = emptyList(),
 )
 
 /** 播放器 v2 的章节。type 2 才是进度条上的高能进度。 */
