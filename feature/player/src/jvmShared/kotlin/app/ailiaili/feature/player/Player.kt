@@ -137,6 +137,8 @@ import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.MetaRow
 import app.ailiaili.core.designsystem.MetaSpec
+import app.ailiaili.core.designsystem.MetricChip
+import app.ailiaili.core.designsystem.MetricChipSize
 import app.ailiaili.core.designsystem.MetricFlow
 import app.ailiaili.core.designsystem.MetricSpec
 import app.ailiaili.core.designsystem.MetricTone
@@ -2054,36 +2056,50 @@ fun PlayerRoute(
             val canTwo = balance != null && balance >= 2.0 && !coined
             AlertDialog(
                 onDismissRequest = { coinOpen = false },
-                title = { Text("投币") },
+                title = { Text("给这个视频投币") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            MetricChip(
+                                MetricSpec(
+                                    Icons.Filled.MonetizationOn,
+                                    if (balance == null) "…" else coinAmount(balance),
+                                    "我的硬币",
+                                    MetricTone.Coin,
+                                ),
+                                size = MetricChipSize.Compact,
+                            )
+                            MetricChip(
+                                MetricSpec(
+                                    Icons.Filled.ThumbUp,
+                                    formatCount(detail?.coinCount ?: 0).ifBlank { "0" },
+                                    "已投",
+                                    MetricTone.Coin,
+                                ),
+                                size = MetricChipSize.Compact,
+                            )
+                        }
                         Text(
-                            if (balance == null) "正在查询剩余硬币…" else "你还有 ${coinAmount(balance)} 枚硬币",
-                            color = MaterialTheme.colorScheme.onSurface,
+                            if (coined) "你已经投过这个视频，还可以再投 1 枚，同一个视频最多 2 枚。"
+                            else "投币会消耗你的硬币，同一个视频最多投 2 枚。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
                         )
-                        Text(
-                            "这个视频目前有 ${formatCount(detail?.coinCount ?: 0).ifBlank { "0" }} 个投币",
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            if (coined) "你已经投过这个视频。还可以再投 1 枚，同一个视频最多 2 枚。"
-                            else "可以选择投 1 枚或 2 枚。",
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(
+                                onClick = { giveCoins(1) },
+                                enabled = canOne,
+                                modifier = Modifier.weight(1f),
+                            ) { Text("投 1 枚") }
+                            FilledTonalButton(
+                                onClick = { giveCoins(2) },
+                                enabled = canTwo,
+                                modifier = Modifier.weight(1f),
+                            ) { Text("投 2 枚") }
+                        }
                     }
                 },
-                confirmButton = {
-                    Row {
-                        TextButton(
-                            enabled = canOne,
-                            onClick = { giveCoins(1) },
-                        ) { Text("投 1 枚") }
-                        TextButton(
-                            enabled = canTwo,
-                            onClick = { giveCoins(2) },
-                        ) { Text("投 2 枚") }
-                    }
-                },
+                confirmButton = {},
                 dismissButton = {
                     TextButton(onClick = { coinOpen = false }) { Text("取消") }
                 },
@@ -2099,7 +2115,19 @@ fun PlayerRoute(
                             Text("没有可用的收藏夹")
                         }
                         favDraft.forEach { folder ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.medium)
+                                    .clickable {
+                                        val on = !folder.favored
+                                        favDraft = favDraft.map { item ->
+                                            if (item.id == folder.id) item.copy(favored = on) else item
+                                        }
+                                    }
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Checkbox(
                                     checked = folder.favored,
                                     onCheckedChange = { on ->
@@ -2108,7 +2136,19 @@ fun PlayerRoute(
                                         }
                                     },
                                 )
-                                Text(folder.title.ifBlank { "收藏夹" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    folder.title.ifBlank { "收藏夹" },
+                                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                if (folder.privateFolder) {
+                                    BiliBadge(
+                                        text = "私密",
+                                        tone = BiliBadgeTone.Warning,
+                                        style = BiliBadgeStyle.Soft,
+                                    )
+                                }
                             }
                         }
                     }
