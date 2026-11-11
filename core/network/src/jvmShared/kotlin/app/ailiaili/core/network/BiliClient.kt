@@ -676,7 +676,7 @@ class BiliClient(
         )
     }
 
-    suspend fun spaceVideos(mid: Long, page: Int, order: String = "pubdate"): Result<List<VideoItem>> = api {
+    suspend fun spaceVideos(mid: Long, page: Int, order: String = "pubdate"): Result<ItemPage<VideoItem>> = api {
         ensureBuvid()
         val referer = "https://space.bilibili.com/$mid/video"
         val sort = when (order) {
@@ -707,7 +707,14 @@ class BiliClient(
         } else {
             emptyList()
         }
-        if (fromSearch.isNotEmpty()) return@api fromSearch
+        if (fromSearch.isNotEmpty()) {
+            val total = signed.data?.obj("page")?.lng("count") ?: 0
+            return@api ItemPage(
+                items = fromSearch,
+                hasMore = if (total > 0) page * 30L < total else fromSearch.size >= 30,
+                total = total,
+            )
+        }
         if (sort != "pubdate") error(friendly(signed.code, signed.message ?: "这个排序暂时拿不到"))
         val fallback = get(
             "https://api.bilibili.com/x/series/recArchivesByKeywords",
@@ -723,7 +730,13 @@ class BiliClient(
             val code = if (fallback.code == -999) signed.code else fallback.code
             error(friendly(code, "投稿加载失败"))
         }
-        fallback.data?.arr("archives")?.objects().orEmpty().mapNotNull { parseSpaceVideo(it, mid) }
+        val fallbackItems = fallback.data?.arr("archives")?.objects().orEmpty()
+            .mapNotNull { parseSpaceVideo(it, mid) }
+        ItemPage(
+            items = fallbackItems,
+            hasMore = fallbackItems.size >= 30,
+            total = fallback.data?.lng("total") ?: 0,
+        )
     }
 
     /** 空间列表往往只有播放数。首页卡片还要弹幕和点赞，这里补一次详情里的 stat。 */

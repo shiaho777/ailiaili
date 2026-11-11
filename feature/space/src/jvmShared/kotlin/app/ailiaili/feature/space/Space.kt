@@ -137,6 +137,7 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
     var toast by mutableStateOf<String?>(null)
     var page by mutableStateOf(1)
     var hasMore by mutableStateOf(true)
+    var videoTotal by mutableStateOf(0L)
     var order by mutableStateOf("pubdate")
     var collectionListPage by mutableStateOf(1)
     var collectionsHasMore by mutableStateOf(false)
@@ -188,12 +189,13 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
                     AppGraph.repo.space(mid).onSuccess { info = it }.onFailure { if (info == null) error = it.message }
                 }
                 launch {
-                    AppGraph.repo.spaceVideos(mid, 1, order).onSuccess {
-                        items = it
+                    AppGraph.repo.spaceVideos(mid, 1, order).onSuccess { got ->
+                        items = got.items
                         page = 1
-                        hasMore = it.size >= PageSize
+                        hasMore = got.hasMore
+                        videoTotal = got.total
                         videoError = null
-                        enrich(it)
+                        enrich(got.items)
                     }.onFailure { videoError = it.message ?: "投稿加载失败" }
                     videosReady = true
                 }
@@ -248,12 +250,13 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
         val next = page + 1
         loadingMore = true
         viewModelScope.launch {
-            AppGraph.repo.spaceVideos(mid, next, order).onSuccess { pageItems ->
+            AppGraph.repo.spaceVideos(mid, next, order).onSuccess { got ->
                 page = next
                 val known = items.map { it.bvid }.toSet()
-                val fresh = pageItems.filter { it.bvid !in known }
+                val fresh = got.items.filter { it.bvid !in known }
                 items = items + fresh
-                hasMore = pageItems.size >= PageSize
+                hasMore = got.hasMore
+                if (got.total > 0) videoTotal = got.total
                 enrich(fresh)
             }.onFailure {
                 toast = it.message ?: "投稿加载失败"
@@ -350,12 +353,13 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
         order = next
         viewModelScope.launch {
             videosReady = false
-            AppGraph.repo.spaceVideos(mid, 1, next).onSuccess {
-                items = it
+            AppGraph.repo.spaceVideos(mid, 1, next).onSuccess { got ->
+                items = got.items
                 page = 1
-                hasMore = it.size >= PageSize
+                hasMore = got.hasMore
+                videoTotal = got.total
                 videoError = null
-                enrich(it)
+                enrich(got.items)
             }.onFailure {
                 order = previous
                 toast = it.message ?: "这个排序暂时拿不到"
@@ -633,7 +637,11 @@ private fun LazyGridScope.videoSections(vm: SpaceViewModel, onVideo: (VideoItem)
             if (vm.loadingMore) {
                 item(key = "video-more", span = { GridItemSpan(maxLineSpan) }) { CenterProgress() }
             } else if (!vm.hasMore) {
-                item(key = "video-end", span = { GridItemSpan(maxLineSpan) }) { EndLine() }
+                item(key = "video-end", span = { GridItemSpan(maxLineSpan) }) {
+                    EndLine(
+                        if (vm.videoTotal > 0) "共 ${vm.videoTotal} 个投稿 · 第 ${vm.page} 页" else "已经到底啦",
+                    )
+                }
             }
         }
     }
@@ -859,7 +867,7 @@ private fun EmptyLine(text: String, onRetry: (() -> Unit)? = null) {
 }
 
 @Composable
-private fun EndLine() {
+private fun EndLine(text: String = "已经到底啦") {
     Row(
         Modifier.fillMaxWidth().padding(vertical = 16.dp),
         horizontalArrangement = Arrangement.Center,
@@ -867,7 +875,7 @@ private fun EndLine() {
     ) {
         Box(Modifier.width(24.dp).height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
         Text(
-            "已经到底啦",
+            text,
             modifier = Modifier.padding(horizontal = 10.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp,

@@ -42,6 +42,7 @@
 | v1.7.2 | 直播弹幕：WebSocket 鉴权/心跳/zlib 解压，复用点播弹幕渲染与胶囊底衬 | `LiveDanmaku.kt` / `Player.kt` |
 | v1.7.2 | 直播弹幕列表：右侧/下方聊天列表，显示昵称、内容、房管/舰长/粉丝牌徽章 | `Player.kt` |
 | v1.7.2 | 推荐源网页版 / App 端切换，设置页可选，切换后首页立即重拉 | `BiliClient.recommendApp` / `Settings.kt` / `Home.kt` |
+| v1.7.2 | UP 空间投稿「到底」改用接口总条数，到底行显示总投稿数与页码 | `BiliClient.spaceVideos` / `Space.kt` |
 | v1.7.2 | WBI mixin 截断到前 32 位，修复直播弹幕等签名接口稳定 -352 | `Wbi.kt` |
 | v1.4.1 / v1.4.2 | 图片预览支持缩放、拖动、双击 1x/2x | `AvatarPreview.kt` |
 | v1.4.2 | 视频卡封面长按 / 右键预览 | `Components.kt` |

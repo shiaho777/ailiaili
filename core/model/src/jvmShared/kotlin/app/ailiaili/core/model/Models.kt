@@ -354,6 +354,8 @@ data class FollowUser(
 data class ItemPage<T>(
     val items: List<T>,
     val hasMore: Boolean,
+    /** 接口返回的总条数；未知时为 0。 */
+    val total: Long = 0,
 )
 
 data class NavStat(

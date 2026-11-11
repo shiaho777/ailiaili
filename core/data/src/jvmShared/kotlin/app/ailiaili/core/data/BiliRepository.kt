@@ -73,7 +73,7 @@ interface BiliRepository {
     suspend fun commentDislike(aid: Long, rpid: Long, dislike: Boolean): Result<Unit>
     suspend fun dynamics(offset: String?): Result<DynamicPage>
     suspend fun space(mid: Long): Result<SpaceInfo>
-    suspend fun spaceVideos(mid: Long, page: Int, order: String = "pubdate"): Result<List<VideoItem>>
+    suspend fun spaceVideos(mid: Long, page: Int, order: String = "pubdate"): Result<ItemPage<VideoItem>>
     suspend fun videoStats(bvid: String): Result<Triple<Long, Long, Long>>
     suspend fun spaceDynamics(mid: Long, offset: String?): Result<SpaceFeed>
     suspend fun spaceCollections(mid: Long, page: Int = 1): Result<ItemPage<SpaceCollection>>

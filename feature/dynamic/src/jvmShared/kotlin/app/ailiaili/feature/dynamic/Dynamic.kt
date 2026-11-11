@@ -275,11 +275,11 @@ class DynamicViewModel : ViewModel() {
                 val result = AppGraph.repo.spaceVideos(up.mid, page)
                 if (current != ticket) return@launch
                 loading = false
-                result.onSuccess { list ->
+                result.onSuccess { got ->
                     upPage = page + 1
-                    val fresh = list.filter { it.bvid.isNotBlank() && seen.add(it.bvid) }
+                    val fresh = got.items.filter { it.bvid.isNotBlank() && seen.add(it.bvid) }
                     items = if (reset) fresh else items + fresh
-                    hasMore = list.size >= 30
+                    hasMore = got.hasMore
                     if (items.isEmpty()) error = "该 UP 暂时没有投稿视频"
                     clearUnread(up)
                 }.onFailure {
