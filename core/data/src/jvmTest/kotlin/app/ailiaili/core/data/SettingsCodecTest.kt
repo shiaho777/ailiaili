@@ -50,6 +50,14 @@ class SettingsCodecTest {
     }
 
     @Test
+    fun roundTripsWheelSpeed() {
+        val src = decodeAppSettings(JSONObject()).copy(wheelSpeedPercent = 400)
+        val out = decodeAppSettings(encodeAppSettings(src))
+        assertEquals(400, out.wheelSpeedPercent)
+        assertEquals(250, decodeAppSettings(JSONObject()).wheelSpeedPercent)
+    }
+
+    @Test
     fun roundTripsRecommendSource() {
         val src = decodeAppSettings(JSONObject()).copy(recommendSource = RecommendSource.App)
         val out = decodeAppSettings(encodeAppSettings(src))

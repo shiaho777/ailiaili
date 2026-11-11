@@ -71,6 +71,8 @@ import app.ailiaili.core.designsystem.BiliSwitchRow
 import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.BiliPillTabs
 import app.ailiaili.core.designsystem.BiliSectionTitle
+import app.ailiaili.core.designsystem.LocalWheelSpeed
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.MetricChip
 import app.ailiaili.core.designsystem.MetricChipSize
@@ -105,6 +107,7 @@ fun SettingsRoute(
     val settings by AppGraph.repo.settings.collectAsState()
     val session by AppGraph.repo.session.collectAsState()
     val scope = rememberCoroutineScope()
+    val pageScroll = rememberScrollState()
     var updateText by remember { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var area by remember(settings.danmakuAreaPercent) { mutableFloatStateOf(settings.danmakuAreaPercent.toFloat()) }
@@ -112,7 +115,8 @@ fun SettingsRoute(
         Modifier
             .fillMaxSize()
             .shellBottomPadding()
-            .verticalScroll(rememberScrollState())
+            .smoothWheelScroll(pageScroll, LocalWheelSpeed.current)
+            .verticalScroll(pageScroll)
             .padding(bottom = 24.dp),
     ) {
         BiliPageHeader("应用设置")
@@ -121,6 +125,28 @@ fun SettingsRoute(
         }
         when (tab) {
             0 -> {
+                BiliSectionTitle("交互", Modifier.padding(horizontal = 20.dp))
+                SettingsCard {
+                    var wheelSpeed by remember(settings.wheelSpeedPercent) {
+                        mutableFloatStateOf(settings.wheelSpeedPercent.toFloat())
+                    }
+                    BiliSettingsLabel(
+                        "滚轮速度 ${wheelSpeed.toInt()}%",
+                        supporting = "仅桌面端生效。默认 250%，数值越大滚得越快。",
+                    )
+                    Slider(
+                        value = wheelSpeed,
+                        onValueChange = { wheelSpeed = it },
+                        onValueChangeFinished = {
+                            AppGraph.repo.updateSettings {
+                                it.copy(wheelSpeedPercent = wheelSpeed.toInt().coerceIn(100, 500))
+                            }
+                        },
+                        valueRange = 100f..500f,
+                        steps = 7,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
                 BiliSectionTitle("内容", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
                     BiliSettingsLabel(

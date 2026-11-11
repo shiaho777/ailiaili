@@ -44,6 +44,7 @@
 | v1.7.2 | 推荐源网页版 / App 端切换，设置页可选，切换后首页立即重拉 | `BiliClient.recommendApp` / `Settings.kt` / `Home.kt` |
 | v1.7.2 | UP 空间投稿「到底」改用接口总条数，到底行显示总投稿数与页码 | `BiliClient.spaceVideos` / `Space.kt` |
 | v1.7.2 | 下载保存位置：桌面端可选目录并扫描/删除；Android 固定应用缓存 | `OfflineCache` / `Settings.kt` / `Platform.jvm.kt` |
+| v1.6.5 | 桌面端平滑滚轮与 100–500% 速度调节，覆盖卡片墙、设置页和播放页详情 | `Wheel.jvm.kt` / `VideoGrid` / `Settings.kt` |
 | v1.7.2 | WBI mixin 截断到前 32 位，修复直播弹幕等签名接口稳定 -352 | `Wbi.kt` |
 | v1.4.1 / v1.4.2 | 图片预览支持缩放、拖动、双击 1x/2x | `AvatarPreview.kt` |
 | v1.4.2 | 视频卡封面长按 / 右键预览 | `Components.kt` |
@@ -62,7 +63,6 @@
 | v1.6.1 评论详情页排序 / v1.6.3 评论悬浮工具列 | 本项目评论是列表内联展开，没有独立详情页 |
 | v1.6.3 删除弹幕关键词屏蔽 | 保留该功能作为高级选项；智能屏蔽仍默认开启 |
 | v1.6.4 进度条悬停时间气泡 | 当前只在拖动时显示预览气泡，桌面悬停待补 |
-| v1.6.5 全局平滑滚轮 / 滚轮速度 | Compose 没有 WPF 那种全局 ScrollViewer 钩子，需要逐列表接管滚轮，暂缓 |
 | v1.7.2 DASH 双流合流为单 MP4 | 当前保存 video.m4s / audio.m4s 分离文件，播放器可直接播放 |
 | 账号密码登录 + 极验 | 依赖 WebView2，四平台没有同一套实现 |
 | 短视频本地下载并合流 MP4 | 需要跨平台 MP4 muxer；当前用 durl 单流覆盖大部分 seek 场景 |

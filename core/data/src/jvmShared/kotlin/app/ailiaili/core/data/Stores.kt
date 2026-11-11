@@ -130,6 +130,7 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     closeToTray = o.optBoolean("closeToTray", true),
     playerVolume = o.optDouble("playerVolume", 0.8).toFloat().coerceIn(0f, 1f),
     downloadDir = o.optString("downloadDir"),
+    wheelSpeedPercent = o.optInt("wheelSpeedPercent", 250).coerceIn(100, 500),
     lastSearchKind = runCatching { ContentKind.valueOf(o.optString("lastSearchKind", "Video")) }
         .getOrDefault(ContentKind.Video),
     filterTitleKeyword = o.optString("filterTitleKeyword"),
@@ -190,6 +191,7 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("closeToTray", next.closeToTray)
     .put("playerVolume", next.playerVolume.coerceIn(0f, 1f).toDouble())
     .put("downloadDir", next.downloadDir)
+    .put("wheelSpeedPercent", next.wheelSpeedPercent.coerceIn(100, 500))
     .put("lastSearchKind", next.lastSearchKind.name)
     .put("filterTitleKeyword", next.filterTitleKeyword)
     .put("filterUpKeyword", next.filterUpKeyword)

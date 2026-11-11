@@ -621,6 +621,8 @@ data class AppSettings(
     val lastSearchKind: ContentKind = ContentKind.Video,
     /** 桌面端下载保存目录；空字符串表示应用缓存。 */
     val downloadDir: String = "",
+    /** 桌面端滚轮速度百分比，100–500。 */
+    val wheelSpeedPercent: Int = 250,
     /** 标题关键词屏蔽，多个词用空格/逗号分开。 */
     val filterTitleKeyword: String = "",
     /** UP 主名称关键词屏蔽。 */

@@ -121,7 +121,7 @@ fun VideoGrid(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(LocalWindowForm.current.gridMin),
         state = state,
-        modifier = modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize().smoothWheelScroll(state, LocalWheelSpeed.current),
         contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),

@@ -30,10 +30,12 @@ import app.ailiaili.core.designsystem.BiliRail
 import app.ailiaili.core.designsystem.BiliRailItem
 import app.ailiaili.core.designsystem.BiliShell
 import app.ailiaili.core.designsystem.ContentFilter
+import app.ailiaili.core.designsystem.LocalWheelSpeed
 import app.ailiaili.core.designsystem.LocalWindowForm
 import app.ailiaili.core.designsystem.ProvideWindowForm
 import app.ailiaili.core.designsystem.toChrome
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -377,26 +379,28 @@ private fun AppShell() {
     val openTab: (Int) -> Unit = { index ->
         vm.tab(tabDests.getOrElse(index) { Dest.Home })
     }
-    BiliShell(
-        chrome = chrome,
-        rail = { wide ->
-            BiliRail(
-                items = railItems,
-                selected = railIndex,
-                wide = wide,
-                onSelect = openTab,
-            )
-        },
-        bottomBar = {
-            BiliBottomBar(
-                items = railItems,
-                selected = railIndex,
-                onSelect = openTab,
-            )
-        },
-        overlay = overlayLayer,
-        content = body,
-    )
+    CompositionLocalProvider(LocalWheelSpeed provides settings.wheelSpeedPercent) {
+        BiliShell(
+            chrome = chrome,
+            rail = { wide ->
+                BiliRail(
+                    items = railItems,
+                    selected = railIndex,
+                    wide = wide,
+                    onSelect = openTab,
+                )
+            },
+            bottomBar = {
+                BiliBottomBar(
+                    items = railItems,
+                    selected = railIndex,
+                    onSelect = openTab,
+                )
+            },
+            overlay = overlayLayer,
+            content = body,
+        )
+    }
 
     if (settings.acceptedDisclaimerVersion < DISCLAIMER_VERSION || rereadDisclaimer) {
         val accepted = settings.acceptedDisclaimerVersion >= DISCLAIMER_VERSION

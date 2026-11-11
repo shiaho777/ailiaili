@@ -142,6 +142,7 @@ import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.ContentFilter
+import app.ailiaili.core.designsystem.LocalWheelSpeed
 import app.ailiaili.core.designsystem.MetaRow
 import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricChip
@@ -150,6 +151,7 @@ import app.ailiaili.core.designsystem.MetricFlow
 import app.ailiaili.core.designsystem.MetricSpec
 import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.metricToneColor
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.network.CdnPicker
 import app.ailiaili.core.player.BufferMediaKind
 import app.ailiaili.core.player.BufferPolicy
@@ -1653,6 +1655,7 @@ fun PlayerRoute(
             Column(
                 modifier
                     .imePadding()
+                    .smoothWheelScroll(scroll, LocalWheelSpeed.current)
                     .verticalScroll(scroll)
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
