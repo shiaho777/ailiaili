@@ -41,7 +41,7 @@ internal object PlayMemory {
     fun flush(now: Long = System.currentTimeMillis()) {
         if (!dirty) return
         val root = cache ?: return
-        runCatching { file().writeText(root.toString()) }
+        runCatching { file().writeTextAtomic(root.toString()) }
         dirty = false
         lastFlushAt = now
     }

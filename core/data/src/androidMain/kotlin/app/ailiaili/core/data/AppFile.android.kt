@@ -27,6 +27,22 @@ actual class AppFile {
         file.parentFile?.mkdirs()
         file.writeText(text)
     }
+    actual fun writeTextAtomic(text: String) {
+        file.parentFile?.mkdirs()
+        val tmp = File(file.parentFile, file.name + ".tmp")
+        tmp.writeText(text)
+        runCatching {
+            java.nio.file.Files.move(
+                tmp.toPath(),
+                file.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+            )
+        }.onFailure {
+            file.writeText(text)
+            tmp.delete()
+        }
+    }
     actual fun writeBytes(bytes: ByteArray) {
         file.parentFile?.mkdirs()
         file.writeBytes(bytes)

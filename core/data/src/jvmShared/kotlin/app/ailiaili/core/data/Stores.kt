@@ -58,7 +58,7 @@ class SessionStore(private val file: AppFile) {
                 .put("buvid3", session.buvid3)
                 .put("buvid4", session.buvid4)
                 .put("bNut", session.bNut)
-            file.writeText(o.toString(2))
+            file.writeTextAtomic(o.toString(2))
         }
     }
 }
@@ -80,7 +80,7 @@ class SettingsStore(private val file: AppFile) {
         _settings.value = next
         runCatching {
             file.parentFile?.mkdirs()
-            file.writeText(encodeAppSettings(next).toString(2))
+            file.writeTextAtomic(encodeAppSettings(next).toString(2))
         }
     }
 }
@@ -238,7 +238,7 @@ class SearchHistory(private val file: AppFile) {
             file.parentFile?.mkdirs()
             val arr = JSONArray()
             _items.value.forEach { arr.put(it) }
-            file.writeText(arr.toString())
+            file.writeTextAtomic(arr.toString())
         }
     }
 }
@@ -301,7 +301,7 @@ class OfflineCache(private val root: AppFile) {
             .put("qn", info.actualQn)
             .put("video", "video.m4s")
             .put("audio", "audio.m4s")
-        AppFile(folder, "meta.json").writeText(meta.toString())
+        AppFile(folder, "meta.json").writeTextAtomic(meta.toString())
         return CacheEntry(bvid, title, cover, video.absolutePath, audio.takeIf { it.exists() }?.absolutePath, info.actualQn)
     }
 

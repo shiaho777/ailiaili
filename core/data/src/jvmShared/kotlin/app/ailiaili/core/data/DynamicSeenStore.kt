@@ -49,7 +49,7 @@ class DynamicSeenStore(private val file: AppFile) {
             file.parentFile?.mkdirs()
             val o = JSONObject()
             map.forEach { (mid, bvid) -> o.put(mid.toString(), bvid) }
-            file.writeText(o.toString(2))
+            file.writeTextAtomic(o.toString(2))
             dirty = false
         }
     }

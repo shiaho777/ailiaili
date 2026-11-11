@@ -4,7 +4,7 @@ Date: 2026-10-17
 
 ## 背景
 
-原版 BiliDesk v1.3.0（ABING1111/BiliDesk `cf76cc6`）把分区从旧 `ranking/v2` 换成现行 `region/feed/rcmd`，搜索补上番剧/纪录片，播放器音量跨视频继承。CMP 四平台客户端（Android / Windows / macOS / Linux）要对齐这三块产品行为。
+分区接口从旧 `ranking/v2` 换成现行 `region/feed/rcmd`，搜索补上番剧/纪录片，播放器音量跨视频继承。CMP 四平台客户端（Android / Windows / macOS / Linux）需要统一这三块产品行为。
 
 本 spec 只覆盖第一批。动态卡、追番 Tab、密码登录、下载路径、桌面右键铺满/藏详情、弹幕字号速度不在范围里。
 
