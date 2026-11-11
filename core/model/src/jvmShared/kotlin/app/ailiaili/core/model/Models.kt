@@ -78,8 +78,8 @@ fun formatClock(ms: Long): String {
 }
 
 fun qnLabel(qn: Int): String = when (qn) {
-    127 -> "杜比视界"
-    126 -> "杜比全景声"
+    127 -> "8K"
+    126 -> "杜比视界"
     125 -> "HDR"
     120 -> "4K"
     116 -> "1080P60"

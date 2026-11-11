@@ -2138,7 +2138,13 @@ fun PlayerRoute(
                                 }) { Text("重试") }
                             }
                         }
-                        comments.forEach { c ->
+                        comments.forEachIndexed { index, c ->
+                            if (index > 0) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 2.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                )
+                            }
                             val shown = replyExtra[c.rpid] ?: c.replies
                             key(c.rpid) {
                             CommentBlock(
