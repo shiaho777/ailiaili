@@ -619,6 +619,8 @@ data class AppSettings(
     val closeToTray: Boolean = true,
     val playerVolume: Float = 0.8f,
     val lastSearchKind: ContentKind = ContentKind.Video,
+    /** 桌面端下载保存目录；空字符串表示应用缓存。 */
+    val downloadDir: String = "",
     /** 标题关键词屏蔽，多个词用空格/逗号分开。 */
     val filterTitleKeyword: String = "",
     /** UP 主名称关键词屏蔽。 */

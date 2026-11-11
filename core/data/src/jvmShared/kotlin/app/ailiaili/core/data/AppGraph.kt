@@ -25,7 +25,9 @@ object AppGraph {
         settings = SettingsStore(AppFile(dir, "settings.json")).apply { load() }
         searchHistory = SearchHistory(AppFile(dir, "search-history.json")).apply { load() }
         dynamicSeen = DynamicSeenStore(AppFile(dir, "dynamic-seen.json")).apply { load() }
-        cache = OfflineCache(AppFile(dir, "vcache"))
+        cache = OfflineCache(AppFile(dir, "vcache")).apply {
+            setExtraRoot(settings.current.downloadDir)
+        }
         http = SharedHttp.default
         val client = BiliClient(
             session = { sessionStore.current },

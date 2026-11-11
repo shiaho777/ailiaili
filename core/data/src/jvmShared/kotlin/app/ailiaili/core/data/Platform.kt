@@ -22,6 +22,9 @@ expect fun shareText(title: String, text: String): String
 
 expect fun saveImageBytes(bytes: ByteArray, displayName: String): String
 
+/** 选择下载保存目录。桌面端弹目录选择器；Android 暂不支持，返回 null。 */
+expect suspend fun chooseDirectory(): String?
+
 expect fun exitApp()
 
 expect fun windowBrightness(): Float

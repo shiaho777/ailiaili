@@ -5,6 +5,9 @@ import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.io.File
 import java.net.URI
+import javax.swing.JFileChooser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 object DesktopHost {
     var exit: (() -> Unit)? = null
@@ -38,6 +41,18 @@ actual fun shareText(title: String, text: String): String {
         runCatching { Desktop.getDesktop().browse(URI(page.trim())) }
     }
     return "链接已复制"
+}
+
+actual suspend fun chooseDirectory(): String? = withContext(Dispatchers.Main) {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "选择下载保存位置"
+        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+    }
+    if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+        chooser.selectedFile?.absolutePath
+    } else {
+        null
+    }
 }
 
 actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {

@@ -129,6 +129,7 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     },
     closeToTray = o.optBoolean("closeToTray", true),
     playerVolume = o.optDouble("playerVolume", 0.8).toFloat().coerceIn(0f, 1f),
+    downloadDir = o.optString("downloadDir"),
     lastSearchKind = runCatching { ContentKind.valueOf(o.optString("lastSearchKind", "Video")) }
         .getOrDefault(ContentKind.Video),
     filterTitleKeyword = o.optString("filterTitleKeyword"),
@@ -188,6 +189,7 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("acceptedDisclaimerVersion", next.acceptedDisclaimerVersion)
     .put("closeToTray", next.closeToTray)
     .put("playerVolume", next.playerVolume.coerceIn(0f, 1f).toDouble())
+    .put("downloadDir", next.downloadDir)
     .put("lastSearchKind", next.lastSearchKind.name)
     .put("filterTitleKeyword", next.filterTitleKeyword)
     .put("filterUpKeyword", next.filterUpKeyword)
@@ -240,8 +242,20 @@ class SearchHistory(private val file: AppFile) {
 }
 
 class OfflineCache(private val root: AppFile) {
-    fun list(): List<CacheEntry> {
-        val dir = root
+    private var extraRoot: AppFile? = null
+
+    fun setExtraRoot(path: String?) {
+        extraRoot = path?.trim()?.takeIf { it.isNotEmpty() }?.let { AppFile(it) }
+    }
+
+    private fun roots(): List<AppFile> =
+        listOfNotNull(root, extraRoot).distinctBy { it.absolutePath }
+
+    fun list(): List<CacheEntry> = roots().flatMap(::scan).sortedByDescending {
+        AppFile(it.videoPath).lastModified()
+    }
+
+    private fun scan(dir: AppFile): List<CacheEntry> {
         if (!dir.exists()) return emptyList()
         return dir.listFiles().mapNotNull { folder ->
             val meta = AppFile(folder, "meta.json")
@@ -260,7 +274,7 @@ class OfflineCache(private val root: AppFile) {
                     qn = o.optInt("qn"),
                 )
             }.getOrNull()
-        }.sortedByDescending { AppFile(it.videoPath).lastModified() }
+        }
     }
 
     fun download(
@@ -271,7 +285,7 @@ class OfflineCache(private val root: AppFile) {
         client: HttpEngine,
         onProgress: (downloaded: Long, total: Long) -> Unit = { _, _ -> },
     ): CacheEntry {
-        val folder = AppFile(root, bvid.ifBlank { "local" })
+        val folder = AppFile(extraRoot ?: root, bvid.ifBlank { "local" })
         folder.mkdirs()
         val video = AppFile(folder, "video.m4s")
         val audio = AppFile(folder, "audio.m4s")
@@ -290,7 +304,7 @@ class OfflineCache(private val root: AppFile) {
     }
 
     fun delete(bvid: String) {
-        AppFile(root, bvid).deleteRecursively()
+        roots().forEach { AppFile(it, bvid).deleteRecursively() }
     }
 
     private fun fetch(

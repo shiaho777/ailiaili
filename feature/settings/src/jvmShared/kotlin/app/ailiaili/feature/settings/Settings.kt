@@ -38,6 +38,7 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.canFollowSystemAccent
 import app.ailiaili.core.data.hideAppWindow
 import app.ailiaili.core.data.imageCacheDirs
+import app.ailiaili.core.data.chooseDirectory
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.data.traySupported
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Minimize
@@ -525,6 +527,46 @@ fun SettingsRoute(
                         icon = Icons.Filled.Download,
                         tone = MetricTone.Online,
                         onClick = onOpenCache,
+                    )
+                    BiliSettingsRow(
+                        title = "下载保存位置",
+                        supporting = if (isDesktopHost()) {
+                            settings.downloadDir.ifBlank { "应用缓存（默认）" }
+                        } else {
+                            "Android 固定保存到应用缓存"
+                        },
+                        icon = Icons.Filled.Folder,
+                        tone = MetricTone.Favorite,
+                        onClick = if (isDesktopHost()) {
+                            {
+                                scope.launch {
+                                    val dir = chooseDirectory() ?: return@launch
+                                    AppGraph.repo.updateSettings { it.copy(downloadDir = dir) }
+                                    AppGraph.cache.setExtraRoot(dir)
+                                    cacheCount = withContext(ioDispatcher) { AppGraph.cache.list().size }
+                                }
+                            }
+                        } else {
+                            null
+                        },
+                        trailing = if (isDesktopHost() && settings.downloadDir.isNotBlank()) {
+                            {
+                                Text(
+                                    "重置",
+                                    modifier = Modifier.clickable {
+                                        scope.launch {
+                                            AppGraph.repo.updateSettings { it.copy(downloadDir = "") }
+                                            AppGraph.cache.setExtraRoot("")
+                                            cacheCount = withContext(ioDispatcher) { AppGraph.cache.list().size }
+                                        }
+                                    },
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
+                        } else {
+                            null
+                        },
                     )
                     BiliSettingsRow(
                         title = "封面缓存",

@@ -55,6 +55,8 @@ actual fun shareText(title: String, text: String): String {
     return ""
 }
 
+actual suspend fun chooseDirectory(): String? = null
+
 actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {
     val resolver = AndroidHost.context.contentResolver
     val values = ContentValues().apply {
