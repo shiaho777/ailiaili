@@ -1,3 +1,5 @@
+@file:OptIn(org.jetbrains.compose.ExperimentalComposeLibrary::class)
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.library)
@@ -62,6 +64,8 @@ kotlin {
         val jvmTest by getting {
             dependencies {
                 implementation(kotlin("test"))
+                implementation(compose.uiTest)
+                implementation(compose.desktop.currentOs)
             }
         }
 

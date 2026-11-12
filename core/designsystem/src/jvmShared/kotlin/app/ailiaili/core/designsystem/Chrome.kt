@@ -143,20 +143,20 @@ private fun RailFrame(
     rail: @Composable (wide: Boolean) -> Unit,
     page: @Composable () -> Unit,
 ) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        // 手机上轨不能占到桌面那 96dp，但标签必须留下：窄档在桌面端靠悬停提示，触摸没有悬停。
-        val wide = maxWidth >= 600.dp
-        Row(Modifier.fillMaxSize()) {
-            Box(
-                Modifier
-                    .width(if (wide) 96.dp else 72.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.surfaceContainer),
-            ) {
-                rail(wide)
-            }
-            Box(Modifier.weight(1f).fillMaxHeight()) { page() }
+    // 不要在这里用 BoxWithConstraints：它会把页面放进 SubcomposeLayout。
+    // 页面用 movableContentOf 在 Rail / None 之间移动时，从子组合移出后
+    // 内容会停止重组，AnimatedContent 的 target 更新丢失（侧边栏消失、新页面打不开）。
+    val wide = LocalWindowForm.current.width >= 600.dp
+    Row(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .width(if (wide) 96.dp else 72.dp)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.surfaceContainer),
+        ) {
+            rail(wide)
         }
+        Box(Modifier.weight(1f).fillMaxHeight()) { page() }
     }
 }
 
