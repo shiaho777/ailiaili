@@ -27,6 +27,7 @@ jobs:
           :core:model:jvmTest
           :core:network:jvmTest
           :core:data:jvmTest
+          :core:designsystem:jvmTest
           :core:player:jvmTest
           :feature:player:jvmTest
           :app:jvmTest
