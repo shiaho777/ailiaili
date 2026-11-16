@@ -264,14 +264,17 @@ class OfflineCache(private val root: AppFile) {
             if (!meta.exists()) return@mapNotNull null
             runCatching {
                 val o = JSONObject(meta.readText())
-                val video = AppFile(folder, o.optString("video", "video.m4s"))
-                if (!video.exists()) return@runCatching null
-                val audio = AppFile(folder, o.optString("audio", "audio.m4s")).takeIf { it.exists() }
+                val video = AppFile(folder, o.optString("video", "video.m4s")).takeIf { it.exists() }
+                val merged = AppFile(folder, "merged.mp4").takeIf { it.exists() && it.length() > 0 }
+                // 合流件优先；原始双流是锚点/回退。两者都没有才是坏目录。
+                val primary = merged ?: video ?: return@runCatching null
+                val audio = AppFile(folder, o.optString("audio", "audio.m4s"))
+                    .takeIf { it.exists() && merged == null }
                 CacheEntry(
                     bvid = o.optString("bvid"),
                     title = o.optString("title"),
                     cover = o.optString("cover"),
-                    videoPath = video.absolutePath,
+                    videoPath = primary.absolutePath,
                     audioPath = audio?.absolutePath,
                     qn = o.optInt("qn"),
                 )
@@ -301,8 +304,48 @@ class OfflineCache(private val root: AppFile) {
             .put("qn", info.actualQn)
             .put("video", "video.m4s")
             .put("audio", "audio.m4s")
+            .put("videoCodecs", info.videoCodecs)
+            .put("audioCodecs", info.audioCodecs)
         AppFile(folder, "meta.json").writeTextAtomic(meta.toString())
-        return CacheEntry(bvid, title, cover, video.absolutePath, audio.takeIf { it.exists() }?.absolutePath, info.actualQn)
+        // 无损合流为单个 MP4（Android 系统合成器；桌面保留双流）。
+        // 合流失败绝不删原始文件，播放回退双流。
+        val merged = AppFile(folder, "merged.mp4")
+        val muxed = runCatching {
+            muxToMp4(
+                video.absolutePath,
+                audio.takeIf { it.exists() }?.absolutePath,
+                merged.absolutePath,
+                info.videoCodecs,
+                info.audioCodecs,
+            )
+        }.getOrDefault(false)
+        // 合流成功后保留原始双流：扫描以 video.m4s 存在为锚点，
+        // 且合流件万一损坏还能回退。删除缓存时整个文件夹一起清，不会泄漏。
+        return if (muxed && merged.exists()) {
+            CacheEntry(bvid, title, cover, merged.absolutePath, null, info.actualQn)
+        } else {
+            CacheEntry(bvid, title, cover, video.absolutePath, audio.takeIf { it.exists() }?.absolutePath, info.actualQn)
+        }
+    }
+
+    /** 合流件验证可播后清掉原始双流，省一半空间。由播放成功路径调用。 */
+    fun pruneSources(bvid: String) {
+        roots().forEach { base ->
+            val folder = AppFile(base, bvid)
+            val merged = AppFile(folder, "merged.mp4")
+            val video = AppFile(folder, "video.m4s")
+            if (!merged.exists() || merged.length() <= 0 || !video.exists()) return@forEach
+            runCatching {
+                val meta = AppFile(folder, "meta.json")
+                if (meta.exists()) {
+                    val o = JSONObject(meta.readText())
+                    o.put("video", "merged.mp4").put("audio", "")
+                    meta.writeTextAtomic(o.toString())
+                }
+                video.deleteRecursively()
+                AppFile(folder, "audio.m4s").deleteRecursively()
+            }
+        }
     }
 
     fun delete(bvid: String) {

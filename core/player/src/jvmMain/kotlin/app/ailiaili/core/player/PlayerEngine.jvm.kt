@@ -55,6 +55,9 @@ actual class PlayerEngine actual constructor() {
     private var speed = 1f
     private var volumeLevel = 1f
 
+    /** 已自然播完：此时对 input 发 seek 无效（只改 Time 不重建画面），必须重建 Media。 */
+    @Volatile private var finished = false
+
     /** seek 看门狗：目标位置、确认截止时间、已重试次数。 */
     @Volatile private var pendingSeekMs = -1L
     @Volatile private var seekDeadline = 0L
@@ -123,7 +126,14 @@ actual class PlayerEngine actual constructor() {
         seekDeadline = System.currentTimeMillis() + 2_500
         seekRetries = 0
         val token = seekToken.incrementAndGet()
-        runCatching { media?.controls()?.setTime(target) }
+        if (finished && !live && !videoUrl.isNullOrBlank()) {
+            // 已结束的 input 对 setTime 只改读数不出画面：用 :start-time 重建并自动起播。
+            runCatching {
+                start(videoUrl.orEmpty(), if (audioOnly) null else audioUrl, target)
+            }
+        } else {
+            runCatching { media?.controls()?.setTime(target) }
+        }
         notify { it.onPositionJump() }
         // 兜底：如果 VLC 卡死后连 timeChanged 都不再发，不能让弹幕永久冻结。
         runCatching {
@@ -235,17 +245,35 @@ actual class PlayerEngine actual constructor() {
 
     fun peekImage() = pump.peek()
 
+    actual suspend fun snapshot(displayName: String): String? =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val image = pump.peek() ?: return@runCatching null
+                val data = image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)
+                    ?: return@runCatching null
+                val safe = displayName.ifBlank { "snapshot" }.replace(Regex("""[\\/:*?"<>|]"""), "_")
+                val dir = File(System.getProperty("user.home"), "Pictures/ailiaili").also { it.mkdirs() }
+                val file = File(dir, "$safe-${System.currentTimeMillis() / 1000}.png")
+                file.writeBytes(data.bytes)
+                "截图已保存到 ${file.absolutePath}"
+            }.getOrNull()
+        }
+
     private fun start(url: String, slave: String?, positionMs: Long) {
         val player = media ?: return
         if (url.isBlank()) return
         pendingSeekMs = -1L
         seekRetries = 0
         seeking = false
+        finished = false
         statusMessage = null
         val options = buildList {
             add(if (live) ":http-referrer=https://live.bilibili.com/" else ":http-referrer=https://www.bilibili.com/")
             add(":http-user-agent=$USER_AGENT")
             add(":network-caching=$networkCaching")
+            // libvlc 自带的 mp4 解复用器读不出 B 站 fMP4 的最后一个分片，
+            // 长视频片尾最后 1~2 秒会没有声音；avformat 能完整读到 sidx 末段。
+            add(":demux=avformat")
             if (!slave.isNullOrBlank()) add(":input-slave=$slave")
             if (positionMs > 0) add(":start-time=${positionMs / 1000.0}")
         }
@@ -289,6 +317,7 @@ actual class PlayerEngine actual constructor() {
         player.videoSurface().set(surface)
         val events = object : MediaPlayerEventAdapter() {
             override fun error(mediaPlayer: MediaPlayer) {
+                finished = false
                 clock.acceptPlaying(false)
                 clearPendingSeek()
                 notify { it.onError() }
@@ -296,11 +325,13 @@ actual class PlayerEngine actual constructor() {
 
             override fun finished(mediaPlayer: MediaPlayer) {
                 clearPendingSeek()
+                finished = true
                 clock.acceptPlaying(false)
                 notify { it.onEnded(true) }
             }
 
             override fun playing(mediaPlayer: MediaPlayer) {
+                finished = false
                 clock.acceptBuffering(false)
                 clock.acceptPlaying(true)
                 clock.acceptTime(mediaPlayer.status().time())

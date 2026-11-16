@@ -26,8 +26,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -191,7 +193,7 @@ fun VideoCard(
                     ) {
                         if (item.ownerFace.isNotBlank()) {
                             AsyncImage(
-                                model = item.ownerFace,
+                                model = app.ailiaili.core.model.cdnThumb(item.ownerFace, 48),
                                 contentDescription = null,
                                 modifier = Modifier
                                     .size(18.dp)
@@ -225,6 +227,15 @@ fun VideoCard(
                 }
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (!item.isLive && item.aid > 0) {
+                    DropdownMenuItem(
+                        text = { Text(if (QuickActions.inLater(item)) "已在稍后再看" else "稍后再看") },
+                        onClick = {
+                            menuOpen = false
+                            QuickActions.addWatchLater(item)
+                        },
+                    )
+                }
                 if (item.cover.isNotBlank()) {
                     DropdownMenuItem(
                         text = { Text("预览封面") },
@@ -272,18 +283,44 @@ private val CoverScrim = Brush.verticalGradient(
 
 @Composable
 private fun VideoCover(item: VideoItem) {
+    val later = QuickActions.inLater(item)
+    var hovered by remember(item.stableKey) { mutableStateOf(false) }
+    var coverLoading by remember(item.cover) { mutableStateOf(true) }
     Box(
         Modifier
             .fillMaxWidth()
             .aspectRatio(16f / 10f)
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .coverShimmer(coverLoading)
+            .hoverAware { hovered = it },
     ) {
         AsyncImage(
-            model = item.cover,
+            // 卡片封面最大也就 400dp 宽，2x 缩图足够清晰，流量省一个量级。
+            model = app.ailiaili.core.model.cdnThumb(item.cover, 800, 500),
             contentDescription = item.title,
             modifier = Modifier.matchParentSize(),
             contentScale = ContentScale.Crop,
+            onState = { state ->
+                coverLoading = state is coil3.compose.AsyncImagePainter.State.Loading
+            },
         )
+        if (!item.isLive && item.aid > 0 && (hovered || later)) {
+            Surface(
+                onClick = { QuickActions.addWatchLater(item) },
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).size(30.dp),
+                shape = RoundedCornerShape(8.dp),
+                color = if (later) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.55f),
+                contentColor = Color.White,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        if (later) Icons.Filled.Check else Icons.Filled.Schedule,
+                        contentDescription = if (later) "已在稍后再看" else "稍后再看",
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+            }
+        }
         Box(
             Modifier
                 .align(Alignment.BottomCenter)

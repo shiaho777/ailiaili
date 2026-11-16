@@ -55,6 +55,63 @@ actual suspend fun chooseDirectory(): String? = withContext(Dispatchers.Main) {
     }
 }
 
+actual fun systemFontFiles(): List<String> {
+    val os = System.getProperty("os.name").orEmpty().lowercase()
+    val roots = when {
+        os.contains("mac") -> listOf(
+            "/System/Library/Fonts",
+            "/Library/Fonts",
+            File(System.getProperty("user.home"), "Library/Fonts").absolutePath,
+        )
+        os.contains("win") -> listOf("C:/Windows/Fonts")
+        else -> listOf(
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+            File(System.getProperty("user.home"), ".local/share/fonts").absolutePath,
+        )
+    }
+    return roots.asSequence()
+        .map { File(it) }
+        .filter { it.isDirectory }
+        .flatMap { it.walkTopDown().maxDepth(4) }
+        .filter { it.isFile && it.extension.lowercase() in setOf("ttf", "otf") }
+        .map { it.absolutePath }
+        .distinct()
+        .sortedBy { File(it).name.lowercase() }
+        .take(400)
+        .toList()
+}
+
+actual suspend fun pickFontFile(): PickedImage? = withContext(Dispatchers.Main) {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "导入字体文件"
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        fileFilter = object : javax.swing.filechooser.FileFilter() {
+            override fun accept(f: File): Boolean =
+                f.isDirectory || f.extension.lowercase() in setOf("ttf", "otf")
+            override fun getDescription(): String = "字体（ttf / otf）"
+        }
+    }
+    if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return@withContext null
+    val file = chooser.selectedFile ?: return@withContext null
+    runCatching { PickedImage(file.name, file.readBytes()) }.getOrNull()
+}
+
+actual suspend fun pickImage(): PickedImage? = withContext(Dispatchers.Main) {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "选择要发送的图片"
+        fileSelectionMode = JFileChooser.FILES_ONLY
+        fileFilter = object : javax.swing.filechooser.FileFilter() {
+            override fun accept(f: File): Boolean =
+                f.isDirectory || f.extension.lowercase() in setOf("jpg", "jpeg", "png", "gif", "webp")
+            override fun getDescription(): String = "图片（jpg / png / gif / webp）"
+        }
+    }
+    if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return@withContext null
+    val file = chooser.selectedFile ?: return@withContext null
+    runCatching { PickedImage(file.name, file.readBytes()) }.getOrNull()
+}
+
 actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {
     val dir = File(System.getProperty("user.home"), "Pictures/ailiaili").also { it.mkdirs() }
     val safe = displayName.ifBlank { "avatar" }.replace(Regex("""[\\/:*?"<>|]"""), "_")

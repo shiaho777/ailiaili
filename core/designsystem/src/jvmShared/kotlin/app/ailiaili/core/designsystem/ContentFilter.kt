@@ -32,8 +32,10 @@ object ContentFilter {
         get() = titleTerms.isNotEmpty() || upTerms.isNotEmpty() ||
             blockedUps.isNotEmpty() || blockedTitles.isNotEmpty()
 
-    private val titleTerms: List<String> get() = split(title)
-    private val upTerms: List<String> get() = split(up)
+    // 分词结果做派生缓存：allows() 在长列表里逐项调用，
+    // 不能每条视频都重新 split 一遍关键词字符串。
+    private val titleTerms: List<String> by androidx.compose.runtime.derivedStateOf { split(title) }
+    private val upTerms: List<String> by androidx.compose.runtime.derivedStateOf { split(up) }
 
     /** 启动时从设置恢复一次。不要在设置变化时反复调用，否则会打断正在输入的关键词。 */
     fun load(settings: AppSettings) {
@@ -122,6 +124,31 @@ object ContentFilter {
         raw.split(' ', ',', '，', '、', ';', '；', '\t', '\n')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
+}
+
+/**
+ * 列表过滤记忆化：只在源列表或屏蔽规则变化时重算。
+ * 滚动、展开评论等无关重组不再对整页视频逐条跑 contains。
+ * 无规则时直接返回原列表引用，零拷贝。
+ */
+@Composable
+fun rememberFilteredVideos(items: List<VideoItem>): List<VideoItem> {
+    val rulesKey = listOf(ContentFilter.title, ContentFilter.up, ContentFilter.blockedUps, ContentFilter.blockedTitles)
+    return androidx.compose.runtime.remember(items, rulesKey) {
+        if (!ContentFilter.active) items else items.filter { ContentFilter.allows(it) }
+    }
+}
+
+/** 综合动态条目版（图文按作者/正文匹配同一套规则）。 */
+@Composable
+fun <T> rememberFilteredEntries(
+    items: List<T>,
+    allows: (T) -> Boolean,
+): List<T> {
+    val rulesKey = listOf(ContentFilter.title, ContentFilter.up, ContentFilter.blockedUps, ContentFilter.blockedTitles)
+    return androidx.compose.runtime.remember(items, rulesKey) {
+        if (!ContentFilter.active) items else items.filter(allows)
+    }
 }
 
 /**

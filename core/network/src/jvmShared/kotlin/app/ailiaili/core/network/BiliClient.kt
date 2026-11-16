@@ -52,14 +52,26 @@ object CdnStatus {
     val report = MutableStateFlow("还没有测速。播放视频时会自动测一次。")
 }
 
+/** WBI 密钥按天轮换；20 小时主动刷新，长驻进程不等 -403 才发现。 */
+private const val WBI_KEY_TTL_MS = 20L * 60 * 60 * 1000
+
 class BiliClient(
     private val session: () -> Session,
     private val updateSession: (Session) -> Unit,
 ) {
     private val http = SharedHttp.api
 
-    private var wbiImg: String? = null
-    private var wbiSub: String? = null
+    @Volatile private var wbiImg: String? = null
+    @Volatile private var wbiSub: String? = null
+    @Volatile private var wbiAt: Long = 0L
+    private val wbiFlight = SingleFlight<String, String?>()
+    private val buvidFlight = SingleFlight<String, Unit>()
+    /** 同 URL 的并发 GET 合并成一次真实请求（快速切页/双栏同时打开不再重复打接口）。 */
+    private val getFlight = SingleFlight<String, String?>()
+    /** 低频变化的只读接口短缓存；播放地址/动态/评论等实时接口绝不进这里。 */
+    private val readCache = ShortTtlCache<String, String>()
+    /** 私信设备号：同一进程保持稳定，与免登录指纹同一风控原则。 */
+    private val msgDevId = randomHex(32)
     private var laterAids: Set<Long>? = null
     private var laterAt: Long = 0L
 
@@ -72,20 +84,28 @@ class BiliClient(
     private val dmImgStr = randomBase64(16, 64)
     private val dmCoverImgStr = randomBase64(32, 128)
 
-    suspend fun ensureBuvid() = withContext(ioDispatcher) {
+    suspend fun ensureBuvid() {
         val cur = session()
-        var next = cur
-        if (next.buvid3.isNullOrBlank() || next.buvid4.isNullOrBlank()) {
-            val data = get("https://api.bilibili.com/x/frontend/finger/spi", emptyMap()).data
-            if (data != null) {
-                if (next.buvid3.isNullOrBlank()) data.str("b_3").takeIf { it.isNotBlank() }?.let { next = next.copy(buvid3 = it) }
-                if (next.buvid4.isNullOrBlank()) data.str("b_4").takeIf { it.isNotBlank() }?.let { next = next.copy(buvid4 = it) }
+        // 绝大多数调用都已就绪：不进 IO 调度、不进锁，零开销返回。
+        if (!cur.buvid3.isNullOrBlank() && !cur.buvid4.isNullOrBlank() && !cur.bNut.isNullOrBlank()) return
+        // 首次启动多个页面并发进来时，finger/spi 只打一次。
+        buvidFlight.run("buvid") {
+            withContext(ioDispatcher) {
+                val now = session()
+                var next = now
+                if (next.buvid3.isNullOrBlank() || next.buvid4.isNullOrBlank()) {
+                    val data = get("https://api.bilibili.com/x/frontend/finger/spi", emptyMap()).data
+                    if (data != null) {
+                        if (next.buvid3.isNullOrBlank()) data.str("b_3").takeIf { it.isNotBlank() }?.let { next = next.copy(buvid3 = it) }
+                        if (next.buvid4.isNullOrBlank()) data.str("b_4").takeIf { it.isNotBlank() }?.let { next = next.copy(buvid4 = it) }
+                    }
+                }
+                if (next.bNut.isNullOrBlank()) {
+                    next = next.copy(bNut = (epochMs() / 1000).toString())
+                }
+                if (next != now) updateSession(next)
             }
         }
-        if (next.bNut.isNullOrBlank()) {
-            next = next.copy(bNut = (epochMs() / 1000).toString())
-        }
-        if (next != cur) updateSession(next)
     }
 
     suspend fun userState(): Result<UserState> = api {
@@ -131,16 +151,19 @@ class BiliClient(
         "list",
     )
 
+    // 排行榜按小时级更新：10 分钟内切页/返回不再重复请求。
     suspend fun ranking(): Result<List<VideoItem>> = listOf(
         "https://api.bilibili.com/x/web-interface/ranking/v2",
         mapOf("rid" to "0", "type" to "all"),
         "list",
+        cacheTtlMs = 10 * 60_000,
     )
 
     suspend fun regionRank(rid: Int): Result<List<VideoItem>> = listOf(
         "https://api.bilibili.com/x/web-interface/ranking/v2",
         mapOf("rid" to rid.toString(), "type" to "all"),
         "list",
+        cacheTtlMs = 10 * 60_000,
     )
 
     suspend fun regionFeed(tid: Int, displayId: Int): Result<RegionFeedDecode> = api {
@@ -210,6 +233,7 @@ class BiliClient(
         keyword: String,
         page: Int,
         kind: ContentKind = ContentKind.Video,
+        order: String = "",
     ): Result<SearchPage> = api {
         ensureBuvid()
         var extraFt = if (kind == ContentKind.Bangumi) mediaFt(keyword, page) else emptyList()
@@ -218,6 +242,10 @@ class BiliClient(
             "keyword" to keyword,
             "page" to page.toString(),
         )
+        // 排序只对视频搜索有意义：totalrank 综合 / click 播放 / pubdate 最新 / dm 弹幕。
+        if (kind == ContentKind.Video && order.isNotBlank() && order != "totalrank") {
+            params["order"] = order
+        }
 
         // 一次搜索尝试。风控统一折成 blocked=true，由外层决定是否走降级链。
         suspend fun attempt(signed: Boolean, referer: String): SearchPage {
@@ -307,6 +335,7 @@ class BiliClient(
         val data = get(
             "https://api.bilibili.com/x/web-interface/search/square",
             mapOf("limit" to "10"),
+            cacheTtlMs = 5 * 60_000,
         ).data
         val list = data?.obj("trending")?.arr("list")?.objects().orEmpty()
         list.map { it.str("keyword") }.filter { it.isNotBlank() }
@@ -423,12 +452,15 @@ class BiliClient(
         }
     }
 
+    // 章节与字幕轨来自同一个 player/wbi/v2 端点：两边都开缓存后，
+    // 播放页并行发起的两次调用只会产生一次真实网络请求（缓存键不含签名时间戳）。
     suspend fun chapters(bvid: String, cid: Long): Result<List<ViewChapter>> = api {
         ensureBuvid()
         val data = get(
             "https://api.bilibili.com/x/player/wbi/v2",
             mutableMapOf("bvid" to bvid, "cid" to cid.toString()),
             sign = true,
+            cacheTtlMs = 10 * 60_000,
         ).data ?: return@api emptyList()
         data.arr("view_points")?.objects().orEmpty().mapNotNull { point ->
             if (point.int("type") != 2) return@mapNotNull null
@@ -438,10 +470,61 @@ class BiliClient(
         }
     }
 
+    /** 字幕轨列表（CC + AI）。未登录时 AI 字幕通常不可见，接口给什么用什么。 */
+    suspend fun subtitles(bvid: String, cid: Long): Result<List<app.ailiaili.core.model.SubtitleTrack>> = api {
+        ensureBuvid()
+        val data = get(
+            "https://api.bilibili.com/x/player/wbi/v2",
+            mutableMapOf("bvid" to bvid, "cid" to cid.toString()),
+            sign = true,
+            cacheTtlMs = 10 * 60_000,
+        ).data ?: return@api emptyList()
+        data.obj("subtitle")?.arr("subtitles")?.objects().orEmpty().mapNotNull { s ->
+            val url = normalizeUrl(s.str("subtitle_url"))
+            if (url.isBlank()) return@mapNotNull null
+            app.ailiaili.core.model.SubtitleTrack(
+                id = s.lng("id"),
+                lan = s.str("lan"),
+                label = s.str("lan_doc").ifBlank { s.str("lan") },
+                url = url,
+                ai = s.str("lan").startsWith("ai-") || s.int("ai_status") > 0,
+            )
+        }
+    }
+
+    private val cueCache = ShortTtlCache<String, List<app.ailiaili.core.model.SubtitleCue>>(maxEntries = 24)
+    private val cueFlight = SingleFlight<String, List<app.ailiaili.core.model.SubtitleCue>>()
+
+    /** 拉取并解析 JSON 字幕体。字幕内容不可变，缓存 30 分钟；并发同轨只下载一次。 */
+    suspend fun subtitleCues(url: String): Result<List<app.ailiaili.core.model.SubtitleCue>> =
+        withContext(ioDispatcher) {
+            runCatching {
+                cueCache.get(url)?.let { return@runCatching it }
+                val cues = cueFlight.run(url) {
+                    val body = text(url, REFERER) ?: error("字幕加载失败")
+                    val root = JSONObject(body)
+                    val parsed = root.arr("body")?.objects().orEmpty().mapNotNull { cue ->
+                        val content = cue.str("content")
+                        if (content.isBlank()) return@mapNotNull null
+                        app.ailiaili.core.model.SubtitleCue(
+                            from = cue.dbl("from"),
+                            to = cue.dbl("to"),
+                            text = content,
+                        )
+                    }.sortedBy { it.from }
+                    // 只缓存成功解析出的非空字幕；失败回退的空列表不落缓存。
+                    if (parsed.isNotEmpty()) cueCache.put(url, parsed, 30 * 60_000)
+                    parsed
+                }
+                cues
+            }
+        }
+
     suspend fun videoShot(bvid: String, cid: Long): Result<VideoShot?> = api {
         val data = get(
             "https://api.bilibili.com/x/player/videoshot",
             mapOf("bvid" to bvid, "cid" to cid.toString(), "index" to "1"),
+            cacheTtlMs = 10 * 60_000,
         ).data ?: return@api null
         val images = data.arr("image")?.let { arr ->
             buildList {
@@ -483,12 +566,12 @@ class BiliClient(
      * 评论。mode 3 热门，2 时间，与网页一致。
      * 置顶在 data.top，不在 replies 里；首页会把它插到最前。
      */
-    suspend fun comments(aid: Long, page: Int, mode: Int = 3): Result<CommentPage> = api {
+    suspend fun comments(aid: Long, page: Int, mode: Int = 3, type: Int = 1): Result<CommentPage> = api {
         val resp = get(
             "https://api.bilibili.com/x/v2/reply/main",
             mapOf(
                 "oid" to aid.toString(),
-                "type" to "1",
+                "type" to type.toString(),
                 "mode" to mode.toString(),
                 "pn" to page.toString(),
                 "ps" to "20",
@@ -515,12 +598,12 @@ class BiliClient(
     }
 
     /** 某条评论下的楼中楼。首页只内联前几条。 */
-    suspend fun replies(aid: Long, root: Long, page: Int): Result<List<Comment>> = api {
+    suspend fun replies(aid: Long, root: Long, page: Int, type: Int = 1): Result<List<Comment>> = api {
         val resp = get(
             "https://api.bilibili.com/x/v2/reply/reply",
             mapOf(
                 "oid" to aid.toString(),
-                "type" to "1",
+                "type" to type.toString(),
                 "root" to root.toString(),
                 "pn" to page.toString(),
                 "ps" to "20",
@@ -544,7 +627,7 @@ class BiliClient(
         data.str("total").ifBlank { data.str("count") }.ifBlank { error("在线人数获取失败") }
     }
 
-    suspend fun postComment(aid: Long, message: String, root: Long = 0, parent: Long = 0): Result<Unit> =
+    suspend fun postComment(aid: Long, message: String, root: Long = 0, parent: Long = 0, type: Int = 1): Result<Unit> =
         withContext(ioDispatcher) {
             runCatching {
                 val text = message.trim()
@@ -552,7 +635,7 @@ class BiliClient(
                 if (text.isEmpty()) error("评论内容不能为空")
                 val form = mutableMapOf(
                     "oid" to aid.toString(),
-                    "type" to "1",
+                    "type" to type.toString(),
                     "message" to text.take(1000),
                     "plat" to "1",
                     "ordering" to "heat",
@@ -566,13 +649,13 @@ class BiliClient(
             }
         }
 
-    suspend fun commentLike(aid: Long, rpid: Long, like: Boolean): Result<Unit> =
-        commentReact("https://api.bilibili.com/x/v2/reply/action", aid, rpid, like)
+    suspend fun commentLike(aid: Long, rpid: Long, like: Boolean, type: Int = 1): Result<Unit> =
+        commentReact("https://api.bilibili.com/x/v2/reply/action", aid, rpid, like, type)
 
-    suspend fun commentDislike(aid: Long, rpid: Long, dislike: Boolean): Result<Unit> =
-        commentReact("https://api.bilibili.com/x/v2/reply/hate", aid, rpid, dislike)
+    suspend fun commentDislike(aid: Long, rpid: Long, dislike: Boolean, type: Int = 1): Result<Unit> =
+        commentReact("https://api.bilibili.com/x/v2/reply/hate", aid, rpid, dislike, type)
 
-    private suspend fun commentReact(url: String, aid: Long, rpid: Long, on: Boolean): Result<Unit> =
+    private suspend fun commentReact(url: String, aid: Long, rpid: Long, on: Boolean, type: Int = 1): Result<Unit> =
         withContext(ioDispatcher) {
             runCatching {
                 if (aid <= 0 || rpid <= 0) error("参数不完整")
@@ -580,7 +663,7 @@ class BiliClient(
                     url,
                     mapOf(
                         "oid" to aid.toString(),
-                        "type" to "1",
+                        "type" to type.toString(),
                         "rpid" to rpid.toString(),
                         "action" to if (on) "1" else "0",
                     ),
@@ -610,6 +693,54 @@ class BiliClient(
             nextOffset = data.str("offset").ifBlank { null },
             hasMore = data.optBoolean("has_more") || data.int("has_more") == 1,
         )
+    }
+
+    /** 综合动态流：视频投稿 + 图文动态都保留。 */
+    suspend fun dynamicFeed(offset: String?): Result<app.ailiaili.core.model.DynamicFeed> = api {
+        ensureBuvid()
+        if (!session().loggedIn) error("请先登录后查看动态")
+        val ps = mutableMapOf("timezone_offset" to "-480", "type" to "all")
+        if (!offset.isNullOrBlank()) ps["offset"] = offset
+        val resp = get(
+            "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/all",
+            ps,
+            sign = true,
+            referer = "https://t.bilibili.com/",
+        )
+        if (resp.code == -101) error("请先登录后查看动态")
+        val data = resp.data ?: error(resp.message ?: "动态加载失败")
+        val entries = data.arr("items")?.objects().orEmpty().mapNotNull { parseDynamicEntry(it) }
+        app.ailiaili.core.model.DynamicFeed(
+            entries = entries,
+            nextOffset = data.str("offset").ifBlank { null },
+            hasMore = data.optBoolean("has_more") || data.int("has_more") == 1,
+        )
+    }
+
+    /** 单条动态详情（图文详情页用）。 */
+    suspend fun dynamicDetail(id: String): Result<app.ailiaili.core.model.DynamicEntry> = api {
+        ensureBuvid()
+        val resp = get(
+            "https://api.bilibili.com/x/polymer/web-dynamic/v1/detail",
+            mutableMapOf("id" to id, "timezone_offset" to "-480"),
+            sign = true,
+            referer = "https://t.bilibili.com/$id",
+        )
+        if (resp.code != 0) error(friendly(resp.code, resp.message ?: "动态加载失败"))
+        val item = resp.data?.obj("item") ?: error("动态不存在或已被删除")
+        parseDynamicEntry(item) ?: error("暂不支持这种动态类型")
+    }
+
+    /** 图文动态点赞（opus 聚合接口）。失败时上层回退提示。 */
+    suspend fun dynamicLike(id: String, like: Boolean): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val (code, msg) = postRaw(
+                "https://api.bilibili.com/x/dynamic/feed/dyn/thumb",
+                mapOf("dyn_id" to id, "up" to if (like) "1" else "2"),
+                "https://t.bilibili.com/",
+            )
+            if (code != 0) error(friendly(code, msg ?: "点赞失败"))
+        }
     }
 
     suspend fun space(mid: Long): Result<SpaceInfo> = api {
@@ -1353,31 +1484,81 @@ class BiliClient(
         }.sortedBy { it.seqno }
     }
 
-    suspend fun sendMsg(receiverId: Long, text: String): Result<Unit> = withContext(ioDispatcher) {
-        runCatching {
-            val me = session().dedeUserId ?: error("无法获取自己的 UID")
-            val ts = (epochMs() / 1000).toString()
-            val content = JSONObject().put("content", text).toString()
-            val (code, msg) = postRaw(
-                "https://api.vc.bilibili.com/web_im/v1/web_im/send_msg",
-                mapOf(
-                    "msg[sender_uid]" to me,
-                    "msg[receiver_id]" to receiverId.toString(),
-                    "msg[receiver_type]" to "1",
-                    "msg[msg_type]" to "1",
-                    "msg[msg_status]" to "0",
-                    "msg[content]" to content,
-                    "msg[timestamp]" to ts,
-                    "msg[dev_id]" to randomHex(32),
-                    "csrf_token" to session().biliJct.orEmpty(),
-                    "build" to "0",
-                    "mobi_app" to "web",
-                ),
-                "https://message.bilibili.com/",
-            )
-            if (code != 0) error(friendly(code, msg ?: "发送失败"))
+    suspend fun sendMsg(receiverId: Long, text: String): Result<Unit> =
+        sendMsgRaw(receiverId, type = 1, content = JSONObject().put("content", text).toString())
+
+    /** 私信表情面板（B 站官方表情包），key 是 [xxx] 短代码。基本不变，缓存 1 小时。 */
+    suspend fun msgEmotes(): Result<List<Pair<String, String>>> = api {
+        val data = get(
+            "https://api.vc.bilibili.com/web_im/v1/web_im/query_available_emoticons",
+            mapOf("build" to "0", "mobi_app" to "web"),
+            referer = "https://message.bilibili.com/",
+            cacheTtlMs = 60 * 60_000,
+        ).data ?: return@api emptyList()
+        val arr = data.arr("emoticons") ?: data.arr("emoticon") ?: return@api emptyList()
+        arr.objects().mapNotNull { e ->
+            val text = e.str("text")
+            val url = normalizeUrl(e.str("url"))
+            if (text.isBlank() || url.isBlank()) null else text to url
         }
     }
+
+    /** 上传本地图片并作为图片私信发送。 */
+    suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String): Result<Unit> =
+        withContext(ioDispatcher) {
+            runCatching {
+                if (!session().loggedIn) error("私信需要登录")
+                if (bytes.isEmpty()) error("图片是空的")
+                if (bytes.size > 10 * 1024 * 1024) error("图片超过 10MB，请换一张小一点的")
+                val mime = when {
+                    bytes.size > 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() -> "image/jpeg"
+                    bytes.size > 8 && bytes[1] == 'P'.code.toByte() -> "image/png"
+                    bytes.size > 6 && bytes[0] == 'G'.code.toByte() -> "image/gif"
+                    else -> "image/jpeg"
+                }
+                val upload = http.postMultipart(
+                    "https://api.vc.bilibili.com/api/v1/drawImage/upload",
+                    fields = mapOf("biz" to "draw", "category" to "daily"),
+                    fileField = "file_up",
+                    fileName = fileName.ifBlank { "image.jpg" },
+                    fileBytes = bytes,
+                    fileMime = mime,
+                    headers = defaultHeaders("https://message.bilibili.com/", session().cookieHeader()),
+                )
+                val root = runCatching { JSONObject(upload.bodyText) }.getOrElse { error("图片上传失败") }
+                if (root.int("code") != 0) {
+                    error(friendly(root.int("code"), root.str("message").ifBlank { "图片上传失败" }))
+                }
+                val imageUrl = root.obj("data")?.str("image_url") ?: error("图片上传失败")
+                sendMsgRaw(receiverId, type = 2, content = JSONObject().put("url", imageUrl).toString()).getOrThrow()
+            }
+        }
+
+    private suspend fun sendMsgRaw(receiverId: Long, type: Int, content: String): Result<Unit> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val me = session().dedeUserId ?: error("无法获取自己的 UID")
+                val ts = (epochMs() / 1000).toString()
+                val (code, msg) = postRaw(
+                    "https://api.vc.bilibili.com/web_im/v1/web_im/send_msg",
+                    mapOf(
+                        "msg[sender_uid]" to me,
+                        "msg[receiver_id]" to receiverId.toString(),
+                        "msg[receiver_type]" to "1",
+                        "msg[msg_type]" to type.toString(),
+                        "msg[msg_status]" to "0",
+                        "msg[content]" to content,
+                        "msg[timestamp]" to ts,
+                        "msg[dev_id]" to msgDevId,
+                        "csrf_token" to session().biliJct.orEmpty(),
+                        "build" to "0",
+                        "mobi_app" to "web",
+                    ),
+                    "https://message.bilibili.com/",
+                )
+                if (code != 0) error(friendly(code, msg ?: "发送失败"))
+            }
+        }
 
     suspend fun liveList(page: Int): Result<List<VideoItem>> = api {
         ensureBuvid()
@@ -1503,16 +1684,29 @@ class BiliClient(
                 referer = "https://live.bilibili.com/$roomId",
             ).data?.obj("info")
         }.getOrNull()
+        val ownerMid = anchor?.lng("uid") ?: data.lng("uid")
+        // 粉丝数与认证：拿不到不阻塞直播间信息展示。
+        val stat = runCatching {
+            get(
+                "https://api.bilibili.com/x/relation/stat",
+                mapOf("vmid" to ownerMid.toString()),
+            ).data
+        }.getOrNull()
         LiveRoomInfo(
             title = data.str("title"),
             ownerName = anchor?.str("uname").orEmpty(),
             ownerFace = app.ailiaili.core.model.normalizeUrl(anchor?.str("face").orEmpty()),
-            ownerMid = anchor?.lng("uid") ?: data.lng("uid"),
+            ownerMid = ownerMid,
             online = data.lng("online"),
             attention = data.lng("attention"),
             area = listOf(data.str("parent_area_name"), data.str("area_name"))
                 .filter { it.isNotBlank() }
                 .joinToString(" · "),
+            fans = stat?.lng("follower") ?: 0,
+            officialVerify = anchor?.obj("official_verify")?.int("type")
+                ?.takeIf { it >= 0 }
+                ?.let { anchor.obj("official_verify")?.str("desc").orEmpty() }
+                .orEmpty(),
         )
     }
 
@@ -1641,9 +1835,14 @@ class BiliClient(
         if (next != session()) updateSession(next)
     }
 
-    private suspend fun listOf(url: String, params: Map<String, String>, arrayKey: String): Result<List<VideoItem>> = api {
+    private suspend fun listOf(
+        url: String,
+        params: Map<String, String>,
+        arrayKey: String,
+        cacheTtlMs: Long = 0L,
+    ): Result<List<VideoItem>> = api {
         ensureBuvid()
-        val data = get(url, params).data ?: error("列表为空")
+        val data = get(url, params, cacheTtlMs = cacheTtlMs).data ?: error("列表为空")
         data.arr(arrayKey)?.objects().orEmpty().mapNotNull { parseVideo(it) }
     }
 
@@ -1670,14 +1869,44 @@ class BiliClient(
         referer: String = REFERER,
         retry: Boolean = true,
         bodyKey: String = "data",
+        cacheTtlMs: Long = 0L,
     ): Resp {
+        // 缓存键用原始参数（不含 wts/w_rid 签名时间戳），同参数的两次调用才能命中；
+        // 带上登录态：登录前后同一 URL 的可见内容不同（如 AI 字幕）。
+        val cacheKey = if (cacheTtlMs > 0) {
+            val base = params.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
+            "${session().loggedIn}|$url?$base"
+        } else {
+            null
+        }
         val ps = params.toMutableMap()
         if (sign) {
             val mixin = mixin() ?: return Resp(-400, "WBI 密钥获取失败", null)
             signParams(ps, mixin)
         }
         val full = if (ps.isEmpty()) url else url + "?" + ps.entries.joinToString("&") { "${it.key}=${wbiEnc(it.value)}" }
-        val text = text(full, referer) ?: return Resp(-1, "网络请求失败", null)
+        if (cacheKey != null) {
+            readCache.get(cacheKey)?.let { cached ->
+                return parseResp(cached, bodyKey)
+            }
+        }
+        val text = getFlight.run(full) { text(full, referer) }
+            ?: return Resp(-1, "网络请求失败", null)
+        val trimmed = text.trimStart()
+        val resp = parseResp(trimmed, bodyKey)
+        if (sign && retry && resp.code == -403) {
+            wbiImg = null
+            wbiSub = null
+            wbiAt = 0L
+            return get(url, params, sign = true, referer = referer, retry = false, bodyKey = bodyKey)
+        }
+        if (cacheKey != null && resp.code == 0 && cacheTtlMs > 0) {
+            readCache.put(cacheKey, trimmed, cacheTtlMs)
+        }
+        return resp
+    }
+
+    private fun parseResp(text: String, bodyKey: String): Resp {
         val trimmed = text.trimStart()
         if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
             return Resp(-412, "请求被拦截，请稍后重试", null)
@@ -1685,11 +1914,6 @@ class BiliClient(
         val root = runCatching { JSONObject(trimmed) }.getOrElse { return Resp(-2, "响应解析失败", null) }
         val code = root.optInt("code", -999)
         val msg = root.optString("message").ifBlank { null }
-        if (sign && retry && code == -403) {
-            wbiImg = null
-            wbiSub = null
-            return get(url, params, sign = true, referer = referer, retry = false, bodyKey = bodyKey)
-        }
         val data = root.opt(bodyKey)
         val obj = when (data) {
             is JSONObject -> data
@@ -1704,8 +1928,32 @@ class BiliClient(
         return Resp(code, msg, obj, scalar)
     }
 
-    private fun text(url: String, referer: String): String? = runCatching {
-        http.get(url, defaultHeaders(referer, session().cookieHeader())).bodyText
+    /**
+     * GET 传输：瞬时失败（网络异常 / 408 / 429 / 5xx）指数退避重试两次。
+     * B 站业务错误在 200 响应体里，不会走到重试；POST 一律不重试（点赞/投币不可幂等）。
+     */
+    private suspend fun text(url: String, referer: String): String? {
+        repeat(3) { attempt ->
+            val outcome = textOnce(url, referer)
+            if (outcome != null) return outcome
+            if (attempt < 2) {
+                kotlinx.coroutines.delay(retryBackoffMs(attempt, kotlin.random.Random.nextDouble(-0.2, 0.2)))
+            }
+        }
+        return null
+    }
+
+    /** 单次 GET。返回 null 表示瞬时失败值得重试；非瞬时失败原样返回响应体。 */
+    private fun textOnce(url: String, referer: String): String? = runCatching {
+        val resp = http.get(url, defaultHeaders(referer, session().cookieHeader()))
+        val body = resp.bodyText
+        when {
+            resp.isSuccessful -> body
+            // 网关错误页也可能带 JSON 业务码：有 JSON 体就交给上层按业务处理。
+            body.trimStart().startsWith("{") -> body
+            isTransientHttpStatus(resp.code) -> null // 瞬时失败：进入退避
+            else -> body
+        }
     }.getOrNull()
 
     /** 304 和 Bili-Status-Code -304 都是“这一段没有弹幕”，返回空数组。网络失败返回 null。 */
@@ -1725,15 +1973,27 @@ class BiliClient(
     private suspend fun mixin(): String? {
         val img = wbiImg
         val sub = wbiSub
-        if (img != null && sub != null) return mixinKey(img, sub)
-        val data = get("https://api.bilibili.com/x/web-interface/nav", emptyMap()).data ?: return null
-        val wi = data.obj("wbi_img") ?: return null
-        val i = fileNameOnly(wi.str("img_url"))
-        val s = fileNameOnly(wi.str("sub_url"))
-        if (i.isBlank() || s.isBlank()) return null
-        wbiImg = i
-        wbiSub = s
-        return mixinKey(i, s)
+        // B 站密钥按天轮换：进程长驻（桌面托盘）时主动过期，
+        // 不再等第一次 -403 失败重试才发现密钥换了。
+        if (img != null && sub != null && epochMs() - wbiAt < WBI_KEY_TTL_MS) {
+            return mixinKey(img, sub)
+        }
+        return wbiFlight.run("wbi") {
+            val freshImg = wbiImg
+            val freshSub = wbiSub
+            if (freshImg != null && freshSub != null && epochMs() - wbiAt < WBI_KEY_TTL_MS) {
+                return@run mixinKey(freshImg, freshSub)
+            }
+            val data = get("https://api.bilibili.com/x/web-interface/nav", emptyMap()).data ?: return@run null
+            val wi = data.obj("wbi_img") ?: return@run null
+            val i = fileNameOnly(wi.str("img_url"))
+            val s = fileNameOnly(wi.str("sub_url"))
+            if (i.isBlank() || s.isBlank()) return@run null
+            wbiImg = i
+            wbiSub = s
+            wbiAt = epochMs()
+            mixinKey(i, s)
+        }
     }
 
     private suspend fun postOk(url: String, form: Map<String, String>, referer: String = REFERER): Result<Unit> =
@@ -1786,17 +2046,24 @@ class BiliClient(
         qn: Int,
         settings: AppSettings,
     ): PlayInfo? {
-        val videos = dash.arr("video")?.objects().orEmpty()
-        if (videos.isEmpty()) return null
+        val allVideos = dash.arr("video")?.objects().orEmpty()
+        if (allVideos.isEmpty()) return null
+        // 设备解码不了的档位（桌面 VLC 的杜比视界/HDR/8K；Android 按 MediaCodec 能力）
+        // 不进菜单也不参与选流；全是不可播档时保持原样，交给上层失败提示。
+        val unsupported = unsupportedStreamQns(
+            allVideos.map { StreamProbe(it.int("id"), it.str("codecs"), it.int("width"), it.int("height")) },
+        )
+        val videos = allVideos.filterNot { it.int("id") in unsupported }.ifEmpty { allVideos }
         val qualities = videos.map { it.int("id") }.filter { it > 0 }.distinct().sortedDescending()
             .map { app.ailiaili.core.model.Quality(it, app.ailiaili.core.model.qnLabel(it)) }
+        val targetQn = app.ailiaili.core.model.clampPlayableQn(qn, qualities.map { it.qn })
         var best: JSONObject? = null
         var bestId = 0
         var bestRank = -1
         fun consider(v: JSONObject, allowAbove: Boolean) {
             val id = v.int("id")
             if (id <= 0) return
-            if (!allowAbove && id > qn) return
+            if (!allowAbove && id > targetQn) return
             val rank = codecRank(v.str("codecs"))
             if (best == null || id > bestId || (id == bestId && rank > bestRank)) {
                 best = v
@@ -1825,6 +2092,7 @@ class BiliClient(
         // 默认优先 AAC（兼容性最好），同档取最高码率；没有 AAC 才用杜比 / Hi-Res。
         val aac = audioQualities.filter { it.id in 30216..30280 }
         val selectedAudio = (aac.ifEmpty { audioQualities }).maxByOrNull { it.bandwidth }
+        val selectedAudioTrack = selectedAudio?.let { sel -> audios.firstOrNull { it.int("id") == sel.id } }
         return PlayInfo(
             videoUrl = videoUrl,
             audioUrl = selectedAudio?.url,
@@ -1836,6 +2104,8 @@ class BiliClient(
             height = chosen.int("height"),
             audioQn = selectedAudio?.id ?: 0,
             audioQualities = audioQualities,
+            videoCodecs = chosen.str("codecs"),
+            audioCodecs = selectedAudioTrack?.str("codecs").orEmpty(),
         )
     }
 
@@ -1897,7 +2167,7 @@ class BiliClient(
         val ids = sessions.map { it.talkerId }.distinct().joinToString(",")
         val data = runCatching {
             val url = "https://api.vc.bilibili.com/account/v1/user/cards?uids=$ids"
-            val text = text(url, referer) ?: return sessions
+            val text = textOnce(url, referer) ?: return sessions
             JSONObject(text).optJSONArray("data")
         }.getOrNull() ?: return sessions
         val names = mutableMapOf<Long, Pair<String, String>>()

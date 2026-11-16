@@ -202,7 +202,7 @@ fun MineRoute(
                 ) {
                     if (profile.face.isNotBlank()) {
                         AsyncImage(
-                            profile.face,
+                            app.ailiaili.core.model.cdnThumb(profile.face, 130),
                             profile.name,
                             Modifier.size(64.dp).clip(CircleShape),
                             contentScale = ContentScale.Crop,
@@ -474,7 +474,7 @@ private fun FolderCard(folder: FavFolder, modifier: Modifier = Modifier, onClick
         ) {
             if (folder.cover.isNotBlank()) {
                 AsyncImage(
-                    folder.cover,
+                    app.ailiaili.core.model.cdnThumb(folder.cover, 640, 220),
                     folder.title,
                     Modifier.matchParentSize(),
                     contentScale = ContentScale.Crop,

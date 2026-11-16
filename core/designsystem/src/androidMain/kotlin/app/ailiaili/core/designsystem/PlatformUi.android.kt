@@ -38,6 +38,17 @@ actual fun PlatformThemeEffects(dark: Boolean) {
 actual fun decodeImageBytes(bytes: ByteArray): ImageBitmap? =
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
 
+private val fontCache = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.text.font.FontFamily?>()
+
+actual fun loadFontFamily(path: String): androidx.compose.ui.text.font.FontFamily? =
+    fontCache.getOrPut(path) {
+        runCatching {
+            val typeface = android.graphics.Typeface.createFromFile(java.io.File(path))
+                ?: return@runCatching null
+            androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Typeface(typeface))
+        }.getOrNull()
+    }
+
 actual fun argbImage(width: Int, height: Int, pixels: IntArray): ImageBitmap {
     val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
     return bitmap.asImageBitmap()

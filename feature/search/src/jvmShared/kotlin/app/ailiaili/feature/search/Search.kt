@@ -106,7 +106,15 @@ class SearchViewModel(initial: String) : ViewModel() {
     var page by mutableIntStateOf(1)
     var hasMore by mutableStateOf(false)
     var searched by mutableStateOf(initial.isNotBlank())
+    /** 视频排序：totalrank 综合 / click 最多播放 / pubdate 最新 / dm 最多弹幕。 */
+    var order by mutableStateOf("totalrank")
     private var loadGen = 0
+
+    fun selectOrder(next: String) {
+        if (next == order || kind != ContentKind.Video || !searched) return
+        order = next
+        search()
+    }
 
     init {
         val hit = UrlParser.parse(initial)
@@ -158,7 +166,7 @@ class SearchViewModel(initial: String) : ViewModel() {
         val q = keyword
         val searchKind = kind
         viewModelScope.launch {
-            val result = AppGraph.repo.search(q, requestPage, searchKind)
+            val result = AppGraph.repo.search(q, requestPage, searchKind, order)
             if (token != loadGen) return@launch
             loading = false
             result.onSuccess { pageData ->
@@ -207,6 +215,7 @@ fun SearchRoute(
     onBangumi: (BangumiItem) -> Unit = {},
     vm: SearchViewModel = appViewModel(key = "search-$initial") { SearchViewModel(initial) },
 ) {
+    app.ailiaili.core.designsystem.RegisterPageRefresh { vm.search() }
     val history by AppGraph.searchHistory.items.collectAsState()
     fun submit(raw: String) {
         when (val hit = UrlParser.parse(raw)) {
@@ -337,8 +346,8 @@ fun SearchRoute(
                     }
                 }
             } else {
-                val shown = vm.items.filter { ContentFilter.allows(it) }
-                val shownUsers = vm.userItems.filter {
+                val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
+                val shownUsers = app.ailiaili.core.designsystem.rememberFilteredEntries(vm.userItems) {
                     ContentFilter.allows(VideoItem(author = it.name, ownerMid = it.mid))
                 }
                 val blockedOut = when (vm.kind) {
@@ -358,6 +367,25 @@ fun SearchRoute(
                     onLoadMore = vm::loadMore,
                 )
                 LoadBox(vm.loading, vm.error, empty, searchEmptyMessage(vm.kind), { vm.search() }) {
+                    if (vm.kind == ContentKind.Video && vm.items.isNotEmpty()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            listOf(
+                                "totalrank" to "综合",
+                                "click" to "最多播放",
+                                "pubdate" to "最新发布",
+                                "dm" to "最多弹幕",
+                            ).forEach { (value, label) ->
+                                BiliFilterChip(
+                                    selected = vm.order == value,
+                                    onClick = { vm.selectOrder(value) },
+                                    label = { Text(label) },
+                                )
+                            }
+                        }
+                    }
                     when {
                         blockedOut -> BiliEmptyState(
                             title = "这些结果都被屏蔽了",
@@ -515,7 +543,7 @@ private fun UserSearchList(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (user.face.isNotBlank()) {
                         AsyncImage(
-                            model = user.face,
+                            model = app.ailiaili.core.model.cdnThumb(user.face, 110),
                             contentDescription = user.name,
                             modifier = Modifier.size(52.dp).clip(CircleShape),
                             contentScale = ContentScale.Crop,

@@ -19,7 +19,19 @@ actual class HttpEngine actual constructor(
         .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
         .callTimeout(readTimeoutMs + connectTimeoutMs, TimeUnit.MILLISECONDS)
         .followRedirects(true)
+        // 三个引擎（api/default/probe）共享连接池与调度器：
+        // 同一 host 的 TLS 握手结果直接复用，图片加载不再和 API 抢各自的池子。
+        .connectionPool(sharedPool)
+        .dispatcher(sharedDispatcher)
         .build()
+
+    private companion object {
+        val sharedPool = okhttp3.ConnectionPool(12, 5, TimeUnit.MINUTES)
+        val sharedDispatcher = okhttp3.Dispatcher().apply {
+            maxRequests = 48
+            maxRequestsPerHost = 12
+        }
+    }
 
     /** 大文件下载不能受 API 的 callTimeout 限制。 */
     private val downloadClient by lazy {
@@ -27,6 +39,8 @@ actual class HttpEngine actual constructor(
             .callTimeout(0, TimeUnit.MILLISECONDS)
             .build()
     }
+
+
 
     actual fun execute(
         method: String,
@@ -58,6 +72,33 @@ actual class HttpEngine actual constructor(
         val builder = Request.Builder()
             .url(url)
             .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
+        headers.forEach { (key, value) -> builder.header(key, value) }
+        client.newCall(builder.build()).execute().use { resp ->
+            return readResponse(resp, null)
+        }
+    }
+
+    actual fun postMultipart(
+        url: String,
+        fields: Map<String, String>,
+        fileField: String,
+        fileName: String,
+        fileBytes: ByteArray,
+        fileMime: String,
+        headers: Map<String, String>,
+    ): HttpResponse {
+        val body = okhttp3.MultipartBody.Builder()
+            .setType(okhttp3.MultipartBody.FORM)
+            .apply {
+                fields.forEach { (k, v) -> addFormDataPart(k, v) }
+                addFormDataPart(
+                    fileField,
+                    fileName,
+                    fileBytes.toRequestBody(fileMime.toMediaType()),
+                )
+            }
+            .build()
+        val builder = Request.Builder().url(url).post(body)
         headers.forEach { (key, value) -> builder.header(key, value) }
         client.newCall(builder.build()).execute().use { resp ->
             return readResponse(resp, null)

@@ -112,6 +112,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
     val vm = appViewModel(key = if (live) "history-live" else "history-video") {
         ListViewModel { if (live) AppGraph.repo.liveHistory(1) else AppGraph.repo.history(1) }
     }
+    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     var editing by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<String>()) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -164,7 +165,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                     label = { Text("直播") },
                 )
             }
-            val shown = vm.items.filter { ContentFilter.allows(it) }
+            val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             EditBar(
                 editing = editing,
                 allSelected = shown.isNotEmpty() && picked.size == shown.size,
@@ -225,6 +226,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                                 cover = item.cover,
                                 author = item.author,
                                 ownerMid = item.ownerMid,
+                                aid = if (item.isLive) 0 else item.aid,
                                 badge = item.durationText,
                                 selected = editing && isPicked,
                                 modifier = Modifier.background(MaterialTheme.colorScheme.background),
@@ -346,11 +348,12 @@ fun FavVideosRoute(
     onAuthor: (VideoItem) -> Unit,
 ) {
     val vm = appViewModel(key = "fav-$mediaId") { ListViewModel { AppGraph.repo.favVideos(mediaId, 1) } }
+    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     var editing by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<String>()) }
     Scaffold(topBar = { BackTitle(title, onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            val shown = vm.items.filter { ContentFilter.allows(it) }
+            val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             EditBar(
                 editing = editing,
                 allSelected = shown.isNotEmpty() && picked.size == shown.size,
@@ -385,6 +388,7 @@ fun FavVideosRoute(
                                 cover = item.cover,
                                 author = item.author,
                                 ownerMid = item.ownerMid,
+                                aid = item.aid,
                                 onClick = toggle,
                                 modifier = Modifier.animateItem(),
                                 badge = item.durationText,
@@ -418,6 +422,7 @@ fun FavVideosRoute(
 @Composable
 fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (VideoItem) -> Unit) {
     val vm = appViewModel(key = "later") { ListViewModel { AppGraph.repo.watchLater() } }
+    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     var editing by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<String>()) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -439,7 +444,7 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
     }
     Scaffold(topBar = { BackTitle("稍后再看", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            val shown = vm.items.filter { ContentFilter.allows(it) }
+            val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             EditBar(
                 editing = editing,
                 allSelected = shown.isNotEmpty() && picked.size == shown.size,

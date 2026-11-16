@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.data.AppFile
 import app.ailiaili.core.data.canFollowSystemAccent
 import app.ailiaili.core.data.hideAppWindow
 import app.ailiaili.core.data.imageCacheDirs
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Block
@@ -107,6 +109,7 @@ fun SettingsRoute(
     val settings by AppGraph.repo.settings.collectAsState()
     val session by AppGraph.repo.session.collectAsState()
     val scope = rememberCoroutineScope()
+    val platformContext = coil3.compose.LocalPlatformContext.current
     val pageScroll = rememberScrollState()
     var updateText by remember { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -245,6 +248,7 @@ fun SettingsRoute(
                             }) { Text("使用") }
                         },
                     )
+                    FontPickerSection(settings.fontPath)
                     if (isDesktopHost() && traySupported()) {
                         BiliSwitchRow(
                             title = "关闭时最小化到托盘",
@@ -344,6 +348,13 @@ fun SettingsRoute(
                         onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(noLogin1080 = on) } },
                         supporting = "未登录时附带试看参数，最高到 1080P",
                         icon = Icons.Filled.HighQuality,
+                    )
+                    BiliSwitchRow(
+                        title = "显示相关视频",
+                        checked = settings.showRelated,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(showRelated = on) } },
+                        supporting = "播放页简介下方的「相关推荐」。关掉后不请求也不展示",
+                        icon = Icons.AutoMirrored.Filled.ViewList,
                     )
                     BiliSettingsLabel("网络线路")
                     RowChips {
@@ -601,7 +612,7 @@ fun SettingsRoute(
                         tone = MetricTone.Favorite,
                         onClick = {
                             scope.launch {
-                                withContext(ioDispatcher) { clearCoverCache() }
+                                withContext(ioDispatcher) { clearCoverCache(platformContext) }
                                 coverCache = withContext(ioDispatcher) { coverCacheSize() }
                             }
                         },
@@ -706,6 +717,115 @@ private fun RowChips(content: @Composable () -> Unit) {
     ) { content() }
 }
 
+/**
+ * 界面字体：默认 / 系统字体（桌面）/ 导入字体文件。
+ * 选中的字体复制进应用字体目录，设置只存路径；弹幕跟随同一字体。
+ */
+@Composable
+private fun FontPickerSection(currentPath: String) {
+    val scope = rememberCoroutineScope()
+    var systemFonts by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showSystem by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf<String?>(null) }
+    val currentName = if (currentPath.isBlank()) "默认" else java.io.File(currentPath).name
+
+    fun useFontFile(name: String, bytes: ByteArray) {
+        scope.launch {
+            busy = true
+            val result = withContext(ioDispatcher) {
+                runCatching {
+                    val dir = app.ailiaili.core.data.appFontDir()
+                    val safe = name.replace(Regex("""[\\/:*?"<>|]"""), "_")
+                    val target = AppFile(dir, safe)
+                    target.writeBytes(bytes)
+                    target.absolutePath
+                }
+            }
+            result.onSuccess { path ->
+                // 先验证能加载，再写设置；坏字体不让整个界面变成豆腐块。
+                if (app.ailiaili.core.designsystem.loadFontFamily(path) != null) {
+                    AppGraph.repo.updateSettings { it.copy(fontPath = path) }
+                    note = null
+                } else {
+                    note = "这个字体文件加载失败，换一个是试试"
+                }
+            }.onFailure { note = it.message ?: "字体导入失败" }
+            busy = false
+        }
+    }
+
+    BiliSettingsLabel(
+        "界面字体",
+        supporting = "当前：$currentName。全应用与弹幕跟随；导入 ttf/otf 文件。",
+    )
+    RowChips {
+        BiliFilterChip(
+            selected = currentPath.isBlank(),
+            onClick = { AppGraph.repo.updateSettings { it.copy(fontPath = "") } },
+            label = { Text("默认") },
+        )
+        if (isDesktopHost()) {
+            BiliFilterChip(
+                selected = showSystem,
+                onClick = {
+                    showSystem = !showSystem
+                    if (showSystem && systemFonts.isEmpty()) {
+                        scope.launch {
+                            systemFonts = withContext(ioDispatcher) { app.ailiaili.core.data.systemFontFiles() }
+                        }
+                    }
+                },
+                label = { Text("系统字体") },
+            )
+        }
+        BiliFilterChip(
+            selected = false,
+            onClick = {
+                if (!busy) scope.launch {
+                    busy = true
+                    val picked = runCatching { app.ailiaili.core.data.pickFontFile() }.getOrNull()
+                    busy = false
+                    if (picked != null) useFontFile(picked.name, picked.bytes)
+                }
+            },
+            label = { Text(if (busy) "处理中…" else "导入字体文件") },
+        )
+    }
+    note?.let {
+        BiliSettingsNote(it)
+    }
+    if (showSystem && systemFonts.isNotEmpty()) {
+        var filter by remember { mutableStateOf("") }
+        OutlinedTextField(
+            value = filter,
+            onValueChange = { filter = it },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            singleLine = true,
+            label = { Text("搜字体名，如 PingFang / 思源 / Microsoft YaHei") },
+        )
+        val shown = systemFonts.filter {
+            filter.isBlank() || java.io.File(it).name.contains(filter, ignoreCase = true)
+        }.take(24)
+        RowChips {
+            shown.forEach { path ->
+                val name = java.io.File(path).nameWithoutExtension
+                BiliFilterChip(
+                    selected = currentPath == path || java.io.File(currentPath).name == java.io.File(path).name,
+                    onClick = {
+                        val file = java.io.File(path)
+                        runCatching { useFontFile(file.name, file.readBytes()) }
+                    },
+                    label = { Text(name) },
+                )
+            }
+        }
+        if (shown.isEmpty()) {
+            BiliSettingsNote("没有匹配的字体。")
+        }
+    }
+}
+
 private fun coverCacheSize(): String {
     val bytes = imageCacheDirs().sumOf { dir ->
         if (!dir.exists()) 0L else dir.walkFiles().sumOf { it.length() }
@@ -717,7 +837,13 @@ private fun coverCacheSize(): String {
     }
 }
 
-private fun clearCoverCache() {
+private fun clearCoverCache(context: coil3.PlatformContext) {
+    // 先清运行中的内存/磁盘缓存句柄，再删目录；只删目录会让 Coil 握着失效句柄继续写。
+    runCatching {
+        val loader = coil3.SingletonImageLoader.get(context)
+        loader.memoryCache?.clear()
+        loader.diskCache?.clear()
+    }
     imageCacheDirs().forEach { it.deleteRecursively() }
 }
 

@@ -50,6 +50,10 @@ internal class DanmakuRuntime {
     private var clockSpeed = 1f
     private var cachedLineH = 0f
     private var cachedLineKey = 0
+    // 关键词规则按原文缓存：每 6 分钟追加弹幕段都会重过滤全库，
+    // 正则编译只做一次，不随分段次数重复。
+    private var keywordRaw: String? = null
+    private var keywordRules: KeywordRules? = null
 
     val wantsFrames: Boolean get() = config.enabled || shots.isNotEmpty()
     val pillBackground: Boolean get() = config.pill
@@ -247,7 +251,12 @@ internal class DanmakuRuntime {
     }
 
     private fun filterLibrary(list: List<Danmaku>): List<Danmaku> {
-        val rules = KeywordRules.build(config.keywords)
+        val rawKeywords = config.keywords
+        if (rawKeywords != keywordRaw) {
+            keywordRaw = rawKeywords
+            keywordRules = KeywordRules.build(rawKeywords)
+        }
+        val rules = keywordRules
         val typeFilter = !(config.allowScroll && config.allowFixed && config.allowColorful && config.allowAdvanced)
         if (!config.smart && rules == null && !typeFilter) return list
         val seen = if (config.smart) HashMap<String, Int>(64) else null
@@ -511,10 +520,14 @@ internal class DanmakuRuntime {
         return -1
     }
 
+    /** 界面自定义字体；null 用系统默认。换字体时由 overlay 触发重量。 */
+    var fontFamily: androidx.compose.ui.text.font.FontFamily? = null
+
     private fun commentStyle(color: Color) = TextStyle(
         color = color,
         fontSize = 18.sp,
         lineHeight = 22.sp,
+        fontFamily = fontFamily,
         shadow = Shadow(
             color = Color.Black.copy(alpha = 0.9f),
             offset = Offset(0f, 1f),

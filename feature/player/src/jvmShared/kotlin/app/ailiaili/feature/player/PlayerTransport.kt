@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
@@ -77,6 +78,7 @@ internal fun PlayerTransport(
     marks: List<SponsorSegment> = emptyList(),
     chapters: List<ViewChapter> = emptyList(),
     shot: VideoShot? = null,
+    onSnapshot: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var position by remember { mutableLongStateOf(0L) }
@@ -115,6 +117,15 @@ internal fun PlayerTransport(
                 contentDescription = "音量",
                 tint = Color.White,
             )
+        }
+        if (onSnapshot != null) {
+            IconButton(onClick = onSnapshot) {
+                Icon(
+                    Icons.Filled.PhotoCamera,
+                    contentDescription = "截图",
+                    tint = Color.White,
+                )
+            }
         }
         Text(formatClock(position), color = Color.White, style = MaterialTheme.typography.labelMedium)
         Column(Modifier.weight(1f)) {

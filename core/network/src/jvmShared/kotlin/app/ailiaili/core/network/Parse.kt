@@ -349,6 +349,144 @@ internal fun parseDynamic(e: JSONObject): VideoItem? {
     )
 }
 
+private val OPUS_ID = Regex("""opus/(\d+)""")
+
+/**
+ * 综合动态条目：视频投稿 + 图文（OPUS / 专栏 / 旧绘画 / 纯文字）。
+ * 转发动态取原稿内容，作者仍是转发者。认不出的类型返回 null。
+ */
+internal fun parseDynamicEntry(e: JSONObject): app.ailiaili.core.model.DynamicEntry? {
+    val id = e.str("id_str").ifBlank { e.lng("id").takeIf { it > 0 }?.toString() } ?: return null
+    val type = e.str("type")
+    if (type == "DYNAMIC_TYPE_NONE") return null
+    val modules = e.obj("modules") ?: return null
+    val author = modules.obj("module_author") ?: return null
+    val mid = author.lng("mid")
+    val name = author.str("name")
+    val face = normalizeUrl(author.str("face"))
+    val pubTs = author.lng("pub_ts")
+    val dyn = modules.obj("module_dynamic")
+    val descText = dyn?.obj("desc")?.str("text").orEmpty()
+    val stat = modules.obj("module_stat")
+    val likeCount = stat?.obj("like")?.lng("count") ?: 0
+    val liked = stat?.obj("like")?.int("status") == 1
+    val commentCount = stat?.obj("comment")?.lng("count") ?: 0
+    val forwardCount = stat?.obj("forward")?.lng("count") ?: 0
+
+    // 转发：内容取原稿，外层作者/附言保留。
+    if (type == "DYNAMIC_TYPE_FORWARD") {
+        val orig = e.obj("orig") ?: return null
+        val inner = parseDynamicEntry(orig) ?: return null
+        return inner.copy(
+            id = id,
+            authorName = name,
+            authorMid = mid,
+            authorFace = face,
+            pubTs = pubTs,
+            desc = descText.ifBlank { inner.desc },
+        )
+    }
+
+    val major = dyn?.obj("major")
+    val majorType = major?.str("type").orEmpty()
+
+    if (type == "DYNAMIC_TYPE_AV" || majorType == "MAJOR_TYPE_ARCHIVE") {
+        val archive = major?.obj("archive") ?: return null
+        val bvid = archive.str("bvid")
+        if (bvid.isBlank()) return null
+        val astat = archive.obj("stat")
+        val video = VideoItem(
+            bvid = bvid,
+            aid = archive.lng("aid"),
+            cid = archive.cidOrHistory(),
+            title = archive.str("title").stripHtml(),
+            cover = normalizeUrl(archive.str("cover")),
+            author = name,
+            ownerMid = mid,
+            ownerFace = face,
+            durationText = archive.str("duration_text"),
+            durationSec = archive.int("duration"),
+            pubdate = pubTs.takeIf { it > 0 } ?: archive.lng("pubdate"),
+            viewCount = astat?.lng("play")?.takeIf { it > 0 } ?: astat?.lng("view") ?: 0,
+            danmakuCount = astat?.lng("danmaku") ?: 0,
+        )
+        return app.ailiaili.core.model.DynamicEntry(
+            id = id, authorName = name, authorMid = mid, authorFace = face,
+            pubTs = pubTs, desc = descText, video = video,
+        )
+    }
+
+    val parsed: app.ailiaili.core.model.DynamicPost? = when {
+        majorType == "MAJOR_TYPE_OPUS" -> {
+            val opus = major?.obj("opus") ?: return null
+            val pics = opus.arr("pics")?.objects().orEmpty().mapNotNull { p ->
+                p.str("url").ifBlank { p.str("live_url") }.takeIf { it.isNotBlank() }?.let { normalizeUrl(it) }
+            }
+            val text = opus.obj("summary")?.str("text").orEmpty().ifBlank { descText }
+            val jump = opus.str("jump_url")
+            val oid = OPUS_ID.find(jump)?.groupValues?.get(1)?.toLongOrNull()
+                ?: id.toLongOrNull() ?: 0L
+            app.ailiaili.core.model.DynamicPost(
+                id = id, oid = oid, commentType = 11,
+                title = opus.str("title"), text = text, pics = pics,
+                likeCount = likeCount, commentCount = commentCount,
+                forwardCount = forwardCount, liked = liked,
+            )
+        }
+        majorType == "MAJOR_TYPE_ARTICLE" -> {
+            val article = major?.obj("article") ?: return null
+            val covers = article.arr("covers")?.let { arr ->
+                buildList { for (i in 0 until arr.length()) arr.optString(i).takeIf { it.isNotBlank() }?.let { add(normalizeUrl(it)) } }
+            }.orEmpty().ifEmpty { listOfNotNull(article.str("cover").takeIf { it.isNotBlank() }?.let { normalizeUrl(it) }) }
+            app.ailiaili.core.model.DynamicPost(
+                id = id, oid = article.lng("id"), commentType = 12,
+                title = article.str("title"),
+                text = article.str("desc").ifBlank { article.str("summary") }.ifBlank { descText },
+                pics = covers,
+                likeCount = likeCount, commentCount = commentCount,
+                forwardCount = forwardCount, liked = liked,
+            )
+        }
+        type == "DYNAMIC_TYPE_DRAW" -> {
+            val pics = mutableListOf<String>()
+            var oid = e.obj("item")?.lng("id") ?: 0L
+            e.obj("item")?.arr("pictures")?.objects()?.forEach { p ->
+                p.str("img_src").takeIf { it.isNotBlank() }?.let { pics += normalizeUrl(it) }
+            }
+            if (pics.isEmpty()) {
+                major?.obj("draw")?.arr("items")?.objects()?.forEach { p ->
+                    p.str("src").takeIf { it.isNotBlank() }?.let { pics += normalizeUrl(it) }
+                }
+                if (oid <= 0) oid = major?.obj("draw")?.lng("id") ?: 0L
+            }
+            val text = e.obj("item")?.str("description").orEmpty().ifBlank { descText }
+            if (pics.isEmpty() && text.isBlank()) return null
+            app.ailiaili.core.model.DynamicPost(
+                id = id, oid = if (oid > 0) oid else id.toLongOrNull() ?: 0L, commentType = 2,
+                title = "", text = text, pics = pics,
+                likeCount = likeCount, commentCount = commentCount,
+                forwardCount = forwardCount, liked = liked,
+            )
+        }
+        type == "DYNAMIC_TYPE_WORD" -> {
+            if (descText.isBlank()) return null
+            app.ailiaili.core.model.DynamicPost(
+                id = id, oid = id.toLongOrNull() ?: 0L, commentType = 17,
+                title = "", text = descText, pics = emptyList(),
+                likeCount = likeCount, commentCount = commentCount,
+                forwardCount = forwardCount, liked = liked,
+            )
+        }
+        else -> null
+    }
+    val post = parsed ?: return null
+
+    return app.ailiaili.core.model.DynamicEntry(
+        id = id, authorName = name, authorMid = mid, authorFace = face,
+        pubTs = pubTs, desc = if (post.text == descText) "" else descText, post = post,
+    )
+}
+
 internal fun JSONObject.reasonText(): String {
     val raw = opt("rcmd_reason") ?: return ""
     return when (raw) {

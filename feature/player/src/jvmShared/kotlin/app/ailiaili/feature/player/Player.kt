@@ -47,14 +47,18 @@ import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
@@ -121,10 +125,12 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.HistorySync
 import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
+import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.data.setFullscreen
 import app.ailiaili.core.designsystem.BiliActionItem
 import app.ailiaili.core.designsystem.BiliAssistChip
 import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.LinkifiedText
 import app.ailiaili.core.designsystem.BiliErrorState
 import app.ailiaili.core.designsystem.BiliLoadingState
 import androidx.compose.animation.AnimatedVisibility
@@ -228,6 +234,7 @@ fun PlayerRoute(
     seedPubdate: Long = 0,
     onOpenVideo: (VideoItem) -> Unit = {},
     onTag: (String) -> Unit = {},
+    onOpenCommentDetail: (aid: Long, comment: Comment) -> Unit = { _, _ -> },
 ) {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -247,7 +254,7 @@ fun PlayerRoute(
     var listening by remember { mutableStateOf(false) }
     var listenClock by remember { mutableStateOf("00:00") }
     var avatarPreview by remember { mutableStateOf<String?>(null) }
-    var commentImagePreview by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var commentImagePreview by remember { mutableStateOf<Triple<List<String>, Int, String>?>(null) }
     var danmaku by remember { mutableStateOf<List<Danmaku>>(emptyList()) }
     var comments by remember { mutableStateOf<List<Comment>>(emptyList()) }
     var commentPage by remember { mutableIntStateOf(1) }
@@ -289,6 +296,15 @@ fun PlayerRoute(
     var rawSegments by remember { mutableStateOf<List<SponsorSegment>>(emptyList()) }
     var chapters by remember { mutableStateOf<List<ViewChapter>>(emptyList()) }
     var shot by remember { mutableStateOf<VideoShot?>(null) }
+    // 播放/暂停的中央图标浮现：淡入放大后自动淡出，纯视觉反馈不打断手势。
+    var playFlash by remember { mutableStateOf<FlashKind?>(null) }
+    var playFlashTick by remember { mutableIntStateOf(0) }
+    // 双击左右区的 ±10 秒反馈：-1 左 / 1 右，与中央浮现共用一套动画。
+    var seekFlashSide by remember { mutableIntStateOf(0) }
+    var subtitleTracks by remember { mutableStateOf<List<app.ailiaili.core.model.SubtitleTrack>>(emptyList()) }
+    var subtitleCues by remember { mutableStateOf<List<app.ailiaili.core.model.SubtitleCue>>(emptyList()) }
+    var subtitleLan by remember { mutableStateOf("") }
+    var subtitleOpen by remember { mutableStateOf(false) }
     var followed by remember { mutableStateOf(false) }
     var liked by remember { mutableStateOf(false) }
     var coined by remember { mutableStateOf(false) }
@@ -315,6 +331,25 @@ fun PlayerRoute(
     var audioOpen by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
     var speedDraft by remember { mutableFloatStateOf(1f) }
+    // 长按 →：超过阈值进入 3 倍速，松开恢复；短按仍是快进 5 秒。
+    var rightHeld by remember { mutableStateOf(false) }
+    var rightBoost by remember { mutableStateOf(false) }
+    LaunchedEffect(rightHeld) {
+        if (!rightHeld) {
+            if (rightBoost) {
+                rightBoost = false
+                speed = baseSpeed
+                hint = null
+            }
+            return@LaunchedEffect
+        }
+        delay(450)
+        if (rightHeld && liveRoom == null) {
+            rightBoost = true
+            speed = maxOf(3f, baseSpeed)
+            hint = "3x 快进中，松开恢复"
+        }
+    }
     var fullscreen by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
@@ -359,7 +394,7 @@ fun PlayerRoute(
         var lastProgressAt = 0L
         scope.launch {
             runCatching {
-                withContext(ioDispatcher) {
+                val entry = withContext(ioDispatcher) {
                     AppGraph.cache.download(
                         d.bvid,
                         d.title,
@@ -378,7 +413,11 @@ fun PlayerRoute(
                         }
                     }
                 }
-                toast = "已缓存到离线缓存"
+                toast = if (entry.audioPath == null && entry.videoPath.endsWith(".mp4")) {
+                    "已缓存为单个 MP4，可导出到任意播放器"
+                } else {
+                    "已缓存到离线缓存"
+                }
                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             }.onFailure { toast = it.message ?: "缓存失败" }
             downloading = false
@@ -404,6 +443,55 @@ fun PlayerRoute(
                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                 toast = if (next) "已点赞" else "已取消点赞"
             }.onFailure { toast = it.message ?: "点赞失败" }
+        }
+    }
+
+    /** 长按点赞：点赞 → 投币（2 枚）→ 收藏到默认收藏夹。逐项独立执行，失败不拖累其他项。 */
+    fun tripleCombo() {
+        val id = detail?.bvid ?: bvid
+        val aid = detail?.aid ?: seedAid
+        if (id.isNullOrBlank() || aid <= 0) return
+        if (!AppGraph.repo.session.value.loggedIn) {
+            toast = "一键三连需要先登录"
+            return
+        }
+        scope.launch {
+            val results = mutableListOf<String>()
+            if (!liked) {
+                AppGraph.repo.like(id, true).onSuccess {
+                    liked = true
+                    detail = detail?.copy(likeCount = (detail?.likeCount ?: 0) + 1)
+                    results += "点赞"
+                }.onFailure { results += "点赞失败" }
+            }
+            if (!coined) {
+                AppGraph.repo.coin(aid, id, 2).onSuccess {
+                    coined = true
+                    detail = detail?.copy(coinCount = (detail?.coinCount ?: 0) + 2, coined = true)
+                    myCoins = myCoins?.let { (it - 2).coerceAtLeast(0.0) }
+                    results += "投币"
+                }.onFailure { results += "投币失败" }
+            }
+            if (!favored) {
+                val folders = AppGraph.repo.videoFavFolders(aid).getOrNull().orEmpty()
+                val target = folders.firstOrNull { !it.privateFolder } ?: folders.firstOrNull()
+                if (target == null) {
+                    results += "没有可用收藏夹"
+                } else {
+                    AppGraph.repo.dealFavorite(aid, setOf(target.id), emptySet()).onSuccess {
+                        favored = true
+                        favSaved = favSaved + target.id
+                        detail = detail?.copy(favoriteCount = (detail?.favoriteCount ?: 0) + 1)
+                        results += "收藏"
+                    }.onFailure { results += "收藏失败" }
+                }
+            }
+            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            toast = when {
+                results.isEmpty() -> "已赞过、投过、收藏过了"
+                results.all { !it.endsWith("失败") && it != "没有可用收藏夹" } -> "已${results.joinToString("、")}，三连完成"
+                else -> results.joinToString("，")
+            }
         }
     }
 
@@ -470,6 +558,24 @@ fun PlayerRoute(
         rawSegments = emptyList()
         chapters = emptyList()
         shot = null
+        subtitleTracks = emptyList()
+        subtitleCues = emptyList()
+        scope.launch {
+            AppGraph.repo.subtitles(targetBvid, cid).onSuccess { got ->
+                if (playingCid() != cid) return@onSuccess
+                subtitleTracks = got
+                if (got.isNotEmpty()) {
+                    val preferred = settings.subtitleLan
+                    val pick = got.firstOrNull { it.lan == preferred }
+                        ?: got.firstOrNull { it.lan.startsWith("zh") }
+                        ?: got.first()
+                    subtitleLan = pick.lan
+                    AppGraph.repo.subtitleCues(pick.url).onSuccess { cues ->
+                        if (playingCid() == cid && subtitleLan == pick.lan) subtitleCues = cues
+                    }
+                }
+            }
+        }
         scope.launch {
             error = null
             val play = AppGraph.repo.play(targetBvid, cid, forceDash)
@@ -587,7 +693,11 @@ fun PlayerRoute(
                 }
                 .onFailure { if (detail?.bvid == d.bvid) descReady = true }
         }
-        scope.launch { AppGraph.repo.related(d.bvid).onSuccess { if (detail?.bvid == d.bvid) related = it } }
+        if (settings.showRelated) {
+            scope.launch { AppGraph.repo.related(d.bvid).onSuccess { if (detail?.bvid == d.bvid) related = it } }
+        } else {
+            related = emptyList()
+        }
         scope.launch { AppGraph.repo.tags(d.bvid).onSuccess { if (detail?.bvid == d.bvid) tags = it } }
         if (cid > 0) {
             scope.launch {
@@ -734,6 +844,15 @@ fun PlayerRoute(
                 local != null -> {
                     ready.join()
                     engine.playFiles(local.videoPath, local.audioPath)
+                    // 播的是合流 MP4：正常播了 5 秒才清原始双流，坏了还能回退。
+                    if (local.videoPath.endsWith(".mp4") && local.audioPath == null) {
+                        launch(ioDispatcher) {
+                            delay(5_000)
+                            if (engine.isPlaying && engine.currentPosition > 1_000) {
+                                runCatching { AppGraph.cache.pruneSources(local.bvid) }
+                            }
+                        }
+                    }
                 }
                 liveRoom != null -> {
                     val play = AppGraph.repo.livePlay(liveRoom)
@@ -752,7 +871,13 @@ fun PlayerRoute(
                         )
                         engine.playLive(got.url)
                         scope.launch {
-                            AppGraph.repo.liveRoomInfo(liveRoom).onSuccess { liveRoomInfo = it }
+                            AppGraph.repo.liveRoomInfo(liveRoom).onSuccess { room ->
+                                liveRoomInfo = room
+                                val mine = AppGraph.repo.session.value.dedeUserId?.toLongOrNull()
+                                if (room.ownerMid > 0 && room.ownerMid != mine) {
+                                    followed = AppGraph.repo.relation(room.ownerMid).getOrDefault(false)
+                                }
+                            }
                         }
                     }.onFailure { error = it.message }
                 }
@@ -977,12 +1102,13 @@ fun PlayerRoute(
             onSaved = { toast = it },
         )
     }
-    commentImagePreview?.let { (url, name) ->
+    commentImagePreview?.let { (urls, index, name) ->
         app.ailiaili.core.designsystem.AvatarPreviewDialog(
-            url = url,
+            url = urls.getOrElse(index) { urls.first() },
             name = name,
             onDismiss = { commentImagePreview = null },
             onSaved = { toast = it },
+            urls = urls,
         )
     }
 
@@ -992,11 +1118,22 @@ fun PlayerRoute(
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyUp && event.key == Key.DirectionRight) {
+                    if (rightHeld) {
+                        rightHeld = false
+                        if (!rightBoost) seekTo(engine.currentPosition + 5_000)
+                        return@onPreviewKeyEvent true
+                    }
+                    return@onPreviewKeyEvent false
+                }
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 if (composing) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Spacebar, Key.MediaPlayPause -> {
-                        if (engine.isPlaying) engine.pause() else engine.play()
+                        val willPlay = !engine.isPlaying
+                        if (willPlay) engine.play() else engine.pause()
+                        playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
+                        playFlashTick++
                         true
                     }
                     Key.DirectionLeft -> {
@@ -1004,7 +1141,8 @@ fun PlayerRoute(
                         true
                     }
                     Key.DirectionRight -> {
-                        seekTo(engine.currentPosition + 5_000)
+                        // 首次按下只记时；系统自动重复不再逐次快进，450ms 后由长按逻辑进入 3 倍速。
+                        if (!rightHeld) rightHeld = true
                         true
                     }
                     Key.DirectionUp -> {
@@ -1025,6 +1163,27 @@ fun PlayerRoute(
                     }
                     Key.D -> {
                         AppGraph.repo.updateSettings { it.copy(danmakuEnabled = !it.danmakuEnabled) }
+                        true
+                    }
+                    Key.C -> {
+                        if (subtitleTracks.isEmpty()) {
+                            toast = "这条视频没有字幕"
+                        } else {
+                            AppGraph.repo.updateSettings { it.copy(subtitleEnabled = !it.subtitleEnabled) }
+                            toast = if (settings.subtitleEnabled) "字幕已关闭" else "字幕已开启"
+                        }
+                        true
+                    }
+                    Key.Z -> {
+                        val next = ((settings.subtitleDelaySec - 0.2) * 10).roundToInt() / 10.0
+                        AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = next.coerceIn(-5.0, 5.0)) }
+                        toast = "字幕提前 0.2s（${next.coerceIn(-5.0, 5.0)}s）"
+                        true
+                    }
+                    Key.X -> {
+                        val next = ((settings.subtitleDelaySec + 0.2) * 10).roundToInt() / 10.0
+                        AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = next.coerceIn(-5.0, 5.0)) }
+                        toast = "字幕延后 0.2s（${next.coerceIn(-5.0, 5.0)}s）"
                         true
                     }
                     Key.L -> {
@@ -1087,6 +1246,16 @@ fun PlayerRoute(
                     )
                 }
             }
+            if (bvid != null && !listening && liveRoom == null) {
+                SubtitleOverlay(
+                    engine = engine,
+                    cues = subtitleCues,
+                    delaySec = settings.subtitleDelaySec,
+                    visible = settings.subtitleEnabled,
+                    // 控制栏显示时字幕上移一点，不被工具条压住。
+                    modifier = Modifier.padding(bottom = if (showChrome) 44.dp else 0.dp),
+                )
+            }
             if (bvid != null || liveRoom != null) {
                 Box(
                     Modifier
@@ -1124,9 +1293,10 @@ fun PlayerRoute(
                                         kotlinx.coroutines.delay(320)
                                         if (!moved && liveRoom == null) {
                                             holding = true
-                                            val holdSpeed = maxOf(2f, baseSpeed)
+                                            // 与 B 站官方一致：长按画面 3 倍速，松开恢复。
+                                            val holdSpeed = maxOf(3f, baseSpeed)
                                             speed = holdSpeed
-                                            showHint(speedLabel(holdSpeed), linger = false)
+                                            showHint("${speedLabel(holdSpeed)} 快进中", linger = false)
                                         }
                                     }
                                 }
@@ -1161,7 +1331,8 @@ fun PlayerRoute(
                                                     val willPlay = !engine.isPlaying
                                                     if (willPlay) engine.play() else engine.pause()
                                                     chrome = true
-                                                    showHint(if (willPlay) "播放" else "暂停", linger = true)
+                                                    playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
+                                                    playFlashTick++
                                                 } else {
                                                     chrome = !chrome
                                                 }
@@ -1170,16 +1341,19 @@ fun PlayerRoute(
                                                 when {
                                                     x < width / 3f -> {
                                                         seekTo((engine.currentPosition - 10_000).coerceAtLeast(0L))
-                                                        showHint("后退 10 秒", linger = true)
+                                                        seekFlashSide = -1
+                                                        playFlashTick++
                                                     }
                                                     x > width * 2f / 3f -> {
                                                         seekTo(engine.currentPosition + 10_000)
-                                                        showHint("前进 10 秒", linger = true)
+                                                        seekFlashSide = 1
+                                                        playFlashTick++
                                                     }
                                                     else -> {
                                                         val willPlay = !engine.isPlaying
                                                         if (willPlay) engine.play() else engine.pause()
-                                                        showHint(if (willPlay) "播放" else "暂停", linger = true)
+                                                        playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
+                                                        playFlashTick++
                                                     }
                                                 }
                                             } else {
@@ -1248,6 +1422,69 @@ fun PlayerRoute(
                         ),
                 )
             }
+            // 中央状态浮现：播放/暂停图标或 ±10 秒，600ms 内淡入放大再淡出。
+            playFlash?.let { kind ->
+                androidx.compose.runtime.key(playFlashTick) {
+                    val anim = remember { androidx.compose.animation.core.Animatable(0f) }
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        anim.animateTo(1f, androidx.compose.animation.core.tween(140))
+                        kotlinx.coroutines.delay(260)
+                        anim.animateTo(0f, androidx.compose.animation.core.tween(220))
+                        playFlash = null
+                    }
+                    Box(
+                        Modifier
+                            .align(Alignment.Center)
+                            .graphicsLayer {
+                                alpha = anim.value
+                                val s = 0.7f + 0.3f * anim.value
+                                scaleX = s
+                                scaleY = s
+                            }
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                            .padding(18.dp),
+                    ) {
+                        Icon(
+                            when (kind) {
+                                FlashKind.Play -> Icons.Filled.PlayArrow
+                                FlashKind.Pause -> Icons.Filled.Pause
+                            },
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(34.dp),
+                        )
+                    }
+                }
+            }
+            if (seekFlashSide != 0) {
+                androidx.compose.runtime.key(playFlashTick) {
+                    val anim = remember { androidx.compose.animation.core.Animatable(0f) }
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        anim.animateTo(1f, androidx.compose.animation.core.tween(140))
+                        kotlinx.coroutines.delay(300)
+                        anim.animateTo(0f, androidx.compose.animation.core.tween(220))
+                        seekFlashSide = 0
+                    }
+                    Row(
+                        Modifier
+                            .align(if (seekFlashSide < 0) Alignment.CenterStart else Alignment.CenterEnd)
+                            .padding(horizontal = 32.dp)
+                            .graphicsLayer { alpha = anim.value }
+                            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            if (seekFlashSide < 0) Icons.Filled.FastRewind else Icons.Filled.FastForward,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text("10 秒", color = Color.White, fontSize = 13.sp)
+                    }
+                }
+            }
             if (buffering && info != null && error == null && !ended) {
                 Row(
                     Modifier
@@ -1307,8 +1544,13 @@ fun PlayerRoute(
                     Text("已播完", color = Color.White)
                     FilledTonalButton(onClick = {
                         skippedStarts = emptySet()
-                        seekTo(0)
-                        engine.play()
+                        if (isDesktopHost()) {
+                            // 已结束的 VLC input 对 seek 只改读数不出画面：重建 Media 从头起播。
+                            engine.seekTo(0)
+                        } else {
+                            seekTo(0)
+                            engine.play()
+                        }
                         ended = false
                     }) {
                         Icon(Icons.Filled.Replay, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1381,9 +1623,13 @@ fun PlayerRoute(
                     }
                 }
             }
-            if (showChrome) Row(
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showChrome,
+                modifier = Modifier.align(Alignment.TopStart),
+                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220)),
+            ) { Row(
                 Modifier
-                    .align(Alignment.TopStart)
                     .then(if (fullscreen) Modifier.statusBarsPadding() else Modifier)
                     .fillMaxWidth()
                     .background(Color.Black.copy(alpha = 0.45f)),
@@ -1423,6 +1669,73 @@ fun PlayerRoute(
                                                 start(d.bvid, cid, engine.currentPosition, page?.durationSec ?: d.durationSec)
                                             }.onFailure { error = it.message ?: "切换清晰度失败" }
                                         }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (bvid != null && liveRoom == null && local == null && subtitleTracks.isNotEmpty()) {
+                    Box {
+                        TextButton(onClick = { subtitleOpen = true }) {
+                            Text(
+                                "字幕",
+                                color = if (settings.subtitleEnabled) Color(0xFF4FC3F7) else Color.White,
+                            )
+                        }
+                        DropdownMenu(expanded = subtitleOpen, onDismissRequest = { subtitleOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (settings.subtitleEnabled) "关闭字幕（C）" else "开启字幕（C）") },
+                                onClick = {
+                                    subtitleOpen = false
+                                    AppGraph.repo.updateSettings { it.copy(subtitleEnabled = !it.subtitleEnabled) }
+                                },
+                            )
+                            HorizontalDivider()
+                            subtitleTracks.forEach { track ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            track.label + if (track.ai) "（AI）" else "",
+                                            fontWeight = if (track.lan == subtitleLan) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                    },
+                                    onClick = {
+                                        subtitleOpen = false
+                                        subtitleLan = track.lan
+                                        subtitleCues = emptyList()
+                                        AppGraph.repo.updateSettings {
+                                            it.copy(subtitleLan = track.lan, subtitleEnabled = true)
+                                        }
+                                        scope.launch {
+                                            AppGraph.repo.subtitleCues(track.url).onSuccess { cues ->
+                                                if (subtitleLan == track.lan) subtitleCues = cues
+                                            }.onFailure { toast = it.message ?: "字幕加载失败" }
+                                        }
+                                    },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("提前 0.2s（Z）") },
+                                onClick = {
+                                    val next = ((settings.subtitleDelaySec - 0.2) * 10).roundToInt() / 10.0
+                                    AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = next.coerceIn(-5.0, 5.0)) }
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("延后 0.2s（X）") },
+                                onClick = {
+                                    val next = ((settings.subtitleDelaySec + 0.2) * 10).roundToInt() / 10.0
+                                    AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = next.coerceIn(-5.0, 5.0)) }
+                                },
+                            )
+                            if (settings.subtitleDelaySec != 0.0) {
+                                DropdownMenuItem(
+                                    text = { Text("重置延迟（当前 ${settings.subtitleDelaySec}s）") },
+                                    onClick = {
+                                        subtitleOpen = false
+                                        AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = 0.0) }
                                     },
                                 )
                             }
@@ -1604,8 +1917,13 @@ fun PlayerRoute(
                         tint = Color.White,
                     )
                 }
-            }
-            if (showChrome) {
+            } }
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showChrome,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)),
+                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220)),
+            ) {
                 PlayerTransport(
                     engine = engine,
                     live = liveRoom != null,
@@ -1619,15 +1937,28 @@ fun PlayerRoute(
                         }
                     },
                     onTogglePlay = {
-                        if (engine.isPlaying) engine.pause() else engine.play()
+                        val willPlay = !engine.isPlaying
+                        if (willPlay) engine.play() else engine.pause()
+                        playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
+                        playFlashTick++
                     },
                     onVolume = { volumeOpen = !volumeOpen },
                     muted = volume <= 0.01f,
                     marks = if (settings.sponsorBlock) activeMarks else emptyList(),
                     chapters = chapters,
                     shot = shot,
+                    onSnapshot = if (liveRoom == null) {
+                        {
+                            scope.launch {
+                                val name = (detail?.title ?: seedTitle).take(40)
+                                val result = runCatching { engine.snapshot(name) }.getOrNull()
+                                toast = result ?: "截图失败，画面可能还没就绪"
+                            }
+                        }
+                    } else {
+                        null
+                    },
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
                         .then(if (fullscreen) Modifier.navigationBarsPadding() else Modifier),
                 )
             }
@@ -1704,10 +2035,23 @@ fun PlayerRoute(
                                         style = MaterialTheme.typography.bodySmall,
                                     )
                                 }
+                                if (liveRoomNow.officialVerify.isNotBlank()) {
+                                    Text(
+                                        liveRoomNow.officialVerify,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                                 MetaRow(
                                     items = buildList {
                                         add(MetaSpec(Icons.Filled.Visibility, "${formatCount(liveRoomNow.online)} 人在看", MetricTone.Online))
-                                        add(MetaSpec(Icons.Filled.Favorite, "${formatCount(liveRoomNow.attention)} 关注", MetricTone.Favorite))
+                                        if (liveRoomNow.fans > 0) {
+                                            add(MetaSpec(Icons.Filled.Person, "${formatCount(liveRoomNow.fans)} 粉丝", MetricTone.Favorite))
+                                        } else {
+                                            add(MetaSpec(Icons.Filled.Favorite, "${formatCount(liveRoomNow.attention)} 关注", MetricTone.Favorite))
+                                        }
                                         val start = livePlayInfo?.liveStartSec ?: 0
                                         if (start > 0) {
                                             val minutes = ((epochMs() / 1000 - start) / 60).coerceAtLeast(0)
@@ -1717,6 +2061,21 @@ fun PlayerRoute(
                                     },
                                     maxItems = 3,
                                 )
+                            }
+                            val liveMid = liveRoomNow.ownerMid
+                            val liveMine = AppGraph.repo.session.collectAsState().value.dedeUserId?.toLongOrNull()
+                            if (liveMid > 0 && liveMid != liveMine) {
+                                Spacer(Modifier.width(8.dp))
+                                FilledTonalButton(onClick = {
+                                    scope.launch {
+                                        val next = !followed
+                                        AppGraph.repo.follow(liveMid, next).onSuccess {
+                                            followed = next
+                                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                                            toast = if (next) "已关注主播" else "已取消关注"
+                                        }.onFailure { toast = it.message ?: "关注失败" }
+                                    }
+                                }) { Text(if (followed) "已关注" else "关注") }
                             }
                         }
                     }
@@ -1738,7 +2097,7 @@ fun PlayerRoute(
                         ) {
                             if (face.isNotBlank()) {
                                 AsyncImage(
-                                    model = face,
+                                    model = app.ailiaili.core.model.cdnThumb(face, 96),
                                     contentDescription = null,
                                     modifier = Modifier
                                         .size(40.dp)
@@ -1780,7 +2139,14 @@ fun PlayerRoute(
                     val coinAccent = metricToneColor(MetricTone.Coin)
                     val favAccent = metricToneColor(MetricTone.Favorite)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Act(Icons.Filled.ThumbUp, actLabel("点赞", detail?.likeCount ?: 0), Modifier.weight(1f), liked, likeAccent) {
+                        Act(
+                            Icons.Filled.ThumbUp,
+                            actLabel("点赞", detail?.likeCount ?: 0),
+                            Modifier.weight(1f),
+                            liked,
+                            likeAccent,
+                            onLongClick = { tripleCombo() },
+                        ) {
                             toggleLike()
                         }
                         Act(Icons.Filled.MonetizationOn, actLabel("投币", detail?.coinCount ?: 0), Modifier.weight(1f), coined, coinAccent) {
@@ -1950,18 +2316,25 @@ fun PlayerRoute(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 14.sp,
                                 )
-                                else -> Text(
-                                    desc,
+                                else -> LinkifiedText(
+                                    text = desc,
                                     modifier = Modifier.padding(top = 8.dp),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 14.sp,
                                     lineHeight = 21.sp,
                                     maxLines = if (descOpen) Int.MAX_VALUE else 4,
-                                    overflow = TextOverflow.Ellipsis,
+                                    onOpenLink = { url, linkBvid ->
+                                        if (linkBvid != null) {
+                                            onOpenVideo(VideoItem(bvid = linkBvid))
+                                        } else {
+                                            openUrl(url)
+                                        }
+                                    },
                                 )
                             }
                         }
-                        val relatedShown = related.filter { ContentFilter.allows(it) }
+                        val relatedFiltered = app.ailiaili.core.designsystem.rememberFilteredVideos(related)
+                        val relatedShown = if (settings.showRelated) relatedFiltered else emptyList()
                         if (relatedShown.isNotEmpty()) {
                             BiliSectionTitle("相关推荐")
                             relatedShown.take(12).forEach { item ->
@@ -1971,6 +2344,7 @@ fun PlayerRoute(
                                         cover = item.cover,
                                         onClick = { onOpenVideo(item) },
                                         coverWidth = 112.dp,
+                                        aid = if (item.isLive) 0 else item.aid,
                                         badge = item.durationText,
                                         meta = {
                                             MetaRow(
@@ -2162,7 +2536,20 @@ fun PlayerRoute(
                                         replyTarget = target
                                     }
                                 },
-                                onPreviewImage = { url, name -> commentImagePreview = url to name },
+                                onPreviewImage = { urls, picIndex, name ->
+                                    commentImagePreview = Triple(urls, picIndex, name)
+                                },
+                                onOpenLink = { url, linkBvid ->
+                                    if (linkBvid != null) {
+                                        onOpenVideo(VideoItem(bvid = linkBvid))
+                                    } else {
+                                        openUrl(url)
+                                    }
+                                },
+                                onOpenDetail = { target ->
+                                    val aid = detail?.aid ?: seedAid
+                                    if (aid > 0) onOpenCommentDetail(aid, target)
+                                },
                                 onExpand = if (c.replyCount > shown.size && c.rpid !in replyDone) {
                                     {
                                         val aid = detail?.aid ?: 0L
@@ -2477,6 +2864,8 @@ fun PlayerRoute(
     }
 }
 
+private enum class FlashKind { Play, Pause }
+
 private fun mergeDanmaku(current: List<Danmaku>, extra: List<Danmaku>): List<Danmaku> {
     if (extra.isEmpty()) return current
     if (current.isEmpty()) return extra.sortedBy { it.timeSec }
@@ -2734,363 +3123,3 @@ private fun VideoHeader(
         }
     }
 }
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CommentBlock(
-    comment: Comment,
-    replies: List<Comment>,
-    rootRpid: Long,
-    onSpace: (Long) -> Unit,
-    onLike: (Comment) -> Unit,
-    onDislike: (Comment) -> Unit,
-    onReply: (Long, Comment) -> Unit,
-    onExpand: (() -> Unit)?,
-    onPreviewImage: (String, String) -> Unit,
-    nested: Boolean = false,
-) {
-    val ink = MaterialTheme.colorScheme.onSurface
-    val accent = MaterialTheme.colorScheme.primary
-    Row(Modifier.padding(vertical = if (nested) 4.dp else 8.dp)) {
-        if (comment.face.isNotBlank()) {
-            AsyncImage(
-                model = comment.face,
-                contentDescription = comment.name,
-                modifier = Modifier
-                    .padding(top = 2.dp)
-                    .size(if (nested) 28.dp else 36.dp)
-                    .clip(CircleShape)
-                    .clickable(enabled = comment.mid > 0) { onSpace(comment.mid) },
-                contentScale = ContentScale.Crop,
-            )
-        } else {
-            Box(
-                Modifier
-                    .padding(top = 2.dp)
-                    .size(if (nested) 28.dp else 36.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                    .clickable(enabled = comment.mid > 0) { onSpace(comment.mid) },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(comment.name.take(1).ifBlank { "用" }, color = accent, fontSize = 12.sp)
-            }
-        }
-        Column(Modifier.padding(start = 10.dp).weight(1f)) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (comment.pinned) {
-                    BiliBadge(
-                        text = "置顶",
-                        tone = BiliBadgeTone.Accent,
-                        style = BiliBadgeStyle.Solid,
-                    )
-                }
-                Text(
-                    comment.name.ifBlank { "用户" },
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .clickable(enabled = comment.mid > 0) { onSpace(comment.mid) },
-                    color = if (comment.up) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = if (nested) 13.sp else 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (comment.level > 0) {
-                    BiliBadge(
-                        text = "LV${comment.level}",
-                        tone = BiliBadgeTone.Neutral,
-                        style = BiliBadgeStyle.Soft,
-                    )
-                }
-                if (comment.up) {
-                    BiliBadge(
-                        text = "UP",
-                        tone = BiliBadgeTone.Accent,
-                        style = BiliBadgeStyle.Solid,
-                    )
-                }
-            }
-            MetaRow(
-                items = listOfNotNull(
-                    comment.timeText.takeIf { it.isNotBlank() }?.let {
-                        MetaSpec(Icons.Filled.Schedule, it, MetricTone.Neutral)
-                    },
-                    comment.location.takeIf { it.isNotBlank() }?.let {
-                        MetaSpec(Icons.Filled.LocationOn, it, MetricTone.Neutral)
-                    },
-                ),
-                maxItems = 2,
-            )
-            if (comment.message.isNotBlank()) {
-                SelectionContainer {
-                    CommentRichText(
-                        comment = comment,
-                        modifier = Modifier.padding(top = 6.dp),
-                        color = ink,
-                        accent = accent,
-                    )
-                }
-            }
-            if (comment.pictures.isNotEmpty()) {
-                FlowRow(
-                    modifier = Modifier.padding(top = 6.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    comment.pictures.forEach { picture ->
-                        val height = 140.dp
-                        val width = if (picture.width > 0 && picture.height > 0) {
-                            (height * (picture.width.toFloat() / picture.height))
-                                .coerceIn(60.dp, 240.dp)
-                        } else {
-                            height
-                        }
-                        AsyncImage(
-                            model = picture.url,
-                            contentDescription = "评论图片",
-                            modifier = Modifier
-                                .size(width, height)
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    onPreviewImage(
-                                        picture.url,
-                                        comment.name.ifBlank { "评论图片" },
-                                    )
-                                },
-                            contentScale = ContentScale.Crop,
-                        )
-                    }
-                }
-            }
-            Row(
-                Modifier.padding(top = 4.dp).offset(x = (-6).dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CommentAction(
-                    Icons.Filled.ThumbUp,
-                    formatCount(comment.like.toLong()),
-                    comment.liked,
-                    description = "点赞",
-                ) { onLike(comment) }
-                CommentAction(Icons.Filled.ThumbDown, "", comment.disliked, description = "点踩") { onDislike(comment) }
-                CommentAction(Icons.AutoMirrored.Filled.Reply, "回复", false) { onReply(rootRpid, comment) }
-            }
-            if (!nested && (replies.isNotEmpty() || onExpand != null)) {
-                Column(
-                    Modifier
-                        .padding(top = 6.dp)
-                        .fillMaxWidth()
-                        .clip(MaterialTheme.shapes.medium)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                ) {
-                    replies.forEachIndexed { index, reply ->
-                        if (index > 0) {
-                            HorizontalDivider(
-                                modifier = Modifier.padding(vertical = 4.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-                            )
-                        }
-                        key(reply.rpid) {
-                            CommentBlock(
-                                reply,
-                                emptyList(),
-                                rootRpid,
-                                onSpace,
-                                onLike,
-                                onDislike,
-                                onReply,
-                                onExpand = null,
-                                onPreviewImage = onPreviewImage,
-                                nested = true,
-                            )
-                        }
-                    }
-                    if (onExpand != null) {
-                        Row(
-                            modifier = Modifier
-                                .clip(MaterialTheme.shapes.small)
-                                .clickable(onClick = onExpand)
-                                .padding(vertical = 6.dp, horizontal = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "查看 ${comment.replyCount} 条回复",
-                                color = accent,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = accent,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CommentAction(
-    icon: ImageVector,
-    label: String,
-    on: Boolean,
-    description: String? = null,
-    onClick: () -> Unit,
-) {
-    val tint by animateColorAsState(
-        if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        label = "commentActionTint",
-    )
-    Row(
-        Modifier
-            .clip(MaterialTheme.shapes.small)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            icon,
-            contentDescription = description ?: label.ifBlank { null },
-            tint = tint,
-            modifier = Modifier.size(16.dp),
-        )
-        if (label.isNotEmpty()) {
-            Text(label, modifier = Modifier.padding(start = 4.dp), color = tint, fontSize = 13.sp)
-        }
-    }
-}
-
-@Composable
-private fun Act(
-    icon: ImageVector,
-    label: String,
-    modifier: Modifier = Modifier,
-    on: Boolean = false,
-    active: Color = MaterialTheme.colorScheme.primary,
-    onClick: () -> Unit,
-) {
-    BiliActionItem(
-        icon = icon,
-        label = label,
-        modifier = modifier,
-        active = on,
-        accent = active,
-        onClick = onClick,
-    )
-}
-
-/** 竖向操作下方只放计数；为 0 时回退成动作名。 */
-private fun actLabel(name: String, n: Long): String = formatCount(n).ifBlank { name }
-
-@Composable
-private fun CommentComposer(
-    draft: String,
-    onDraft: (String) -> Unit,
-    replyingTo: String?,
-    expanded: Boolean,
-    sending: Boolean,
-    onToggleExpand: () -> Unit,
-    onCancelReply: () -> Unit,
-    onFocus: (Boolean) -> Unit,
-    onSend: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
-            .background(scheme.surfaceContainerHigh)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        AnimatedVisibility(visible = replyingTo != null) {
-            Row(
-                Modifier
-                    .clip(CircleShape)
-                    .background(scheme.primaryContainer)
-                    .padding(start = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Reply,
-                    contentDescription = null,
-                    tint = scheme.onPrimaryContainer,
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    "回复 @${replyingTo.orEmpty()}",
-                    modifier = Modifier.padding(start = 6.dp),
-                    color = scheme.onPrimaryContainer,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                IconButton(onClick = onCancelReply, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "取消回复",
-                        tint = scheme.onPrimaryContainer,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-            }
-        }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = onDraft,
-                modifier = Modifier
-                    .weight(1f)
-                    .onFocusChanged { onFocus(it.isFocused) },
-                placeholder = { Text(if (replyingTo == null) "发一条友善的评论" else "回复 @$replyingTo") },
-                shape = MaterialTheme.shapes.medium,
-                minLines = if (expanded) 5 else 1,
-                maxLines = if (expanded) 12 else 4,
-            )
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                IconButton(onClick = onToggleExpand, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        if (expanded) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
-                        contentDescription = if (expanded) "收起输入框" else "展开输入框",
-                        tint = scheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                FilledIconButton(
-                    onClick = onSend,
-                    enabled = draft.isNotBlank() && !sending,
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    if (sending) {
-                        LoadingIndicator(Modifier.size(22.dp))
-                    } else {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = if (replyingTo == null) "发送" else "回复",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-

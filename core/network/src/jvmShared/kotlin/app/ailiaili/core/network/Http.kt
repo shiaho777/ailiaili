@@ -32,6 +32,17 @@ expect class HttpEngine(connectTimeoutMs: Long, readTimeoutMs: Long) {
         headers: Map<String, String>,
     ): HttpResponse
 
+    /** multipart/form-data 上传：文本字段 + 一个二进制文件字段。 */
+    fun postMultipart(
+        url: String,
+        fields: Map<String, String>,
+        fileField: String,
+        fileName: String,
+        fileBytes: ByteArray,
+        fileMime: String,
+        headers: Map<String, String>,
+    ): HttpResponse
+
     /**
      * 流式下载到文件，不把整个响应读进内存。
      * 先写 `<filePath>.part`，成功后再原子改名；失败会清掉临时文件。

@@ -9,6 +9,11 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
@@ -77,11 +82,15 @@ private val DarkScheme = darkColorScheme(
     onTertiary = InkDark,
 )
 
+/** 当前界面字体（自定义时非默认）。弹幕文本跟随它。 */
+val LocalBiliFontFamily = androidx.compose.runtime.compositionLocalOf<androidx.compose.ui.text.font.FontFamily?> { null }
+
 @Composable
 fun BiliTheme(
     mode: ThemeMode,
     accentHex: String = "",
     followSystem: Boolean = false,
+    fontPath: String = "",
     content: @Composable () -> Unit,
 ) {
     val dark = when (mode) {
@@ -105,12 +114,96 @@ fun BiliTheme(
         inversePrimary = accent,
     )
     PlatformThemeEffects(dark)
-    MaterialExpressiveTheme(
-        colorScheme = if (dark) night else light,
-        motionScheme = MotionScheme.expressive(),
-        shapes = BiliShapes,
-        typography = BiliTypography,
-        content = content,
+    // 深浅色/主题色切换：240ms 纯颜色渐变。不做窗口快照、不挖洞扩散——
+    // 快照方案要同步渲染整窗，又慢又费内存；这里只插值颜色，零额外位图。
+    val target = if (dark) night else light
+    val animated = animateBiliColorScheme(target)
+    val customFont = remember(fontPath) {
+        if (fontPath.isBlank()) null else loadFontFamily(fontPath)
+    }
+    val typography = remember(customFont) {
+        if (customFont == null) BiliTypography else BiliTypography.withFontFamily(customFont)
+    }
+    androidx.compose.runtime.CompositionLocalProvider(LocalBiliFontFamily provides customFont) {
+        MaterialExpressiveTheme(
+            colorScheme = animated,
+            motionScheme = MotionScheme.expressive(),
+            shapes = BiliShapes,
+            typography = typography,
+            content = content,
+        )
+    }
+}
+
+private fun Typography.withFontFamily(family: androidx.compose.ui.text.font.FontFamily): Typography = copy(
+    displayLarge = displayLarge.copy(fontFamily = family),
+    displayMedium = displayMedium.copy(fontFamily = family),
+    displaySmall = displaySmall.copy(fontFamily = family),
+    headlineLarge = headlineLarge.copy(fontFamily = family),
+    headlineMedium = headlineMedium.copy(fontFamily = family),
+    headlineSmall = headlineSmall.copy(fontFamily = family),
+    titleLarge = titleLarge.copy(fontFamily = family),
+    titleMedium = titleMedium.copy(fontFamily = family),
+    titleSmall = titleSmall.copy(fontFamily = family),
+    bodyLarge = bodyLarge.copy(fontFamily = family),
+    bodyMedium = bodyMedium.copy(fontFamily = family),
+    bodySmall = bodySmall.copy(fontFamily = family),
+    labelLarge = labelLarge.copy(fontFamily = family),
+    labelMedium = labelMedium.copy(fontFamily = family),
+    labelSmall = labelSmall.copy(fontFamily = family),
+)
+
+@Composable
+private fun animateBiliColorScheme(target: androidx.compose.material3.ColorScheme): androidx.compose.material3.ColorScheme {
+    val progress = remember { androidx.compose.animation.core.Animatable(1f) }
+    var previous by remember { mutableStateOf(target) }
+    LaunchedEffect(target) {
+        if (target != previous) {
+            progress.snapTo(0f)
+            progress.animateTo(1f, androidx.compose.animation.core.tween(durationMillis = 240))
+            previous = target
+        }
+    }
+    if (progress.value >= 1f) return target
+    val t = progress.value
+    fun mix(a: Color, b: Color) = lerp(a, b, t)
+    return target.copy(
+        primary = mix(previous.primary, target.primary),
+        onPrimary = mix(previous.onPrimary, target.onPrimary),
+        primaryContainer = mix(previous.primaryContainer, target.primaryContainer),
+        onPrimaryContainer = mix(previous.onPrimaryContainer, target.onPrimaryContainer),
+        inversePrimary = mix(previous.inversePrimary, target.inversePrimary),
+        secondary = mix(previous.secondary, target.secondary),
+        onSecondary = mix(previous.onSecondary, target.onSecondary),
+        secondaryContainer = mix(previous.secondaryContainer, target.secondaryContainer),
+        onSecondaryContainer = mix(previous.onSecondaryContainer, target.onSecondaryContainer),
+        tertiary = mix(previous.tertiary, target.tertiary),
+        onTertiary = mix(previous.onTertiary, target.onTertiary),
+        tertiaryContainer = mix(previous.tertiaryContainer, target.tertiaryContainer),
+        onTertiaryContainer = mix(previous.onTertiaryContainer, target.onTertiaryContainer),
+        background = mix(previous.background, target.background),
+        onBackground = mix(previous.onBackground, target.onBackground),
+        surface = mix(previous.surface, target.surface),
+        onSurface = mix(previous.onSurface, target.onSurface),
+        surfaceVariant = mix(previous.surfaceVariant, target.surfaceVariant),
+        onSurfaceVariant = mix(previous.onSurfaceVariant, target.onSurfaceVariant),
+        surfaceTint = mix(previous.surfaceTint, target.surfaceTint),
+        inverseSurface = mix(previous.inverseSurface, target.inverseSurface),
+        inverseOnSurface = mix(previous.inverseOnSurface, target.inverseOnSurface),
+        error = mix(previous.error, target.error),
+        onError = mix(previous.onError, target.onError),
+        errorContainer = mix(previous.errorContainer, target.errorContainer),
+        onErrorContainer = mix(previous.onErrorContainer, target.onErrorContainer),
+        outline = mix(previous.outline, target.outline),
+        outlineVariant = mix(previous.outlineVariant, target.outlineVariant),
+        scrim = mix(previous.scrim, target.scrim),
+        surfaceBright = mix(previous.surfaceBright, target.surfaceBright),
+        surfaceDim = mix(previous.surfaceDim, target.surfaceDim),
+        surfaceContainer = mix(previous.surfaceContainer, target.surfaceContainer),
+        surfaceContainerHigh = mix(previous.surfaceContainerHigh, target.surfaceContainerHigh),
+        surfaceContainerHighest = mix(previous.surfaceContainerHighest, target.surfaceContainerHighest),
+        surfaceContainerLow = mix(previous.surfaceContainerLow, target.surfaceContainerLow),
+        surfaceContainerLowest = mix(previous.surfaceContainerLowest, target.surfaceContainerLowest),
     )
 }
 

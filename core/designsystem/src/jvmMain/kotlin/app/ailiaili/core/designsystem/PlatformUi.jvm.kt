@@ -20,6 +20,20 @@ actual fun decodeImageBytes(bytes: ByteArray): ImageBitmap? = runCatching {
     Image.makeFromEncoded(bytes).toComposeImageBitmap()
 }.getOrNull()
 
+private val fontCache = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.text.font.FontFamily?>()
+
+actual fun loadFontFamily(path: String): androidx.compose.ui.text.font.FontFamily? =
+    fontCache.getOrPut(path) {
+        runCatching {
+            if (!java.io.File(path).isFile) return@runCatching null
+            val typeface = org.jetbrains.skia.FontMgr.default.makeFromFile(path)
+                ?: return@runCatching null
+            androidx.compose.ui.text.font.FontFamily(
+                androidx.compose.ui.text.platform.Typeface(typeface),
+            )
+        }.getOrNull()
+    }
+
 actual fun argbImage(width: Int, height: Int, pixels: IntArray): ImageBitmap {
     val info = ImageInfo.makeN32Premul(width, height)
     val bitmap = Bitmap()

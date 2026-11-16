@@ -16,6 +16,23 @@ fun normalizeUrl(url: String): String = when {
     else -> url
 }
 
+/**
+ * B 站图片 CDN 缩图：hdslb.com 支持 `@{w}w_{h}h` 后缀，服务端裁好再传。
+ * 列表封面/头像用显示尺寸的 2 倍（HiDPI），流量和解码内存都降一个量级。
+ * 已带 @ 参数的、非 hdslb 域的、gif 一律原样返回（缩图会毁动图）。
+ */
+fun cdnThumb(url: String, widthPx: Int, heightPx: Int = widthPx): String {
+    if (url.isBlank() || widthPx <= 0) return url
+    if (!url.contains("hdslb.com")) return url
+    if (url.contains('@')) return url
+    if (url.substringBefore('?').endsWith(".gif", ignoreCase = true)) return url
+    val w = (widthPx / 10).coerceAtLeast(1) * 10
+    val h = (heightPx / 10).coerceAtLeast(1) * 10
+    val base = url.substringBefore('?')
+    val query = url.substringAfter('?', "")
+    return base + "@${w}w_${h}h" + if (query.isNotEmpty()) "?$query" else ""
+}
+
 fun formatCount(n: Long): String = when {
     n >= 100_000_000 -> "${oneDecimal(n / 100_000_000.0)}亿".replace(".0亿", "亿")
     n >= 10_000 -> "${oneDecimal(n / 10_000.0)}万".replace(".0万", "万")
@@ -164,6 +181,21 @@ data class VideoDetail(
 
 data class Quality(val qn: Int, val label: String)
 
+/** 当前平台解码器播不了的档位：桌面 LibVLC 不支持杜比视界 Profile 8.4 / HDR10 / 8K HEVC。 */
+expect val unplayableQns: Set<Int>
+
+/** 把用户偏好清晰度收敛到可播范围：不可播时降到最高的可播档，没有更低的就取最低可播档。 */
+fun clampPlayableQn(qn: Int, available: List<Int>): Int {
+    if (available.isEmpty() || qn in available) return qn
+    return available.filter { it <= qn }.maxOrNull() ?: available.min()
+}
+
+/** 菜单与选流共用的过滤：剔除不可播档位；全是不可播档时保持原样，交给取流失败提示。 */
+fun filterPlayableQualities(qualities: List<Quality>): List<Quality> {
+    val playable = qualities.filterNot { it.qn in unplayableQns }
+    return playable.ifEmpty { qualities }
+}
+
 /**
  * 720P 及以下优先走 durl 合流单流。
  *
@@ -196,6 +228,10 @@ data class LiveRoomInfo(
     val online: Long,
     val attention: Long,
     val area: String,
+    /** 主播粉丝数（relation/stat），拿不到为 0。 */
+    val fans: Long = 0,
+    /** 官方认证文案，空 = 无认证。 */
+    val officialVerify: String = "",
 )
 
 data class AudioQuality(
@@ -227,6 +263,9 @@ data class PlayInfo(
     val audioQn: Int = 0,
     /** 接口返回的全部可用音轨，按音质从低到高。 */
     val audioQualities: List<AudioQuality> = emptyList(),
+    /** 选中流的编码串（avc1…/hev1…/av01…），离线合流按它选容器轨格式。 */
+    val videoCodecs: String = "",
+    val audioCodecs: String = "",
 )
 
 /** 播放器 v2 的章节。type 2 才是进度条上的高能进度。 */
@@ -536,6 +575,73 @@ data class DynamicPage(
     val hasMore: Boolean,
 )
 
+/** 图文动态（opus / 专栏 / 旧版绘画）。 */
+data class DynamicPost(
+    val id: String,
+    /** 评论区 oid：opus 用 id，专栏用 cv 号，旧绘画用 rid。 */
+    val oid: Long,
+    /** 评论区类型：11 图文 / 12 专栏 / 2 相簿。 */
+    val commentType: Int,
+    val title: String,
+    val text: String,
+    val pics: List<String>,
+    val likeCount: Long = 0,
+    val commentCount: Long = 0,
+    val forwardCount: Long = 0,
+    val liked: Boolean = false,
+)
+
+/** 综合动态条目：视频投稿或图文，二选一。 */
+data class DynamicEntry(
+    val id: String,
+    val authorName: String,
+    val authorMid: Long,
+    val authorFace: String,
+    val pubTs: Long,
+    /** 作者附言。 */
+    val desc: String = "",
+    val video: VideoItem? = null,
+    val post: DynamicPost? = null,
+) {
+    val isVideo: Boolean get() = video != null
+}
+
+data class DynamicFeed(
+    val entries: List<DynamicEntry>,
+    val nextOffset: String?,
+    val hasMore: Boolean,
+)
+
+/** 字幕轨：CC 或 AI 生成。url 指向 JSON 字幕体。 */
+data class SubtitleTrack(
+    val id: Long,
+    val lan: String,
+    val label: String,
+    val url: String,
+    val ai: Boolean,
+)
+
+/** 一条字幕的时间区间与正文（秒）。 */
+data class SubtitleCue(val from: Double, val to: Double, val text: String)
+
+/** 按播放位置二分找当前字幕；延迟为正表示字幕整体延后显示。 */
+fun subtitleCueAt(cues: List<SubtitleCue>, positionSec: Double, delaySec: Double = 0.0): SubtitleCue? {
+    if (cues.isEmpty()) return null
+    val t = positionSec - delaySec
+    var lo = 0
+    var hi = cues.lastIndex
+    while (lo <= hi) {
+        val mid = (lo + hi) / 2
+        val cue = cues[mid]
+        when {
+            t < cue.from -> hi = mid - 1
+            t >= cue.to -> lo = mid + 1
+            else -> return cue
+        }
+    }
+    return null
+}
+
 data class QrTicket(val url: String, val key: String)
 
 enum class QrStatus { Waiting, Scanned, Success, Expired, Failed }
@@ -596,6 +702,13 @@ data class AppSettings(
     val danmakuFilterAdvanced: Boolean = true,
     val defaultQn: Int = 80,
     val noLogin1080: Boolean = true,
+    /** 播放页「相关推荐」区块。关掉后不请求也不展示。 */
+    val showRelated: Boolean = true,
+    /** 字幕（CC/AI）。默认关闭，开启后记忆语言偏好。 */
+    val subtitleEnabled: Boolean = false,
+    val subtitleLan: String = "",
+    /** 字幕延迟（秒），±0.2 步进微调。 */
+    val subtitleDelaySec: Double = 0.0,
     val sponsorBlock: Boolean = false,
     /** 逗号分隔的 SponsorBlock category。默认只跳赞助广告。 */
     val sponsorCategories: String = SponsorCategories.DEFAULT,
@@ -609,6 +722,8 @@ data class AppSettings(
     val networkCachingMs: Int = NETWORK_CACHING_DEFAULT_MS,
     /** 空字符串表示默认的 B 站粉。跟随系统时忽略。 */
     val accentHex: String = "",
+    /** 自定义界面字体文件路径（应用字体目录内）。空 = 默认字体。 */
+    val fontPath: String = "",
     val accentFollowSystem: Boolean = false,
     val autoCheckUpdate: Boolean = true,
     /** 用户点过「跳过此版本」的 tag。自动检查对这个版本不再弹。 */

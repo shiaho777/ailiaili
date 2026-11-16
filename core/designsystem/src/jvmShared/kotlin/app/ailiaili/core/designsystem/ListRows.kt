@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.ailiaili.core.model.VideoItem
 import coil3.compose.AsyncImage
 
 /**
@@ -55,6 +56,8 @@ fun VideoListRow(
     onLongClick: (() -> Unit)? = null,
     author: String = "",
     ownerMid: Long = 0,
+    /** 提供稿件号后，右键菜单出现「稍后再看」。 */
+    aid: Long = 0,
     leading: (@Composable () -> Unit)? = null,
     meta: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
@@ -85,19 +88,29 @@ fun VideoListRow(
     ) {
         leading?.invoke()
         if (cover.isNotBlank() || coverPlaceholder) {
+            var coverLoading by remember(cover) { mutableStateOf(cover.isNotBlank()) }
             Box(
                 Modifier
                     .width(coverWidth)
                     .aspectRatio(16f / 10f)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .coverShimmer(coverLoading),
             ) {
                 if (cover.isNotBlank()) {
                     AsyncImage(
-                        model = cover,
+                        // 行封面 ≤136dp，2x=280px 足够；按 10px 取整提高 CDN 缓存命中。
+                        model = app.ailiaili.core.model.cdnThumb(
+                            cover,
+                            (coverWidth.value * 2).toInt(),
+                            (coverWidth.value * 2 * 10 / 16).toInt(),
+                        ),
                         contentDescription = title,
                         modifier = Modifier.matchParentSize(),
                         contentScale = ContentScale.Crop,
+                        onState = { state ->
+                            coverLoading = state is coil3.compose.AsyncImagePainter.State.Loading
+                        },
                     )
                 }
                 if (badge.isNotBlank()) {
@@ -127,6 +140,16 @@ fun VideoListRow(
         }
         trailing?.invoke(this)
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            if (aid > 0) {
+                val inLater = aid in QuickActions.laterAids
+                DropdownMenuItem(
+                    text = { Text(if (inLater) "已在稍后再看" else "稍后再看") },
+                    onClick = {
+                        menuOpen = false
+                        QuickActions.addWatchLater(VideoItem(aid = aid, title = title))
+                    },
+                )
+            }
             if (author.isNotBlank() || ownerMid > 0) {
                 DropdownMenuItem(
                     text = { Text("屏蔽此 UP 主") },

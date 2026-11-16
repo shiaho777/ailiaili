@@ -43,7 +43,9 @@ internal fun DanmakuOverlay(
 ) {
     val measurer = rememberTextMeasurer(cacheSize = 256)
     val runtime = remember { DanmakuRuntime() }
+    val fontFamily = app.ailiaili.core.designsystem.LocalBiliFontFamily.current
     SideEffect {
+        runtime.fontFamily = fontFamily
         runtime.apply(settings)
         val sec = runCatching { player.currentPosition / 1000.0 }.getOrDefault(0.0)
         runtime.offer(comments, sec)
