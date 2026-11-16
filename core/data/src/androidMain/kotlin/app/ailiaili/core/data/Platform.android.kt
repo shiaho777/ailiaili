@@ -15,6 +15,10 @@ import java.io.File
 object AndroidHost {
     lateinit var context: Application
     var activity: Activity? = null
+    /** Activity 在 onCreate 注册的系统选图回调；由 MainActivity 安装。 */
+    var imagePicker: (suspend () -> PickedImage?)? = null
+    /** 系统文件选择器选字体文件；由 MainActivity 安装。 */
+    var fontPicker: (suspend () -> PickedImage?)? = null
 
     fun install(app: Application) {
         context = app
@@ -56,6 +60,12 @@ actual fun shareText(title: String, text: String): String {
 }
 
 actual suspend fun chooseDirectory(): String? = null
+
+actual suspend fun pickImage(): PickedImage? = AndroidHost.imagePicker?.invoke()
+
+actual fun systemFontFiles(): List<String> = emptyList()
+
+actual suspend fun pickFontFile(): PickedImage? = AndroidHost.fontPicker?.invoke()
 
 actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {
     val resolver = AndroidHost.context.contentResolver

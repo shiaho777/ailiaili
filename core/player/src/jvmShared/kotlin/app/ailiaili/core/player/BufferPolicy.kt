@@ -64,4 +64,38 @@ object BufferPolicy {
         return (shortCapped + stallBoostMs)
             .coerceIn(NETWORK_CACHING_MIN_MS, NETWORK_CACHING_MAX_MS)
     }
+
+    /**
+     * 把统一的预读深度（毫秒）映射成 Media3 的四档缓冲参数。
+     *
+     * 起播门槛 ≈ 预读深度；卡顿恢复门槛 ×2（恢复后多攒一点，避免立刻再卡）；
+     * 常驻缓冲下限 ×4、上限 ×16 —— 弱网深预读抗抖动，快线浅预读省内存。
+     * 直播整体收紧：延迟优先，缓冲上限不超过 20 秒。
+     */
+    fun androidDurations(networkCachingMs: Int, live: Boolean): AndroidBufferSpec {
+        val ms = networkCachingMs.coerceIn(NETWORK_CACHING_MIN_MS, NETWORK_CACHING_MAX_MS)
+        return if (live) {
+            AndroidBufferSpec(
+                minBufferMs = (ms * 2).coerceIn(3_000, 10_000),
+                maxBufferMs = (ms * 4).coerceIn(8_000, 20_000),
+                playbackMs = ms.coerceIn(500, 2_000),
+                rebufferMs = (ms * 2).coerceIn(1_000, 4_000),
+            )
+        } else {
+            AndroidBufferSpec(
+                minBufferMs = (ms * 4).coerceIn(5_000, 30_000),
+                maxBufferMs = (ms * 16).coerceIn(15_000, 60_000),
+                playbackMs = ms.coerceIn(500, 2_500),
+                rebufferMs = (ms * 2).coerceIn(1_000, 5_000),
+            )
+        }
+    }
 }
+
+/** Media3 DefaultLoadControl 的四档缓冲参数（毫秒）。 */
+data class AndroidBufferSpec(
+    val minBufferMs: Int,
+    val maxBufferMs: Int,
+    val playbackMs: Int,
+    val rebufferMs: Int,
+)

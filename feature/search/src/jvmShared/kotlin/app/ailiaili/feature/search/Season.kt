@@ -75,6 +75,7 @@ fun SeasonRoute(
     onPlay: (BangumiEpisode, seasonTitle: String) -> Unit,
     vm: SeasonViewModel = appViewModel(key = "season-$seasonId") { SeasonViewModel(seasonId) },
 ) {
+    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     val detail = vm.detail
     val episodes = detail?.episodes.orEmpty()
     Scaffold(

@@ -41,6 +41,13 @@ expect class PlayerEngine() {
     fun playLive(url: String)
     fun playFiles(videoPath: String, audioPath: String?)
     fun release()
+
+    /**
+     * 截取当前视频画面并保存到系统图片目录。
+     * 返回给用户看的结果文案；失败返回 null。
+     * 桌面从帧泵取现成帧；Android 用 PixelCopy 抓 PlayerView。
+     */
+    suspend fun snapshot(displayName: String): String?
 }
 
 @Composable

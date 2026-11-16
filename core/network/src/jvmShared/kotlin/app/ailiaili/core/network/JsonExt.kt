@@ -38,9 +38,15 @@ fun JSONArray.objects(): List<JSONObject> = buildList {
     }
 }
 
-fun String.stripHtml(): String = replace(Regex("<[^>]+>"), "")
-    .replace("&amp;", "&")
-    .replace("&lt;", "<")
-    .replace("&gt;", ">")
-    .replace("&quot;", "\"")
-    .replace("&#39;", "'")
+private val HTML_TAG = Regex("<[^>]+>")
+
+fun String.stripHtml(): String {
+    // 绝大多数标题既无标签也无实体：直接原样返回，不做 6 次 replace 扫描。
+    if ('<' !in this && '&' !in this) return this
+    return replace(HTML_TAG, "")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+}

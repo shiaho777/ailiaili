@@ -158,6 +158,7 @@ fun HomeRoute(
     onMessages: () -> Unit,
     vm: HomeViewModel = appViewModel { HomeViewModel() },
 ) {
+    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::refresh)
     val grid = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
@@ -332,7 +333,7 @@ fun HomeRoute(
                     }
                 }
             }
-            val shown = vm.items.filter { ContentFilter.allows(it) }
+            val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             val blockedOut = vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
             FilterAutoLoad(
                 shownEmpty = blockedOut,

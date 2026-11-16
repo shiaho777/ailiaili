@@ -32,8 +32,21 @@ import app.ailiaili.core.designsystem.BiliShell
 import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.LocalWheelSpeed
 import app.ailiaili.core.designsystem.LocalWindowForm
+import app.ailiaili.core.designsystem.PageRefresh
 import app.ailiaili.core.designsystem.ProvideWindowForm
+import app.ailiaili.core.designsystem.QuickActions
 import app.ailiaili.core.designsystem.toChrome
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -114,6 +127,8 @@ sealed interface Dest {
     ) : Dest
     data class Live(val roomId: Long, val title: String) : Dest
     data class Local(val bvid: String) : Dest
+    data class DynamicPost(val id: String) : Dest
+    data class CommentDetail(val aid: Long, val rpid: Long) : Dest
 }
 
 enum class NavKind { Push, Pop, Tab }
@@ -192,6 +207,8 @@ private fun encode(dest: Dest): String = when (dest) {
     ).joinToString("\t")
     is Dest.Live -> "live\t${dest.roomId}\t${dest.title.oneLine()}"
     is Dest.Local -> "local\t${dest.bvid}"
+    is Dest.DynamicPost -> "dynpost\t${dest.id}"
+    is Dest.CommentDetail -> "cdetail\t${dest.aid}\t${dest.rpid}"
 }
 
 private fun decodeStack(raw: String): List<Dest> {
@@ -247,6 +264,11 @@ private fun decode(line: String): Dest {
         )
         "live" -> Dest.Live(parts.getOrNull(1)?.toLongOrNull() ?: 0L, parts.getOrElse(2) { "直播" })
         "local" -> Dest.Local(parts.getOrElse(1) { "" })
+        "dynpost" -> Dest.DynamicPost(parts.getOrElse(1) { "" })
+        "cdetail" -> Dest.CommentDetail(
+            parts.getOrNull(1)?.toLongOrNull() ?: 0L,
+            parts.getOrNull(2)?.toLongOrNull() ?: 0L,
+        )
         else -> Dest.Home
     }
 }
@@ -379,27 +401,69 @@ private fun AppShell() {
     val openTab: (Int) -> Unit = { index ->
         vm.tab(tabDests.getOrElse(index) { Dest.Home })
     }
+    // F5 刷新当前列表页：焦点挂在壳上，页面输入框/播放器先消费按键，不会抢。
+    val shellFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { shellFocus.requestFocus() } }
+    val quickToast = QuickActions.toast
+    LaunchedEffect(quickToast) {
+        if (quickToast != null) {
+            delay(1800)
+            QuickActions.dismissToast(quickToast)
+        }
+    }
     CompositionLocalProvider(LocalWheelSpeed provides settings.wheelSpeedPercent) {
-        BiliShell(
-            chrome = chrome,
-            rail = { wide ->
-                BiliRail(
-                    items = railItems,
-                    selected = railIndex,
-                    wide = wide,
-                    onSelect = openTab,
-                )
-            },
-            bottomBar = {
-                BiliBottomBar(
-                    items = railItems,
-                    selected = railIndex,
-                    onSelect = openTab,
-                )
-            },
-            overlay = overlayLayer,
-            content = body,
-        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .focusRequester(shellFocus)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.F5) {
+                        PageRefresh.refreshCurrent()
+                        true
+                    } else {
+                        false
+                    }
+                },
+        ) {
+            BiliShell(
+                chrome = chrome,
+                rail = { wide ->
+                    BiliRail(
+                        items = railItems,
+                        selected = railIndex,
+                        wide = wide,
+                        onSelect = openTab,
+                    )
+                },
+                bottomBar = {
+                    BiliBottomBar(
+                        items = railItems,
+                        selected = railIndex,
+                        onSelect = openTab,
+                    )
+                },
+                overlay = overlayLayer,
+                content = body,
+            )
+            if (quickToast != null) {
+                Surface(
+                    modifier = Modifier
+                        .align(androidx.compose.ui.Alignment.BottomCenter)
+                        .padding(bottom = 84.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.inverseSurface,
+                    contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                    shadowElevation = 4.dp,
+                ) {
+                    Text(
+                        quickToast,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
     }
 
     if (settings.acceptedDisclaimerVersion < DISCLAIMER_VERSION || rereadDisclaimer) {
@@ -480,6 +544,7 @@ private fun Route(
             onVideo = ::openVideo,
             onAuthor = ::openAuthor,
             onLogin = { onPush(Dest.Login) },
+            onPost = { onPush(Dest.DynamicPost(it.id)) },
         )
         Dest.Mine -> MineRoute(
             onLogin = { onPush(Dest.Login) },
@@ -558,6 +623,7 @@ private fun Route(
             seedPubdate = dest.pubdate,
             onOpenVideo = ::openVideo,
             onTag = { onPush(Dest.Search(it)) },
+            onOpenCommentDetail = { aid, comment -> onPush(Dest.CommentDetail(aid, comment.rpid)) },
         )
         is Dest.Live -> PlayerRoute(
             bvid = null,
@@ -578,5 +644,20 @@ private fun Route(
                 onSpace = { onPush(Dest.Space(it)) },
             )
         }
+        is Dest.DynamicPost -> app.ailiaili.feature.dynamic.DynamicDetailRoute(
+            id = dest.id,
+            seed = null,
+            onBack = onPop,
+            onAuthor = { onPush(Dest.Space(it)) },
+            onVideo = ::openVideo,
+        )
+        is Dest.CommentDetail -> app.ailiaili.feature.player.CommentDetailRoute(
+            aid = dest.aid,
+            rootRpid = dest.rpid,
+            seed = null,
+            onBack = onPop,
+            onSpace = { onPush(Dest.Space(it)) },
+            onVideo = ::openVideo,
+        )
     }
 }

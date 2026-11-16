@@ -51,7 +51,7 @@ interface BiliRepository {
     suspend fun regionRank(rid: Int): Result<List<VideoItem>>
     suspend fun regionFeed(tid: Int, displayId: Int): Result<RegionFeedDecode>
     suspend fun recommend(brush: Int = 1): Result<List<VideoItem>>
-    suspend fun search(keyword: String, page: Int, kind: ContentKind = ContentKind.Video): Result<SearchPage>
+    suspend fun search(keyword: String, page: Int, kind: ContentKind = ContentKind.Video, order: String = ""): Result<SearchPage>
     suspend fun bangumiDetail(seasonId: Long): Result<BangumiDetail>
     suspend fun hotSearch(): Result<List<String>>
     suspend fun video(bvid: String): Result<VideoDetail>
@@ -63,15 +63,20 @@ interface BiliRepository {
     suspend fun playAt(bvid: String, cid: Long, qn: Int, forceDash: Boolean = true): Result<PlayInfo>
     suspend fun danmakuSegment(cid: Long, segmentIndex: Int): Result<List<Danmaku>>
     suspend fun chapters(bvid: String, cid: Long): Result<List<ViewChapter>>
+    suspend fun subtitles(bvid: String, cid: Long): Result<List<app.ailiaili.core.model.SubtitleTrack>>
+    suspend fun subtitleCues(url: String): Result<List<app.ailiaili.core.model.SubtitleCue>>
     suspend fun videoShot(bvid: String, cid: Long): Result<VideoShot?>
     suspend fun heartbeat(bvid: String, cid: Long, progressSec: Long): Result<Unit>
-    suspend fun comments(aid: Long, page: Int, mode: Int = 3): Result<CommentPage>
-    suspend fun replies(aid: Long, root: Long, page: Int): Result<List<Comment>>
+    suspend fun comments(aid: Long, page: Int, mode: Int = 3, type: Int = 1): Result<CommentPage>
+    suspend fun replies(aid: Long, root: Long, page: Int, type: Int = 1): Result<List<Comment>>
     suspend fun online(bvid: String, cid: Long): Result<String>
-    suspend fun postComment(aid: Long, message: String, root: Long = 0, parent: Long = 0): Result<Unit>
-    suspend fun commentLike(aid: Long, rpid: Long, like: Boolean): Result<Unit>
-    suspend fun commentDislike(aid: Long, rpid: Long, dislike: Boolean): Result<Unit>
+    suspend fun postComment(aid: Long, message: String, root: Long = 0, parent: Long = 0, type: Int = 1): Result<Unit>
+    suspend fun commentLike(aid: Long, rpid: Long, like: Boolean, type: Int = 1): Result<Unit>
+    suspend fun commentDislike(aid: Long, rpid: Long, dislike: Boolean, type: Int = 1): Result<Unit>
     suspend fun dynamics(offset: String?): Result<DynamicPage>
+    suspend fun dynamicFeed(offset: String?): Result<app.ailiaili.core.model.DynamicFeed>
+    suspend fun dynamicDetail(id: String): Result<app.ailiaili.core.model.DynamicEntry>
+    suspend fun dynamicLike(id: String, like: Boolean): Result<Unit>
     suspend fun space(mid: Long): Result<SpaceInfo>
     suspend fun spaceVideos(mid: Long, page: Int, order: String = "pubdate"): Result<ItemPage<VideoItem>>
     suspend fun videoStats(bvid: String): Result<Triple<Long, Long, Long>>
@@ -99,6 +104,8 @@ interface BiliRepository {
     suspend fun messages(): Result<List<MsgSession>>
     suspend fun msgHistory(talkerId: Long): Result<List<MsgItem>>
     suspend fun sendMsg(receiverId: Long, text: String): Result<Unit>
+    suspend fun msgEmotes(): Result<List<Pair<String, String>>>
+    suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String): Result<Unit>
     suspend fun liveList(page: Int): Result<List<VideoItem>>
     suspend fun livePlay(roomId: Long, qn: Int = 0): Result<LivePlayInfo>
     suspend fun liveRoomInfo(roomId: Long): Result<LiveRoomInfo>
@@ -142,7 +149,8 @@ class BiliRepositoryImpl(
     override suspend fun regionFeed(tid: Int, displayId: Int) = client.regionFeed(tid, displayId)
     override suspend fun recommend(brush: Int) =
         client.recommend(brush, settingsStore.current.recommendSource)
-    override suspend fun search(keyword: String, page: Int, kind: ContentKind) = client.search(keyword, page, kind)
+    override suspend fun search(keyword: String, page: Int, kind: ContentKind, order: String) =
+        client.search(keyword, page, kind, order)
     override suspend fun bangumiDetail(seasonId: Long) = client.bangumiDetail(seasonId)
     override suspend fun hotSearch() = client.hotSearch()
     override suspend fun video(bvid: String) = videoCache.get(bvid) { client.video(bvid) }
@@ -156,17 +164,23 @@ class BiliRepositoryImpl(
         client.playUrl(bvid, cid, settingsStore.current, forceDash, qnOverride = qn)
     override suspend fun danmakuSegment(cid: Long, segmentIndex: Int) = client.danmakuSegment(cid, segmentIndex)
     override suspend fun chapters(bvid: String, cid: Long) = client.chapters(bvid, cid)
+    override suspend fun subtitles(bvid: String, cid: Long) = client.subtitles(bvid, cid)
+    override suspend fun subtitleCues(url: String) = client.subtitleCues(url)
     override suspend fun videoShot(bvid: String, cid: Long) = client.videoShot(bvid, cid)
     override suspend fun heartbeat(bvid: String, cid: Long, progressSec: Long) = client.heartbeat(bvid, cid, progressSec)
-    override suspend fun comments(aid: Long, page: Int, mode: Int) = client.comments(aid, page, mode)
-    override suspend fun replies(aid: Long, root: Long, page: Int) = client.replies(aid, root, page)
+    override suspend fun comments(aid: Long, page: Int, mode: Int, type: Int) = client.comments(aid, page, mode, type)
+    override suspend fun replies(aid: Long, root: Long, page: Int, type: Int) = client.replies(aid, root, page, type)
     override suspend fun online(bvid: String, cid: Long) = client.online(bvid, cid)
-    override suspend fun postComment(aid: Long, message: String, root: Long, parent: Long) =
-        client.postComment(aid, message, root, parent)
-    override suspend fun commentLike(aid: Long, rpid: Long, like: Boolean) = client.commentLike(aid, rpid, like)
-    override suspend fun commentDislike(aid: Long, rpid: Long, dislike: Boolean) =
-        client.commentDislike(aid, rpid, dislike)
+    override suspend fun postComment(aid: Long, message: String, root: Long, parent: Long, type: Int) =
+        client.postComment(aid, message, root, parent, type)
+    override suspend fun commentLike(aid: Long, rpid: Long, like: Boolean, type: Int) =
+        client.commentLike(aid, rpid, like, type)
+    override suspend fun commentDislike(aid: Long, rpid: Long, dislike: Boolean, type: Int) =
+        client.commentDislike(aid, rpid, dislike, type)
     override suspend fun dynamics(offset: String?) = client.dynamics(offset)
+    override suspend fun dynamicFeed(offset: String?) = client.dynamicFeed(offset)
+    override suspend fun dynamicDetail(id: String) = client.dynamicDetail(id)
+    override suspend fun dynamicLike(id: String, like: Boolean) = client.dynamicLike(id, like)
     override suspend fun space(mid: Long) = spaceCache.get(mid) { client.space(mid) }
     override suspend fun spaceVideos(mid: Long, page: Int, order: String) = client.spaceVideos(mid, page, order)
     override suspend fun videoStats(bvid: String) = client.videoStats(bvid)
@@ -196,6 +210,9 @@ class BiliRepositoryImpl(
     override suspend fun messages() = client.messages()
     override suspend fun msgHistory(talkerId: Long) = client.msgHistory(talkerId)
     override suspend fun sendMsg(receiverId: Long, text: String) = client.sendMsg(receiverId, text)
+    override suspend fun msgEmotes() = client.msgEmotes()
+    override suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String) =
+        client.sendMsgImage(receiverId, bytes, fileName)
     override suspend fun liveList(page: Int) = client.liveList(page)
     override suspend fun livePlay(roomId: Long, qn: Int) = client.livePlay(roomId, qn)
     override suspend fun liveRoomInfo(roomId: Long) = client.liveRoomInfo(roomId)

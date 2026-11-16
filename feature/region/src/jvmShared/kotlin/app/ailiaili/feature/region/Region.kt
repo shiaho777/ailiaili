@@ -173,6 +173,7 @@ fun RegionRoute(
     onAuthor: (VideoItem) -> Unit,
     vm: RegionViewModel = appViewModel(key = "region-$tid") { RegionViewModel(tid) },
 ) {
+    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     Scaffold(
@@ -182,7 +183,7 @@ fun RegionRoute(
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
-                val shown = vm.items.filter { ContentFilter.allows(it) }
+                val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
                 FilterAutoLoad(
                     shownEmpty = vm.items.isNotEmpty() && shown.isEmpty(),
                     hasMore = vm.hasMore,

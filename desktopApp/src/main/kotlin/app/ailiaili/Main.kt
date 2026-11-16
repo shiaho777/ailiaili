@@ -10,7 +10,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Notification
 import androidx.compose.ui.window.Tray
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
@@ -69,22 +68,12 @@ fun main() {
         val trayOk = remember { SystemTray.isSupported() }
         val trayState = rememberTrayState()
         var visible by remember { mutableStateOf(true) }
-        var balloonShown by remember { mutableStateOf(false) }
         fun showMain() {
             visible = true
         }
         fun hideMain() {
+            // 不弹「仍在后台运行」气泡：收进托盘是用户主动操作，无需系统通知打扰。
             visible = false
-            if (!balloonShown) {
-                balloonShown = true
-                trayState.sendNotification(
-                    Notification(
-                        "ailiaili 仍在后台运行",
-                        "双击托盘图标可以恢复主界面，右键菜单可退出。",
-                        Notification.Type.Info,
-                    ),
-                )
-            }
         }
         DesktopHost.showWindow = { showMain() }
         DesktopHost.hideWindow = { hideMain() }
@@ -149,7 +138,7 @@ fun main() {
             DisposableEffect(Unit) { onDispose { saveWindowSize() } }
             InstallBiliImages()
             val settings by AppGraph.repo.settings.collectAsState()
-            BiliTheme(settings.theme, settings.accentHex, settings.accentFollowSystem) {
+            BiliTheme(settings.theme, settings.accentHex, settings.accentFollowSystem, settings.fontPath) {
                 AppRoot()
                 UpdatePrompt(settings.autoCheckUpdate, settings.skippedVersion)
             }

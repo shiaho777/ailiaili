@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -74,6 +75,7 @@ import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.shellNavigationBottom
 import app.ailiaili.core.model.FollowUser
 import app.ailiaili.core.model.VideoItem
@@ -100,6 +102,15 @@ class DynamicViewModel : ViewModel() {
     /** UP mid → 动态流里最近一条投稿的发布时间（秒）。用于左栏按最近更新排序。 */
     var userActivity by mutableStateOf<Map<Long, Long>>(emptyMap())
         private set
+    /** 综合动态流（视频 + 图文），「全部动态」用；选中 UP 时仍走视频流。 */
+    var entries by mutableStateOf<List<app.ailiaili.core.model.DynamicEntry>>(emptyList())
+    var feedLoading by mutableStateOf(false)
+    var feedError by mutableStateOf<String?>(null)
+    var feedHasMore by mutableStateOf(false)
+    private var feedOffset: String? = null
+    private var feedTicket = 0
+    private val feedSeen = mutableSetOf<String>()
+
     private var liveTicket = 0
     private var liveBusy = false
     private var unreadBusy = false
@@ -110,6 +121,39 @@ class DynamicViewModel : ViewModel() {
     private var selfMid = 0L
     private var ticket = 0
     private val seen = mutableSetOf<String>()
+
+    fun loadFeedEntries(reset: Boolean) {
+        if (!AppGraph.repo.session.value.loggedIn) return
+        if (!reset && (!feedHasMore || feedLoading)) return
+        val current = if (reset) ++feedTicket else feedTicket
+        feedLoading = true
+        if (reset) {
+            feedError = null
+            feedOffset = null
+            feedSeen.clear()
+            feedHasMore = false
+        }
+        viewModelScope.launch {
+            val result = AppGraph.repo.dynamicFeed(if (reset) null else feedOffset)
+            if (current != feedTicket) return@launch
+            feedLoading = false
+            result.onSuccess { page ->
+                val previous = feedOffset
+                feedOffset = page.nextOffset
+                val fresh = page.entries.filter { feedSeen.add(it.id) }
+                entries = if (reset) fresh else entries + fresh
+                feedHasMore = !page.nextOffset.isNullOrBlank() && page.nextOffset != previous
+                if (entries.isEmpty()) feedError = "关注的 UP 最近没有动态"
+                // 视频投稿部分继续喂未读角标与最近更新排序。
+                val videos = entries.mapNotNull { it.video }
+                updateUnread(videos)
+                updateUserActivity(videos)
+            }.onFailure {
+                if (entries.isEmpty()) feedError = it.message
+                feedHasMore = false
+            }
+        }
+    }
 
     fun refresh() {
         if (!AppGraph.repo.session.value.loggedIn) {
@@ -137,7 +181,7 @@ class DynamicViewModel : ViewModel() {
                 if (selected != null && page.items.none { it.mid == selected?.mid }) selected = null
                 sortUsers()
             }
-            loadFeed(reset = true)
+            if (selected == null) loadFeedEntries(reset = true) else loadFeed(reset = true)
         }
     }
 
@@ -204,7 +248,7 @@ class DynamicViewModel : ViewModel() {
     fun selectAll() {
         if (selected == null) return
         selected = null
-        loadFeed(reset = true)
+        loadFeedEntries(reset = true)
     }
 
     fun select(user: FollowUser) {
@@ -235,6 +279,10 @@ class DynamicViewModel : ViewModel() {
     }
 
     fun loadMore() {
+        if (selected == null) {
+            loadFeedEntries(reset = false)
+            return
+        }
         if (loading || !hasMore) return
         loadFeed(reset = false)
     }
@@ -374,8 +422,10 @@ fun DynamicRoute(
     onVideo: (VideoItem) -> Unit,
     onAuthor: (VideoItem) -> Unit,
     onLogin: () -> Unit,
+    onPost: (app.ailiaili.core.model.DynamicEntry) -> Unit = {},
     vm: DynamicViewModel = appViewModel { DynamicViewModel() },
 ) {
+    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::refresh)
     val session by AppGraph.repo.session.collectAsState()
     val navBottom = shellNavigationBottom()
     val haptic = LocalHapticFeedback.current
@@ -475,7 +525,7 @@ fun DynamicRoute(
                 }
             }
             Column(Modifier.weight(1f)) {
-            val shownLive = vm.liveNow.filter { ContentFilter.allows(it) }
+            val shownLive = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.liveNow)
             LiveBoard(
                 liveNow = shownLive,
                 loading = vm.liveLoading,
@@ -509,7 +559,7 @@ fun DynamicRoute(
                             leadingIcon = {
                                 if (user.face.isNotBlank()) {
                                     AsyncImage(
-                                        user.face,
+                                        app.ailiaili.core.model.cdnThumb(user.face, 48),
                                         user.name,
                                         Modifier.size(22.dp).clip(CircleShape),
                                         contentScale = ContentScale.Crop,
@@ -566,7 +616,81 @@ fun DynamicRoute(
                     }
                 }
             }
-            val shown = vm.items.filter { ContentFilter.allows(it) }
+            if (vm.selected == null) {
+                // 综合动态：视频投稿 + 图文，统一卡片流。
+                val shownEntries = app.ailiaili.core.designsystem.rememberFilteredEntries(vm.entries) { entryAllowed(it) }
+                val feedBlocked = vm.entries.isNotEmpty() && shownEntries.isEmpty() && ContentFilter.active
+                FilterAutoLoad(
+                    shownEmpty = feedBlocked,
+                    hasMore = vm.feedHasMore,
+                    loading = vm.feedLoading,
+                    onLoadMore = vm::loadMore,
+                )
+                PullToRefreshBox(
+                    isRefreshing = vm.feedLoading && vm.entries.isNotEmpty(),
+                    onRefresh = vm::refresh,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    LoadBox(
+                        vm.feedLoading,
+                        vm.feedError,
+                        shownEntries.isEmpty() && !feedBlocked,
+                        "关注的 UP 还没有新动态",
+                        vm::refresh,
+                    ) {
+                        if (feedBlocked) {
+                            BiliEmptyState(
+                                title = "这一页都被屏蔽了",
+                                message = ContentFilter.summary(),
+                                icon = Icons.Filled.FilterList,
+                                modifier = Modifier.fillMaxSize(),
+                                action = {
+                                    androidx.compose.material3.TextButton(onClick = { ContentFilter.clear() }) {
+                                        Text("清除屏蔽")
+                                    }
+                                },
+                            )
+                        } else {
+                            val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+                            if (vm.feedHasMore) {
+                                androidx.compose.runtime.LaunchedEffect(gridState, shownEntries.size) {
+                                    androidx.compose.runtime.snapshotFlow {
+                                        gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                                    }.collect { last ->
+                                        if (shownEntries.isNotEmpty() && last >= shownEntries.size - 4) vm.loadMore()
+                                    }
+                                }
+                            }
+                            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                                columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(
+                                    app.ailiaili.core.designsystem.LocalWindowForm.current.gridMin,
+                                ),
+                                state = gridState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .smoothWheelScroll(
+                                        gridState,
+                                        app.ailiaili.core.designsystem.LocalWheelSpeed.current,
+                                    ),
+                                contentPadding = PaddingValues(12.dp, 4.dp, 12.dp, 16.dp + navBottom),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                gridItems(shownEntries, key = { it.id }) { entry ->
+                                    DynamicEntryCard(
+                                        entry = entry,
+                                        onVideo = onVideo,
+                                        onAuthor = onAuthor,
+                                        onPost = onPost,
+                                        modifier = Modifier.animateItem(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+            val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             val blockedOut = vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
             FilterAutoLoad(
                 shownEmpty = blockedOut,
@@ -600,6 +724,7 @@ fun DynamicRoute(
                         contentPadding = PaddingValues(12.dp, 4.dp, 12.dp, 16.dp + navBottom),
                     )
                 }
+            }
             }
             }
             }
@@ -656,7 +781,7 @@ private fun UserFilterRow(
                     }
                 } else {
                     AsyncImage(
-                        model = face,
+                        model = app.ailiaili.core.model.cdnThumb(face, 72),
                         contentDescription = name,
                         modifier = Modifier.size(30.dp).clip(CircleShape),
                         contentScale = ContentScale.Crop,
@@ -776,7 +901,7 @@ private fun LiveCard(item: VideoItem, onClick: () -> Unit) {
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         ) {
             AsyncImage(
-                model = item.cover,
+                model = app.ailiaili.core.model.cdnThumb(item.cover, 480, 250),
                 contentDescription = item.title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,

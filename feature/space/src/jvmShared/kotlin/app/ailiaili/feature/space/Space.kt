@@ -110,8 +110,13 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
     var info by mutableStateOf<SpaceInfo?>(null)
     var section by mutableStateOf(SpaceSection.Home)
     var items by mutableStateOf<List<VideoItem>>(emptyList())
-    /** 应用全站屏蔽规则后的投稿列表。 */
-    val visibleItems: List<VideoItem> get() = items.filter { ContentFilter.allows(it) }
+    /**
+     * 应用全站屏蔽规则后的投稿列表。派生状态：列表或规则变化才重算，
+     * 页面多处读取共享同一份结果，滚动重组不再逐条过滤。
+     */
+    val visibleItems: List<VideoItem> by androidx.compose.runtime.derivedStateOf {
+        if (!ContentFilter.active) items else items.filter { ContentFilter.allows(it) }
+    }
     var videosReady by mutableStateOf(false)
     var videoError by mutableStateOf<String?>(null)
     var posts by mutableStateOf<List<SpacePost>?>(null)
@@ -427,6 +432,7 @@ fun SpaceRoute(
     onOpenFolder: (FavFolder) -> Unit,
     vm: SpaceViewModel = appViewModel(key = "space-$mid") { SpaceViewModel(mid) },
 ) {
+    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     val snackbar = remember { SnackbarHostState() }
     val gridState = rememberLazyGridState()
     val session by AppGraph.repo.session.collectAsState()
@@ -772,7 +778,7 @@ private fun CollectionCard(item: SpaceCollection, modifier: Modifier = Modifier,
             )
         } else {
             AsyncImage(
-                item.cover,
+                app.ailiaili.core.model.cdnThumb(item.cover, 800, 500),
                 item.title,
                 Modifier.fillMaxWidth().aspectRatio(16f / 10f),
                 contentScale = ContentScale.Crop,
@@ -822,7 +828,7 @@ private fun FolderRow(folder: FavFolder, onClick: () -> Unit) {
                 }
             } else {
                 AsyncImage(
-                    folder.cover,
+                    app.ailiaili.core.model.cdnThumb(folder.cover, 230, 140),
                     folder.title,
                     Modifier.width(112.dp).aspectRatio(16f / 10f).clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop,
@@ -928,7 +934,7 @@ private fun ProfileHeader(
                     }
                 } else {
                     AsyncImage(
-                        info.face,
+                        app.ailiaili.core.model.cdnThumb(info.face, 150),
                         info.name,
                         Modifier
                             .size(72.dp)

@@ -6,6 +6,9 @@ import kotlin.math.min
 internal object VideoFrames {
     const val MAX_EDGE = 1920
 
+    /** 行拷贝复用缓冲：只在 VLC 回调线程使用，避免每帧分配 rowBytes 数组。 */
+    private var rowBuffer = ByteArray(0)
+
     fun fit(srcW: Int, srcH: Int, maxEdge: Int = MAX_EDGE): Pair<Int, Int> {
         if (srcW <= 0 || srcH <= 0) return 2 to 2
         if (srcW <= maxEdge && srcH <= maxEdge) {
@@ -39,7 +42,8 @@ internal object VideoFrames {
             dest.position(0)
             return
         }
-        val row = ByteArray(rowBytes)
+        if (rowBuffer.size < rowBytes) rowBuffer = ByteArray(rowBytes)
+        val row = rowBuffer
         for (y in 0 until height) {
             if (src.remaining() < srcPitch) break
             src.get(row)
