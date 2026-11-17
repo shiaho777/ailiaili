@@ -475,7 +475,15 @@ fun DynamicRoute(
             val wide = maxWidth >= 720.dp && vm.users.isNotEmpty()
             Row(Modifier.fillMaxSize()) {
             if (wide) {
-                LazyColumn(Modifier.width(232.dp).fillMaxHeight().padding(horizontal = 8.dp, vertical = 4.dp)) {
+                val userListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                LazyColumn(
+                    state = userListState,
+                    modifier = Modifier
+                        .width(232.dp)
+                        .fillMaxHeight()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .smoothWheelScroll(userListState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                ) {
                     item(key = "user-search") {
                         BiliSearchField(
                             value = userQuery,

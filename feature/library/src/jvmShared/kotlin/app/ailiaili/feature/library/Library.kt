@@ -389,6 +389,19 @@ fun FavVideosRoute(
                                 author = item.author,
                                 ownerMid = item.ownerMid,
                                 aid = item.aid,
+                                extraMenuItems = { close ->
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text("移出收藏") },
+                                        onClick = {
+                                            close()
+                                            vm.remove(item)
+                                            vm.viewModelScope.launch {
+                                                AppGraph.repo.batchRemoveFav(mediaId, listOf(item.aid))
+                                                    .onFailure { vm.reload() }
+                                            }
+                                        },
+                                    )
+                                },
                                 onClick = toggle,
                                 modifier = Modifier.animateItem(),
                                 badge = item.durationText,
@@ -477,6 +490,18 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
                             cover = item.cover,
                             author = item.author,
                             ownerMid = item.ownerMid,
+                            aid = item.aid,
+                            extraMenuItems = { close ->
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text("移出稍后再看") },
+                                    onClick = {
+                                        close()
+                                        vm.delete(item) {
+                                            if (item.aid > 0) AppGraph.repo.removeWatchLater(item.aid)
+                                        }
+                                    },
+                                )
+                            },
                             badge = item.durationText,
                             selected = editing && item.stableKey in picked,
                             onClick = { if (editing) toggle() else onVideo(item) },

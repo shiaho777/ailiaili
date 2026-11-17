@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
@@ -115,11 +116,22 @@ internal fun CommentBlock(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (comment.pinned) {
-                    BiliBadge(
-                        text = "置顶",
-                        tone = BiliBadgeTone.Accent,
-                        style = BiliBadgeStyle.Solid,
-                    )
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(accent)
+                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.PushPin,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(10.dp),
+                        )
+                        Text("置顶", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 Text(
                     comment.name.ifBlank { "用户" },
