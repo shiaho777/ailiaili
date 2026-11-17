@@ -58,6 +58,8 @@ fun VideoListRow(
     ownerMid: Long = 0,
     /** 提供稿件号后，右键菜单出现「稍后再看」。 */
     aid: Long = 0,
+    /** 页面专属菜单项（如「移出收藏」「移出稍后再看」），排在通用项之前。 */
+    extraMenuItems: (@Composable (closeMenu: () -> Unit) -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null,
     meta: (@Composable () -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
@@ -140,6 +142,7 @@ fun VideoListRow(
         }
         trailing?.invoke(this)
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            extraMenuItems?.invoke { menuOpen = false }
             if (aid > 0) {
                 val inLater = aid in QuickActions.laterAids
                 DropdownMenuItem(

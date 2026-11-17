@@ -194,6 +194,9 @@ import app.ailiaili.core.player.VideoSurface
 import coil3.compose.AsyncImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -1118,6 +1121,11 @@ fun PlayerRoute(
             .focusRequester(focus)
             .focusable()
             .onPreviewKeyEvent { event ->
+                // 裸字母快捷键不吞 Ctrl/Alt/Meta 组合键：Ctrl+C 复制、Ctrl+F 查找等
+                // 必须原样放行给文本框/系统，否则复制失效还会误触字幕/全屏。
+                if (event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) {
+                    return@onPreviewKeyEvent false
+                }
                 if (event.type == KeyEventType.KeyUp && event.key == Key.DirectionRight) {
                     if (rightHeld) {
                         rightHeld = false
@@ -2280,7 +2288,9 @@ fun PlayerRoute(
                             }
                         }
                         val desc = detail?.desc.orEmpty()
-                        val descLong = desc.length > 80 || desc.count { it == '\n' } >= 4
+                        // 关掉相关视频后简介是页面唯一内容：整段展开，不再给折叠按钮。
+                        // settings 是响应式读取，设置里切开关立即生效。
+                        val descLong = settings.showRelated && (desc.length > 80 || desc.count { it == '\n' } >= 4)
                         BiliSurfaceCard(
                             Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
@@ -2322,7 +2332,7 @@ fun PlayerRoute(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 14.sp,
                                     lineHeight = 21.sp,
-                                    maxLines = if (descOpen) Int.MAX_VALUE else 4,
+                                    maxLines = if (descOpen || !settings.showRelated) Int.MAX_VALUE else 4,
                                     onOpenLink = { url, linkBvid ->
                                         if (linkBvid != null) {
                                             onOpenVideo(VideoItem(bvid = linkBvid))
