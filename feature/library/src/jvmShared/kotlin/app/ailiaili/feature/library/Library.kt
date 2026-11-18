@@ -70,6 +70,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -185,7 +186,26 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                     label = { Text("直播") },
                 )
             }
-            val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
+            var historyQuery by remember { mutableStateOf("") }
+            app.ailiaili.core.designsystem.BiliSearchField(
+                value = historyQuery,
+                onValueChange = { historyQuery = it },
+                onSearch = {},
+                placeholder = "搜索看过的视频或 UP 主",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+            val filtered = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
+            val shown = remember(filtered, historyQuery) {
+                app.ailiaili.core.model.historySearch(filtered, historyQuery)
+            }
+            val dayGroups = remember(shown) {
+                val nowSec = app.ailiaili.core.model.epochMs() / 1000
+                app.ailiaili.core.model.historyDayGroups(
+                    shown,
+                    todayKey = app.ailiaili.core.model.formatDay(nowSec),
+                    yesterdayKey = app.ailiaili.core.model.formatDay(nowSec - 86_400),
+                )
+            }
             EditBar(
                 editing = editing,
                 allSelected = shown.isNotEmpty() && picked.size == shown.size,
@@ -219,7 +239,20 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                             .smoothWheelScroll(historyState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
                         state = historyState,
                     ) {
-                    items(shown, key = { it.stableKey }) { item ->
+                    dayGroups.forEach { (day, groupItems) ->
+                        stickyHeader(key = "day-$day") {
+                            Text(
+                                day,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.background)
+                                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            )
+                        }
+                        items(groupItems, key = { it.stableKey }) { item ->
                         val state = rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
                                 if (value == SwipeToDismissBoxValue.EndToStart) {
@@ -290,6 +323,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                                     )
                                 },
                             )
+                        }
                         }
                     }
                     }
@@ -377,6 +411,7 @@ fun FavVideosRoute(
     onBack: () -> Unit,
     onVideo: (VideoItem) -> Unit,
     onAuthor: (VideoItem) -> Unit,
+    onPlayAll: (List<VideoItem>) -> Unit = {},
 ) {
     val vm = app.ailiaili.core.designsystem.accountViewModel(key = "fav-$mediaId") { ListViewModel { AppGraph.repo.favVideos(mediaId, 1) } }
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
@@ -384,6 +419,12 @@ fun FavVideosRoute(
     var picked by remember { mutableStateOf(setOf<String>()) }
     Scaffold(topBar = {
         BackTitle(title, onBack) {
+            if (vm.items.isNotEmpty() && !editing) {
+                app.ailiaili.core.designsystem.BiliHeaderAction(
+                    androidx.compose.material.icons.Icons.Filled.PlayArrow, "播放全部",
+                    { onPlayAll(vm.items) },
+                )
+            }
             app.ailiaili.core.designsystem.BiliHeaderAction(
                 androidx.compose.material.icons.Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading,
             )
@@ -475,7 +516,12 @@ fun FavVideosRoute(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (VideoItem) -> Unit) {
+fun WatchLaterRoute(
+    onBack: () -> Unit,
+    onVideo: (VideoItem) -> Unit,
+    onAuthor: (VideoItem) -> Unit,
+    onPlayAll: (List<VideoItem>) -> Unit = {},
+) {
     val vm = app.ailiaili.core.designsystem.accountViewModel(key = "later") { ListViewModel { AppGraph.repo.watchLater() } }
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     var editing by remember { mutableStateOf(false) }
@@ -499,6 +545,12 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
     }
     Scaffold(topBar = {
         BackTitle("稍后再看", onBack) {
+            if (vm.items.isNotEmpty() && !editing) {
+                app.ailiaili.core.designsystem.BiliHeaderAction(
+                    androidx.compose.material.icons.Icons.Filled.PlayArrow, "播放全部",
+                    { onPlayAll(vm.items) },
+                )
+            }
             app.ailiaili.core.designsystem.BiliHeaderAction(
                 androidx.compose.material.icons.Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading,
             )

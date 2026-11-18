@@ -79,6 +79,8 @@ internal fun PlayerTransport(
     chapters: List<ViewChapter> = emptyList(),
     shot: VideoShot? = null,
     onSnapshot: (() -> Unit)? = null,
+    /** A-B 循环区间（毫秒）；null 不画。 */
+    abRange: Pair<Long, Long>? = null,
     modifier: Modifier = Modifier,
 ) {
     var position by remember { mutableLongStateOf(0L) }
@@ -142,6 +144,9 @@ internal fun PlayerTransport(
             if (!live && duration > 0 && marks.isNotEmpty()) {
                 SponsorMarks(marks, duration)
             }
+            if (!live && duration > 0 && abRange != null) {
+                AbLoopMark(abRange.first, abRange.second, duration)
+            }
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 Slider(
                     value = fraction.coerceIn(0f, 1f),
@@ -189,6 +194,28 @@ internal fun PlayerTransport(
             color = Color.White,
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(end = 8.dp),
+        )
+    }
+}
+
+/** A-B 循环区间：琥珀色半透明条，与赞助标记同一套画法。 */
+@Composable
+private fun AbLoopMark(aMs: Long, bMs: Long, durationMs: Long) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp)
+            .height(4.dp),
+    ) {
+        val start = (aMs.toFloat() / durationMs).coerceIn(0f, 1f)
+        val end = (bMs.toFloat() / durationMs).coerceIn(start, 1f)
+        Box(
+            Modifier
+                .offset(x = maxWidth * start)
+                .width(maxWidth * (end - start).coerceAtLeast(0.008f))
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color(0xFFF59E0B).copy(alpha = 0.85f)),
         )
     }
 }

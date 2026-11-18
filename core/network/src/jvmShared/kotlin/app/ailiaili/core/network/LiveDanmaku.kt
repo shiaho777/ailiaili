@@ -60,6 +60,13 @@ internal class LiveDanmakuConnection(
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .pingInterval(30, TimeUnit.SECONDS)
+            .apply {
+                // 与 API 同一份代理设置；非法地址按直连兜底。
+                runCatching { app.ailiaili.core.model.parseProxyAddress(app.ailiaili.core.model.effectiveProxy()) }
+                    .getOrNull()?.let { addr ->
+                        proxy(java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress(addr.host, addr.port)))
+                    }
+            }
             .build()
         val request = Request.Builder()
             .url("wss://$host:$port/sub")

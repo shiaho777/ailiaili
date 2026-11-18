@@ -16,6 +16,7 @@ fun parseBangumiEpisode(e: JSONObject): BangumiEpisode? {
         longTitle = e.str("long_title"),
         cover = normalizeUrl(e.str("cover")),
         durationSec = kotlin.math.round(durationMs / 1000.0).toInt(),
+        aid = e.lng("aid"),
     )
 }
 

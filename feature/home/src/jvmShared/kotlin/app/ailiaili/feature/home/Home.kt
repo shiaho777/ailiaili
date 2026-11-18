@@ -130,6 +130,21 @@ class HomeViewModel : ViewModel() {
         load(reset = false)
     }
 
+    /**
+     * 推荐「不感兴趣」：本地立即移除（列表有 animateItem 动画），
+     * 登录态下再上报服务端负反馈驯服推荐流；上报失败不打扰用户，本地移除已生效。
+     */
+    fun dismiss(item: VideoItem) {
+        items = items.filterNot { it.stableKey == item.stableKey }
+        app.ailiaili.core.designsystem.QuickActions.showToast("已减少这类推荐")
+        if (item.feedbackId.isBlank()) return
+        viewModelScope.launch {
+            if (AppGraph.repo.session.value.loggedIn) {
+                AppGraph.repo.feedDislike(item.feedbackGoto.ifBlank { "av" }, item.feedbackId)
+            }
+        }
+    }
+
     private fun load(reset: Boolean) {
         val current = tab
         // 刷新会作废所有在途请求（含加载更多）：旧页后回会把第 N 页拼到
@@ -412,6 +427,7 @@ fun HomeRoute(
                         state = grid,
                         onLoadMore = if (vm.hasMore) vm::loadMore else null,
                         contentPadding = PaddingValues(12.dp, 4.dp, 12.dp, 96.dp + navBottom),
+                        onDislike = if (vm.tab == HomeTab.Recommend) vm::dismiss else null,
                     )
                 }
             }

@@ -183,7 +183,8 @@ private class DanmakuNode(
             measurer = measurer,
         )
         for (shot in runtime.shots) {
-            val fade = shot.alpha(videoSec)
+            // 全局不透明度乘进淡入淡出：文字与底衬整层一致变淡。
+            val fade = shot.alpha(videoSec) * runtime.opacity
             if (fade <= 0f) continue
             val x = shot.x(videoSec)
             if (runtime.pillBackground) {

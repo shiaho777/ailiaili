@@ -20,6 +20,182 @@ var userAgentProvider: () -> String = { USER_AGENT }
 
 fun effectiveUserAgent(): String = userAgentProvider().ifBlank { USER_AGENT }
 
+/**
+ * HTTP 代理地址提供器：与 UA 同一套注入模式（AppGraph 读设置）。
+ * 空串 = 直连。放模型层让网络/图片/直播弹幕各层都能用，不破坏依赖方向。
+ */
+@Volatile
+var proxyProvider: () -> String = { "" }
+
+fun effectiveProxy(): String = proxyProvider().trim()
+
+/** 代理地址解析结果：主机 + 端口。 */
+data class ProxyAddress(val host: String, val port: Int)
+
+/**
+ * 解析 HTTP 代理地址（纯函数）。接受 `host:port` 或 `http://host:port`；
+ * 端口 1–65535，主机非空。空串返回 null（直连）；格式非法抛异常。
+ * 只支持 HTTP 代理（OkHttp Proxy.Type.HTTP）；socks 等 scheme 明确拒绝。
+ */
+fun parseProxyAddress(raw: String): ProxyAddress? {
+    val text = raw.trim()
+    if (text.isEmpty()) return null
+    val body = when {
+        text.startsWith("http://", ignoreCase = true) -> text.substring(7)
+        text.contains("://") -> error("只支持 HTTP 代理（host:port 或 http://host:port）")
+        else -> text
+    }.trimEnd('/')
+    val host = body.substringBeforeLast(':', "")
+    val portText = body.substringAfterLast(':', "")
+    require(host.isNotBlank() && !host.contains('/')) { "代理地址格式应为 host:port" }
+    val port = portText.toIntOrNull() ?: error("代理端口必须是数字")
+    require(port in 1..65535) { "代理端口应在 1–65535 之间" }
+    return ProxyAddress(host, port)
+}
+
+/**
+ * 推荐「不感兴趣」负反馈表单（x/feed/dislike）。纯函数：
+ * goto/param 来自推荐流卡片原样回传；缺任一项说明不是可反馈的推荐条目。
+ * csrf 由网络层统一附加。reason_id 不传 = 仅「不感兴趣」，不选具体原因。
+ */
+fun feedDislikeForm(goto: String, id: String): Result<Map<String, String>> = runCatching {
+    require(goto.isNotBlank() && id.isNotBlank()) { "这条内容不支持不感兴趣反馈" }
+    mapOf("goto" to goto, "id" to id)
+}
+
+/**
+ * 开播提醒跳变判定（纯函数）：上一轮已知且未开播（0/2），这一轮直播中（1）
+ * 才通知。首次见到就在播的主播不通知（prev 为 null），避免启动时轰炸。
+ */
+fun liveStartTransition(prevStatus: Int?, nowStatus: Int): Boolean =
+    prevStatus != null && prevStatus != 1 && nowStatus == 1
+
+/**
+ * 历史列表按观看日分组（纯函数）。历史条目的 pubdate 装的是 view_at（秒）。
+ * 保持输入顺序（服务端已按时间倒序），组头文案：今天 / 昨天 / YYYY-MM-DD；
+ * 无时间戳的条目归入「更早」。
+ */
+fun historyDayGroups(items: List<VideoItem>, todayKey: String, yesterdayKey: String): List<Pair<String, List<VideoItem>>> {
+    if (items.isEmpty()) return emptyList()
+    val groups = LinkedHashMap<String, MutableList<VideoItem>>()
+    for (item in items) {
+        val day = formatDay(item.pubdate)
+        val label = when {
+            day.isEmpty() -> "更早"
+            day == todayKey -> "今天"
+            day == yesterdayKey -> "昨天"
+            else -> day
+        }
+        groups.getOrPut(label) { mutableListOf() }.add(item)
+    }
+    return groups.map { it.key to it.value.toList() }
+}
+
+/** 历史本地搜索（纯函数）：标题或 UP 名包含关键词（忽略大小写）；空词返回原列表。 */
+fun historySearch(items: List<VideoItem>, keyword: String): List<VideoItem> {
+    val q = keyword.trim()
+    if (q.isEmpty()) return items
+    return items.filter { it.title.contains(q, ignoreCase = true) || it.author.contains(q, ignoreCase = true) }
+}
+
+/**
+ * A-B 循环回跳判定（纯函数）：两点都已设置、B 在 A 之后至少 1 秒、
+ * 播放位置到达或越过 B 点时触发回跳。seek 宽限期内由调用方抑制，
+ * 避免回跳落点确认期间重复触发。
+ */
+fun abLoopShouldRewind(aMs: Long, bMs: Long, posMs: Long): Boolean =
+    aMs >= 0 && bMs > aMs + 1_000 && posMs >= bMs
+
+/** 睡眠定时器档位（分钟）。0 表示「播完当前」，-1 表示关闭。 */
+val SLEEP_TIMER_OPTIONS = listOf(15, 30, 60, 90, 0)
+
+fun sleepTimerLabel(minutes: Int): String = when (minutes) {
+    0 -> "播完当前"
+    -1 -> "定时关闭"
+    else -> "${minutes} 分钟"
+}
+
+/** 剩余毫秒 → mm:ss（不足 1 分钟也显示秒）。负数按 0 处理。 */
+fun sleepTimerClock(remainMs: Long): String {
+    val sec = (remainMs / 1000).coerceAtLeast(0)
+    val m = sec / 60
+    val s = sec % 60
+    return "${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}"
+}
+
+/**
+ * 睡眠定时器到点判定（纯函数）。armed 表示定时器已设置：
+ * - 计时档（minutes > 0）：墙钟到达 deadline 即触发，与播放状态无关；
+ * - 「播完当前」（minutes == 0）：仅点播且已播完时触发，直播永不触发；
+ * - 关闭（minutes < 0 或未设置）：不触发。
+ */
+fun sleepTimerDue(minutes: Int, armed: Boolean, deadlineMs: Long, nowMs: Long, ended: Boolean, live: Boolean): Boolean = when {
+    minutes < 0 || !armed -> false
+    minutes == 0 -> !live && ended
+    else -> nowMs >= deadlineMs
+}
+
+/** 直播间发言长度上限（与服务端一致）。 */
+const val LIVE_MSG_MAX_LEN = 30
+
+/**
+ * 组装直播间发言表单（api.live.bilibili.com/msg/send）。纯函数：
+ * 文本去首尾空白、长度 1–30；rnd 用秒级时间戳。csrf 由网络层统一附加。
+ */
+fun liveMsgSendForm(roomId: Long, text: String): Result<Map<String, String>> = runCatching {
+    val msg = text.trim()
+    require(roomId > 0) { "直播间信息还没就绪" }
+    require(msg.isNotEmpty()) { "发言内容不能为空" }
+    require(msg.length <= LIVE_MSG_MAX_LEN) { "直播发言最长 $LIVE_MSG_MAX_LEN 个字" }
+    mapOf(
+        "bubble" to "0",
+        "msg" to msg,
+        "color" to "16777215",
+        "mode" to "1",
+        "fontsize" to "25",
+        "rnd" to (epochMs() / 1000).toString(),
+        "roomid" to roomId.toString(),
+        "reply_mid" to "0",
+        "reply_attr" to "0",
+        "reply_type" to "0",
+    )
+}
+
+/** 发送弹幕的表单参数上限（与服务端一致）：超长直接拒绝，不做静默截断。 */
+const val DANMAKU_MAX_LEN = 100
+
+/**
+ * 组装弹幕发送表单（x/v2/dm/post）。纯函数，全部校验前置：
+ * 文本去首尾空白、长度 1–100；mode 只收 1 滚动 / 4 底部 / 5 顶部；
+ * 颜色夹取到 24 位 RGB。progress 为发送时刻的播放位置（毫秒）。
+ */
+fun danmakuSendForm(
+    aid: Long,
+    cid: Long,
+    text: String,
+    progressMs: Long,
+    mode: Int,
+    color: Int,
+): Result<Map<String, String>> = runCatching {
+    val msg = text.trim()
+    require(aid > 0 && cid > 0) { "没拿到视频信息，暂时不能发弹幕" }
+    require(msg.isNotEmpty()) { "弹幕内容不能为空" }
+    require(msg.length <= DANMAKU_MAX_LEN) { "弹幕最长 $DANMAKU_MAX_LEN 个字" }
+    require(mode in intArrayOf(1, 4, 5)) { "不支持的弹幕类型" }
+    mapOf(
+        "type" to "1",
+        "oid" to cid.toString(),
+        "aid" to aid.toString(),
+        "msg" to msg,
+        "progress" to progressMs.coerceAtLeast(0).toString(),
+        "mode" to mode.toString(),
+        "color" to (color and 0xFFFFFF).toString(),
+        "fontsize" to "25",
+        "pool" to "0",
+        "rnd" to epochMs().toString(),
+    )
+}
+
 fun normalizeUrl(url: String): String = when {
     url.startsWith("//") -> "https:$url"
     url.startsWith("http://") -> "https://" + url.removePrefix("http://")
@@ -143,6 +319,11 @@ data class VideoItem(
     val roomId: Long = 0,
     /** 空间列表先只有播放数。补齐弹幕和点赞之前不显示这一行，避免数字闪一下。 */
     val statsReady: Boolean = true,
+    /** 推荐负反馈（x/feed/dislike）用的卡片类型与 id；非推荐流条目为空。 */
+    val feedbackGoto: String = "",
+    val feedbackId: String = "",
+    /** 关注直播看板的原始直播状态：0 未开播 1 直播中 2 轮播；-1 未知。 */
+    val liveStatus: Int = -1,
 ) {
     val isLive: Boolean get() = roomId > 0
     val stableKey: String get() = if (isLive) "live-$roomId" else if (bvid.isNotEmpty()) bvid else "aid-$aid"
@@ -550,6 +731,24 @@ data class BangumiEpisode(
     val longTitle: String = "",
     val cover: String = "",
     val durationSec: Int = 0,
+    /** PGC playurl 需要 aid；接口原始 JSON 自带，旧解析丢弃过。 */
+    val aid: Long = 0,
+)
+
+/**
+ * 播放队列条目：列表页「播放全部」带入播放器的顺序连播队列。
+ * 只存定位与展示必需字段，详情进播放器后照常走 view 接口。
+ */
+data class QueueItem(
+    val bvid: String,
+    val cid: Long = 0,
+    val title: String = "",
+    val cover: String = "",
+    val author: String = "",
+    val ownerMid: Long = 0,
+    val durationSec: Int = 0,
+    /** 番剧集 id；>0 时取流走 PGC 链路。 */
+    val epId: Long = 0,
 )
 
 data class BangumiDetail(
@@ -716,6 +915,10 @@ data class AppSettings(
     val danmakuFilterFixed: Boolean = true,
     val danmakuFilterColorful: Boolean = true,
     val danmakuFilterAdvanced: Boolean = true,
+    /** 弹幕不透明度百分比，30–100。作用于文字与底衬整层。 */
+    val danmakuOpacityPercent: Int = 100,
+    /** 同屏弹幕上限，10–80。过滤后计数，调小即时生效。 */
+    val danmakuMaxOnScreen: Int = 80,
     val defaultQn: Int = 80,
     val noLogin1080: Boolean = true,
     /** 播放页「相关推荐」区块。关掉后不请求也不展示。 */
@@ -735,6 +938,11 @@ data class AppSettings(
      * 注意 UA 影响 B 站流结构协商，改动后需重新取流。
      */
     val customUserAgent: String = "",
+    /**
+     * HTTP 代理地址（高级）。空 = 直连。格式 host:port 或 http://host:port。
+     * 作用于 API/图片/下载/直播弹幕；播放取流走系统播放器，不受此代理影响。
+     */
+    val httpProxy: String = "",
     /** 记忆播放倍速：与音量同规格，换片/重开应用保持上次选择。 */
     val playbackSpeed: Float = 1f,
     /** 多 P 视频播完自动播下一 P（番剧/课程/教程场景）。 */
@@ -762,6 +970,8 @@ data class AppSettings(
     val acceptedDisclaimerVersion: Int = 0,
     /** 桌面端：点窗口关闭键时收进托盘。默认开。 */
     val closeToTray: Boolean = true,
+    /** 关注主播开播提醒：应用运行期间轮询，0→1 跳变时通知。默认开。 */
+    val liveStartNotify: Boolean = true,
     val playerVolume: Float = 0.8f,
     val lastSearchKind: ContentKind = ContentKind.Video,
     /** 桌面端下载保存目录；空字符串表示应用缓存。 */
@@ -812,6 +1022,19 @@ data class Session(
         return parts.joinToString("; ")
     }
 }
+
+/**
+ * 多账号槽位：只存四个身份 cookie + 展示信息。设备指纹（buvid/bNut）
+ * 是设备级不是账号级，切换时保留当前设备的，不随槽位走。
+ */
+data class SavedAccount(
+    val uid: String,
+    val name: String = "",
+    val face: String = "",
+    val sessData: String,
+    val biliJct: String,
+    val dedeUserIdCkMd5: String? = null,
+)
 
 data class CacheEntry(
     val bvid: String,

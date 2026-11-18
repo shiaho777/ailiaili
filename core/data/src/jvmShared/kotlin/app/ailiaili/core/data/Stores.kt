@@ -63,6 +63,90 @@ class SessionStore(private val file: AppFile) {
     }
 }
 
+/**
+ * 多账号槽位存储（accounts.json，与 session.json 同目录同规格）。
+ * 只存身份 cookie 与展示信息；最多 8 个，按 uid 去重，新登录的排最前。
+ * 设备指纹不随账号走：切换时保留当前 Session 的 buvid/bNut。
+ */
+class AccountStore(private val file: AppFile) {
+    private val _accounts = MutableStateFlow<List<app.ailiaili.core.model.SavedAccount>>(emptyList())
+    val accounts: StateFlow<List<app.ailiaili.core.model.SavedAccount>> = _accounts
+
+    fun load() {
+        _accounts.value = runCatching {
+            if (!file.exists()) return@runCatching emptyList()
+            val arr = JSONArray(file.readText())
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    val uid = o.optString("uid")
+                    val sess = o.optString("sessData")
+                    val jct = o.optString("biliJct")
+                    if (uid.isBlank() || sess.isBlank() || jct.isBlank()) continue
+                    add(
+                        app.ailiaili.core.model.SavedAccount(
+                            uid = uid,
+                            name = o.optString("name"),
+                            face = o.optString("face"),
+                            sessData = sess,
+                            biliJct = jct,
+                            dedeUserIdCkMd5 = o.optString("ckMd5").ifBlank { null },
+                        ),
+                    )
+                    if (size >= MAX_ACCOUNTS) break
+                }
+            }.distinctBy { it.uid }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persist() {
+        runCatching {
+            file.parentFile?.mkdirs()
+            val arr = JSONArray()
+            _accounts.value.forEach { a ->
+                arr.put(
+                    JSONObject()
+                        .put("uid", a.uid)
+                        .put("name", a.name)
+                        .put("face", a.face)
+                        .put("sessData", a.sessData)
+                        .put("biliJct", a.biliJct)
+                        .put("ckMd5", a.dedeUserIdCkMd5),
+                )
+            }
+            file.writeTextAtomic(arr.toString())
+        }
+    }
+
+    /** 登录成功/切换后归档：同 uid 覆盖并置顶。 */
+    fun upsert(account: app.ailiaili.core.model.SavedAccount) {
+        if (account.uid.isBlank() || account.sessData.isBlank()) return
+        _accounts.value = (listOf(account) + _accounts.value.filterNot { it.uid == account.uid })
+            .take(MAX_ACCOUNTS)
+        persist()
+    }
+
+    /** 补齐展示信息（昵称/头像），不动凭据。 */
+    fun updateProfile(uid: String, name: String, face: String) {
+        val list = _accounts.value
+        val idx = list.indexOfFirst { it.uid == uid }
+        if (idx < 0) return
+        val old = list[idx]
+        if (old.name == name && old.face == face) return
+        _accounts.value = list.toMutableList().also { it[idx] = old.copy(name = name, face = face) }
+        persist()
+    }
+
+    fun remove(uid: String) {
+        _accounts.value = _accounts.value.filterNot { it.uid == uid }
+        persist()
+    }
+
+    companion object {
+        const val MAX_ACCOUNTS = 8
+    }
+}
+
 class SettingsStore(private val file: AppFile) {
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings
@@ -120,6 +204,8 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     danmakuFilterFixed = o.optBoolean("danmakuFilterFixed", true),
     danmakuFilterColorful = o.optBoolean("danmakuFilterColorful", true),
     danmakuFilterAdvanced = o.optBoolean("danmakuFilterAdvanced", true),
+    danmakuOpacityPercent = o.optInt("danmakuOpacityPercent", 100).coerceIn(30, 100),
+    danmakuMaxOnScreen = o.optInt("danmakuMaxOnScreen", 80).coerceIn(10, 80),
     defaultQn = o.optInt("defaultQn", 80),
     noLogin1080 = o.optBoolean("noLogin1080", true),
     showRelated = o.optBoolean("showRelated", true),
@@ -129,6 +215,7 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     subtitleFontSp = o.optInt("subtitleFontSp", 17).coerceIn(12, 36),
     subtitleBottomPercent = o.optInt("subtitleBottomPercent", 4).coerceIn(0, 40),
     customUserAgent = o.optString("customUserAgent").trim().take(300),
+    httpProxy = o.optString("httpProxy").trim().take(200),
     playbackSpeed = o.optDouble("playbackSpeed", 1.0).toFloat().coerceIn(0.25f, 4f),
     autoPlayNext = o.optBoolean("autoPlayNext", true),
     sponsorBlock = o.optBoolean("sponsorBlock", false),
@@ -158,6 +245,7 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
         }
     },
     closeToTray = o.optBoolean("closeToTray", true),
+    liveStartNotify = o.optBoolean("liveStartNotify", true),
     playerVolume = o.optDouble("playerVolume", 0.8).toFloat().coerceIn(0f, 1f),
     downloadDir = o.optString("downloadDir"),
     wheelSpeedPercent = o.optInt("wheelSpeedPercent", 250).coerceIn(100, 500),
@@ -203,6 +291,8 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("danmakuFilterFixed", next.danmakuFilterFixed)
     .put("danmakuFilterColorful", next.danmakuFilterColorful)
     .put("danmakuFilterAdvanced", next.danmakuFilterAdvanced)
+    .put("danmakuOpacityPercent", next.danmakuOpacityPercent.coerceIn(30, 100))
+    .put("danmakuMaxOnScreen", next.danmakuMaxOnScreen.coerceIn(10, 80))
     .put("defaultQn", next.defaultQn)
     .put("noLogin1080", next.noLogin1080)
     .put("showRelated", next.showRelated)
@@ -212,6 +302,7 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("subtitleFontSp", next.subtitleFontSp)
     .put("subtitleBottomPercent", next.subtitleBottomPercent)
     .put("customUserAgent", next.customUserAgent)
+    .put("httpProxy", next.httpProxy)
     .put("playbackSpeed", next.playbackSpeed.coerceIn(0.25f, 4f).toDouble())
     .put("autoPlayNext", next.autoPlayNext)
     .put("sponsorBlock", next.sponsorBlock)
@@ -229,6 +320,7 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("skippedVersion", next.skippedVersion)
     .put("acceptedDisclaimerVersion", next.acceptedDisclaimerVersion)
     .put("closeToTray", next.closeToTray)
+    .put("liveStartNotify", next.liveStartNotify)
     .put("playerVolume", next.playerVolume.coerceIn(0f, 1f).toDouble())
     .put("downloadDir", next.downloadDir)
     .put("wheelSpeedPercent", next.wheelSpeedPercent.coerceIn(100, 500))
@@ -285,9 +377,18 @@ class SearchHistory(private val file: AppFile) {
 
 class OfflineCache(private val root: AppFile) {
     private var extraRoot: AppFile? = null
+    /** Android SAF 导出目录（content:// tree Uri）：下载仍写应用缓存，完成后复制过去。 */
+    private var exportTree: String? = null
 
     fun setExtraRoot(path: String?) {
-        extraRoot = path?.trim()?.takeIf { it.isNotEmpty() }?.let { AppFile(it) }
+        val trimmed = path?.trim()?.takeIf { it.isNotEmpty() }
+        if (trimmed != null && trimmed.startsWith("content://")) {
+            exportTree = trimmed
+            extraRoot = null
+        } else {
+            exportTree = null
+            extraRoot = trimmed?.let { AppFile(it) }
+        }
     }
 
     private fun roots(): List<AppFile> =
@@ -335,7 +436,9 @@ class OfflineCache(private val root: AppFile) {
         cid: Long = 0L,
         onProgress: (downloaded: Long, total: Long) -> Unit = { _, _ -> },
     ): CacheEntry {
-        val folder = AppFile(extraRoot ?: root, bvid.ifBlank { "local" })
+        // SAF 导出目录不是文件路径：下载/断点/合流都在应用缓存完成，结束后再复制。
+        val base = if (!isDesktopHost() && exportTree != null) root else (extraRoot ?: root)
+        val folder = AppFile(base, bvid.ifBlank { "local" })
         val gate = downloadGates.getOrPut(folder.absolutePath) { Any() }
         synchronized(gate) {
             folder.mkdirs()
@@ -372,11 +475,21 @@ class OfflineCache(private val root: AppFile) {
             }.getOrDefault(false)
             // 合流成功后保留原始双流：扫描以 video.m4s 存在为锚点，
             // 且合流件万一损坏还能回退。删除缓存时整个文件夹一起清，不会泄漏。
-            return if (muxed && merged.exists()) {
+            val entry = if (muxed && merged.exists()) {
                 CacheEntry(bvid, title, cover, merged.absolutePath, null, info.actualQn, cid)
             } else {
                 CacheEntry(bvid, title, cover, video.absolutePath, audio.takeIf { it.exists() }?.absolutePath, info.actualQn, cid)
             }
+            // Android 选了导出目录：把成品复制过去。失败不影响应用内缓存与播放。
+            val tree = exportTree
+            if (!isDesktopHost() && tree != null) {
+                runCatching {
+                    kotlinx.coroutines.runBlocking {
+                        exportCacheFiles(listOfNotNull(entry.videoPath, entry.audioPath), tree)
+                    }
+                }
+            }
+            return entry
         }
     }
 

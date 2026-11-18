@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -846,6 +847,9 @@ private fun LiveBoard(
     onToggle: () -> Unit,
     onVideo: (VideoItem) -> Unit,
 ) {
+    // 解析已保留全部状态：直播中在前，未开播/轮播垫后（灰态展示）。
+    val living = liveNow.filter { it.liveStatus == 1 }
+    val offline = liveNow.filter { it.liveStatus != 1 }
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
         Row(
             modifier = Modifier
@@ -861,9 +865,9 @@ private fun LiveBoard(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
             )
-            if (liveNow.isNotEmpty()) {
+            if (living.isNotEmpty()) {
                 Text(
-                    " · ${liveNow.size}",
+                    " · ${living.size} 人在播",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                 )
@@ -885,22 +889,75 @@ private fun LiveBoard(
                 )
             } else if (liveNow.isEmpty()) {
                 Text(
-                    "关注的主播暂时都没有在直播",
+                    "还没有关注的主播",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                 )
             } else {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-                ) {
-                    items(liveNow, key = { it.roomId }) { item ->
-                        LiveCard(item, onClick = { onVideo(item) })
+                if (living.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    ) {
+                        items(living, key = { it.roomId }) { item ->
+                            LiveCard(item, onClick = { onVideo(item) })
+                        }
+                    }
+                } else {
+                    Text(
+                        "关注的主播暂时都没有在直播",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
+                }
+                if (offline.isNotEmpty()) {
+                    Text(
+                        "未开播 · ${offline.size}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                    ) {
+                        items(offline, key = { it.roomId }) { item ->
+                            OfflineLiveChip(item)
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** 未开播主播：小头像+名字灰态条；点击仍进直播间（可看简介/回放态）。 */
+@Composable
+private fun OfflineLiveChip(item: VideoItem) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        AsyncImage(
+            model = app.ailiaili.core.model.cdnThumb(item.cover, 48),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp).clip(androidx.compose.foundation.shape.CircleShape),
+            contentScale = ContentScale.Crop,
+        )
+        Text(
+            item.author.ifBlank { "主播" },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 96.dp),
+        )
     }
 }
 

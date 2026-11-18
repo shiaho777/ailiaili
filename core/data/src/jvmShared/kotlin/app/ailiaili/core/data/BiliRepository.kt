@@ -54,6 +54,7 @@ interface BiliRepository {
     suspend fun regionRank(rid: Int): Result<List<VideoItem>>
     suspend fun regionFeed(tid: Int, displayId: Int): Result<RegionFeedDecode>
     suspend fun recommend(brush: Int = 1): Result<List<VideoItem>>
+    suspend fun feedDislike(goto: String, id: String): Result<Unit>
     suspend fun search(keyword: String, page: Int, kind: ContentKind = ContentKind.Video, order: String = ""): Result<SearchPage>
     suspend fun bangumiDetail(seasonId: Long): Result<BangumiDetail>
     suspend fun hotSearch(): Result<List<String>>
@@ -64,7 +65,10 @@ interface BiliRepository {
     suspend fun pages(bvid: String): Result<List<VideoPage>>
     suspend fun play(bvid: String, cid: Long, forceDash: Boolean = false): Result<PlayInfo>
     suspend fun playAt(bvid: String, cid: Long, qn: Int, forceDash: Boolean = true): Result<PlayInfo>
+    /** 番剧 PGC 取流；失败由播放器回退 UGC bvid 链路。 */
+    suspend fun pgcPlay(epId: Long, aid: Long, cid: Long, qn: Int = 0): Result<PlayInfo>
     suspend fun danmakuSegment(cid: Long, segmentIndex: Int): Result<List<Danmaku>>
+    suspend fun sendDanmaku(aid: Long, cid: Long, text: String, progressMs: Long, mode: Int = 1, color: Int = 0xFFFFFF): Result<Unit>
     suspend fun chapters(bvid: String, cid: Long): Result<List<ViewChapter>>
     suspend fun subtitles(bvid: String, cid: Long): Result<List<app.ailiaili.core.model.SubtitleTrack>>
     suspend fun subtitleCues(url: String): Result<List<app.ailiaili.core.model.SubtitleCue>>
@@ -115,6 +119,7 @@ interface BiliRepository {
     suspend fun livePlay(roomId: Long, qn: Int = 0): Result<LivePlayInfo>
     suspend fun liveRoomInfo(roomId: Long): Result<LiveRoomInfo>
     fun liveDanmaku(roomId: Long): kotlinx.coroutines.flow.Flow<LiveDanmaku>
+    suspend fun sendLiveMsg(roomId: Long, text: String): Result<Unit>
     suspend fun like(bvid: String, liked: Boolean): Result<Unit>
     suspend fun hasLiked(aid: Long): Result<Boolean>
     suspend fun coin(aid: Long, bvid: String, count: Int = 1): Result<Unit>
@@ -125,12 +130,21 @@ interface BiliRepository {
     suspend fun qrGenerate(): Result<QrTicket>
     suspend fun qrPoll(key: String): Result<QrStatus>
     suspend fun logout()
+    /** 已保存的账号槽位（不含当前设备指纹）。 */
+    val accounts: StateFlow<List<app.ailiaili.core.model.SavedAccount>>
+    /** 切换到已保存账号：替换身份 cookie，保留设备指纹；槽位不存在返回失败。 */
+    suspend fun switchAccount(uid: String): Result<Unit>
+    /** 删除已保存账号；删的是当前账号时同时退出登录。 */
+    suspend fun removeAccount(uid: String)
+    /** 登录成功后归档当前会话（昵称/头像可后补）。 */
+    fun rememberCurrentAccount()
 }
 
 class BiliRepositoryImpl(
     private val client: BiliClient,
     private val settingsStore: SettingsStore,
-    sessionStore: SessionStore,
+    private val sessionStore: SessionStore,
+    private val accountStore: AccountStore,
 ) : BiliRepository {
     // 只缓存只读详情，返回上一页再进来时不用整页重新请求。失败不缓存。
     private val videoCache = TtlCache<String, VideoDetail>(ttlMs = 60_000)
@@ -156,6 +170,7 @@ class BiliRepositoryImpl(
     override suspend fun regionFeed(tid: Int, displayId: Int) = client.regionFeed(tid, displayId)
     override suspend fun recommend(brush: Int) =
         client.recommend(brush, settingsStore.current.recommendSource)
+    override suspend fun feedDislike(goto: String, id: String) = client.feedDislike(goto, id)
     override suspend fun search(keyword: String, page: Int, kind: ContentKind, order: String) =
         client.search(keyword, page, kind, order)
     override suspend fun bangumiDetail(seasonId: Long) = client.bangumiDetail(seasonId)
@@ -169,7 +184,11 @@ class BiliRepositoryImpl(
         client.playUrl(bvid, cid, settingsStore.current, forceDash)
     override suspend fun playAt(bvid: String, cid: Long, qn: Int, forceDash: Boolean) =
         client.playUrl(bvid, cid, settingsStore.current, forceDash, qnOverride = qn)
+    override suspend fun pgcPlay(epId: Long, aid: Long, cid: Long, qn: Int) =
+        client.pgcPlayUrl(epId, aid, cid, settingsStore.current, qnOverride = qn.takeIf { it > 0 })
     override suspend fun danmakuSegment(cid: Long, segmentIndex: Int) = client.danmakuSegment(cid, segmentIndex)
+    override suspend fun sendDanmaku(aid: Long, cid: Long, text: String, progressMs: Long, mode: Int, color: Int) =
+        client.sendDanmaku(aid, cid, text, progressMs, mode, color)
     override suspend fun chapters(bvid: String, cid: Long) = client.chapters(bvid, cid)
     override suspend fun subtitles(bvid: String, cid: Long) = client.subtitles(bvid, cid)
     override suspend fun subtitleCues(url: String) = client.subtitleCues(url)
@@ -226,6 +245,7 @@ class BiliRepositoryImpl(
     override suspend fun livePlay(roomId: Long, qn: Int) = client.livePlay(roomId, qn)
     override suspend fun liveRoomInfo(roomId: Long) = client.liveRoomInfo(roomId)
     override fun liveDanmaku(roomId: Long) = client.liveDanmaku(roomId)
+    override suspend fun sendLiveMsg(roomId: Long, text: String) = client.sendLiveMsg(roomId, text)
     override suspend fun like(bvid: String, liked: Boolean) =
         client.like(bvid, liked).also { if (it.isSuccess) videoCache.invalidate(bvid) }
     override suspend fun hasLiked(aid: Long) = client.hasLiked(aid)
@@ -238,4 +258,46 @@ class BiliRepositoryImpl(
     override suspend fun qrGenerate() = client.qrGenerate()
     override suspend fun qrPoll(key: String) = client.qrPoll(key)
     override suspend fun logout() = client.logout()
+
+    override val accounts = accountStore.accounts
+
+    override suspend fun switchAccount(uid: String): Result<Unit> = runCatching {
+        val target = accountStore.accounts.value.firstOrNull { it.uid == uid }
+            ?: error("这个账号已不在保存列表里")
+        val cur = sessionStore.current
+        // 先归档当前账号（含最新凭据），再换身份；设备指纹保留当前设备的。
+        rememberCurrentAccount()
+        sessionStore.save(
+            cur.copy(
+                sessData = target.sessData,
+                biliJct = target.biliJct,
+                dedeUserId = target.uid,
+                dedeUserIdCkMd5 = target.dedeUserIdCkMd5,
+            ),
+        )
+        accountStore.upsert(target)
+    }
+
+    override suspend fun removeAccount(uid: String) {
+        accountStore.remove(uid)
+        if (sessionStore.current.dedeUserId == uid) client.logout()
+    }
+
+    override fun rememberCurrentAccount() {
+        val cur = sessionStore.current
+        val uid = cur.dedeUserId ?: return
+        val sess = cur.sessData ?: return
+        val jct = cur.biliJct ?: return
+        val old = accountStore.accounts.value.firstOrNull { it.uid == uid }
+        accountStore.upsert(
+            app.ailiaili.core.model.SavedAccount(
+                uid = uid,
+                name = old?.name.orEmpty(),
+                face = old?.face.orEmpty(),
+                sessData = sess,
+                biliJct = jct,
+                dedeUserIdCkMd5 = cur.dedeUserIdCkMd5,
+            ),
+        )
+    }
 }

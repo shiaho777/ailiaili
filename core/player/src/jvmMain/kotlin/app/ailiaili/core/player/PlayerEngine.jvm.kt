@@ -111,7 +111,29 @@ actual class PlayerEngine actual constructor() {
         }
 
     actual fun setMediaInfo(title: String, artist: String) {
-        // 桌面无系统媒体会话（MPRIS 等待立项），元数据暂不消费。
+        // Windows 全局媒体键：起播时把控制权登记给当前引擎。
+        // macOS/Linux 无系统媒体会话（MPRIS/Now Playing 待立项），start 内部直接跳过。
+        DesktopMediaKeys.start()
+        DesktopMediaKeys.handler = DesktopMediaKeys.Handler { action ->
+            when (action) {
+                0 -> if (isPlaying) pause() else play()
+                3 -> pause()
+                // 上一曲/下一曲由播放器层消费（队列/分P），引擎层只做暂停兜底。
+                else -> mediaKeyNav?.invoke(action)
+            }
+        }
+    }
+
+    /** 播放器登记的媒体键导航回调（1=下一条 2=上一条）；离开播放页置 null。 */
+    @Volatile
+    private var mediaKeyNav: ((Int) -> Unit)? = null
+
+    actual fun setMediaKeyNav(nav: ((Int) -> Unit)?) {
+        mediaKeyNav = nav
+        if (nav == null && DesktopMediaKeys.handler != null) {
+            // 离开播放页：不再响应媒体键，避免误触已冻结的引擎。
+            DesktopMediaKeys.handler = null
+        }
     }
 
     actual fun play() {

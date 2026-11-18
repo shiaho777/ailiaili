@@ -22,8 +22,19 @@ expect fun shareText(title: String, text: String): String
 
 expect fun saveImageBytes(bytes: ByteArray, displayName: String): String
 
-/** 选择下载保存目录。桌面端弹目录选择器；Android 暂不支持，返回 null。 */
+/**
+ * 选择下载保存目录。桌面端弹目录选择器返回绝对路径；
+ * Android 走系统 SAF 目录选择，返回 content:// tree Uri 字符串（持久授权）。
+ * 取消返回 null。
+ */
 expect suspend fun chooseDirectory(): String?
+
+/**
+ * 把应用缓存里的视频文件复制到用户选定的目录。
+ * Android：dest 是 SAF tree Uri，逐个复制并返回成功个数；
+ * 桌面端下载直接写目标目录，无需搬运，恒返回 0。
+ */
+expect suspend fun exportCacheFiles(files: List<String>, dest: String): Int
 
 /** 选一张本地图片（私信发图用）。返回文件名与字节；取消返回 null。 */
 expect suspend fun pickImage(): PickedImage?
@@ -61,6 +72,26 @@ expect fun windowBrightness(): Float
 expect fun setWindowBrightness(value: Float)
 
 expect fun setFullscreen(on: Boolean)
+
+/**
+ * 画中画（Android 8+ 且设备支持）。桌面恒 false。
+ * inPip 为 true 时播放页不销毁引擎、返回键不弹页，保证小窗继续播。
+ */
+expect fun pipSupported(): Boolean
+
+expect fun inPip(): Boolean
+
+/** 主动进入画中画；不支持或失败返回 false。 */
+expect fun enterPip(): Boolean
+
+/** 播放页登记播放状态查询（Home 键自动进 PiP 用）；传 null 注销。桌面空实现。 */
+expect fun registerPipPlayback(check: (() -> Boolean)?)
+
+/**
+ * 发一条系统通知（开播提醒用）。桌面走托盘气泡钩子（Main 安装）；
+ * Android 走 NotificationManager。返回是否发出。
+ */
+expect fun notifyUser(title: String, message: String): Boolean
 
 expect fun traySupported(): Boolean
 

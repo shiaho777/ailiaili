@@ -55,6 +55,27 @@ actual suspend fun chooseDirectory(): String? = withContext(Dispatchers.Main) {
     }
 }
 
+/** 桌面下载直接写目标目录（java.io.File 路径语义），无需搬运。 */
+actual suspend fun exportCacheFiles(files: List<String>, dest: String): Int = 0
+
+/** 托盘通知钩子：由 desktopApp/Main.kt 用 TrayState.sendNotification 安装。 */
+object DesktopNotify {
+    var send: ((String, String) -> Unit)? = null
+}
+
+actual fun notifyUser(title: String, message: String): Boolean {
+    val hook = DesktopNotify.send ?: return false
+    return runCatching { hook(title, message) }.isSuccess
+}
+
+actual fun pipSupported(): Boolean = false
+
+actual fun inPip(): Boolean = false
+
+actual fun enterPip(): Boolean = false
+
+actual fun registerPipPlayback(check: (() -> Boolean)?) = Unit
+
 actual suspend fun saveTextFile(suggestedName: String, text: String): String? = withContext(Dispatchers.Main) {
     val chooser = JFileChooser().apply {
         dialogTitle = "导出设置"

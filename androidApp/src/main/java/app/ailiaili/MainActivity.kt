@@ -1,5 +1,6 @@
 package app.ailiaili
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -64,9 +65,40 @@ class MainActivity : ComponentActivity() {
         continuation.resume(picked)
     }
 
+    private var pendingDir: CancellableContinuation<String?>? = null
+
+    private val pickDirectory = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        val continuation = pendingDir
+        pendingDir = null
+        if (continuation == null) return@registerForActivityResult
+        if (uri == null) {
+            continuation.resume(null)
+            return@registerForActivityResult
+        }
+        // 持久授权：重启后仍能往这个目录写导出文件。
+        runCatching {
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }
+        continuation.resume(uri.toString())
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AndroidHost.activity = this
+        AndroidHost.directoryPicker = {
+            suspendCancellableCoroutine { continuation ->
+                pendingDir = continuation
+                continuation.invokeOnCancellation { pendingDir = null }
+                runCatching { pickDirectory.launch(null) }
+                    .onFailure {
+                        pendingDir = null
+                        continuation.resume(null)
+                    }
+            }
+        }
         AndroidHost.fontPicker = {
             suspendCancellableCoroutine { continuation ->
                 pendingFont = continuation
@@ -116,16 +148,39 @@ class MainActivity : ComponentActivity() {
         AndroidHost.activity = this
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        // 播放中按 Home 自动进小窗。是否正在播由播放页登记的钩子回答；
+        // 没在播就不进 PiP，避免把普通页面缩成小窗。
+        if (AndroidHost.pipActive) return
+        if (AndroidHost.pipShouldEnter?.invoke() == true) {
+            runCatching {
+                enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().build())
+            }
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        AndroidHost.pipActive = isInPictureInPictureMode
+    }
+
     override fun onDestroy() {
         // 静态持有必须随销毁清空：否则进程存活期间泄漏整个 Activity，
         // openUrl/亮度调节还可能作用于已销毁的窗口。只清自己安装的引用。
         if (AndroidHost.activity === this) AndroidHost.activity = null
         AndroidHost.imagePicker = null
         AndroidHost.fontPicker = null
+        AndroidHost.directoryPicker = null
         pendingPick?.cancel()
         pendingPick = null
         pendingFont?.cancel()
         pendingFont = null
+        pendingDir?.cancel()
+        pendingDir = null
         super.onDestroy()
     }
 }

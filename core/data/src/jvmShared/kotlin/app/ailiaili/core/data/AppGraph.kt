@@ -9,6 +9,8 @@ object AppGraph {
         private set
     lateinit var settings: SettingsStore
         private set
+    lateinit var accounts: AccountStore
+        private set
     lateinit var searchHistory: SearchHistory
         private set
     lateinit var cache: OfflineCache
@@ -22,6 +24,7 @@ object AppGraph {
         if (::repo.isInitialized) return
         val dir = appStorageDir()
         val sessionStore = SessionStore(AppFile(dir, "session.json")).apply { load() }
+        accounts = AccountStore(AppFile(dir, "accounts.json")).apply { load() }
         settings = SettingsStore(AppFile(dir, "settings.json")).apply { load() }
         searchHistory = SearchHistory(AppFile(dir, "search-history.json")).apply { load() }
         dynamicSeen = DynamicSeenStore(AppFile(dir, "dynamic-seen.json")).apply { load() }
@@ -33,10 +36,13 @@ object AppGraph {
         app.ailiaili.core.model.userAgentProvider = {
             settings.current.customUserAgent.ifBlank { app.ailiaili.core.model.USER_AGENT }
         }
+        // HTTP 代理（高级设置）：空串直连；网络层按当前值热切换客户端。
+        app.ailiaili.core.model.proxyProvider = { settings.current.httpProxy }
         val client = BiliClient(
             session = { sessionStore.current },
             updateSession = { sessionStore.save(it) },
         )
-        repo = BiliRepositoryImpl(client, settings, sessionStore)
+        repo = BiliRepositoryImpl(client, settings, sessionStore, accounts)
+        LiveAlerts.start()
     }
 }

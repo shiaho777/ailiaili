@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import app.ailiaili.core.designsystem.BiliFilterChip
@@ -440,6 +442,7 @@ fun SpaceRoute(
     onBack: () -> Unit,
     onVideo: (VideoItem) -> Unit,
     onOpenFolder: (FavFolder) -> Unit,
+    onPlayAll: (List<VideoItem>) -> Unit = {},
     vm: SpaceViewModel = appViewModel(key = "space-$mid") { SpaceViewModel(mid) },
 ) {
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
@@ -533,7 +536,7 @@ fun SpaceRoute(
                             SpaceSection.Home -> homeSections(vm, onVideo, onOpenFolder)
                             SpaceSection.Dynamic -> dynamicSections(vm, onVideo)
                             SpaceSection.Videos -> videoSections(vm, onVideo)
-                            SpaceSection.Collections -> collectionSections(vm, onVideo)
+                            SpaceSection.Collections -> collectionSections(vm, onVideo, onPlayAll)
                             SpaceSection.Favs -> folderSections(vm, onOpenFolder)
                         }
                     }
@@ -664,11 +667,30 @@ private fun LazyGridScope.videoSections(vm: SpaceViewModel, onVideo: (VideoItem)
     }
 }
 
-private fun LazyGridScope.collectionSections(vm: SpaceViewModel, onVideo: (VideoItem) -> Unit) {
+private fun LazyGridScope.collectionSections(
+    vm: SpaceViewModel,
+    onVideo: (VideoItem) -> Unit,
+    onPlayAll: (List<VideoItem>) -> Unit = {},
+) {
     val opened = vm.opened
     if (opened != null) {
         item(key = "col-back", span = { GridItemSpan(maxLineSpan) }) {
             BiliSectionHeader(opened.title, "全部合集", onAction = vm::closeCollection)
+        }
+        if (vm.collectionVideos.isNotEmpty()) {
+            item(key = "col-playall", span = { GridItemSpan(maxLineSpan) }) {
+                androidx.compose.material3.TextButton(
+                    onClick = { onPlayAll(vm.collectionVideos.map { it.withOwner(vm.ownerName()) }) },
+                ) {
+                    androidx.compose.material3.Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("播放全部（${vm.collectionVideos.size}）")
+                }
+            }
         }
         if (vm.collectionVideos.isEmpty() && vm.collectionLoading) {
             item(key = "col-loading", span = { GridItemSpan(maxLineSpan) }) { CenterProgress() }

@@ -77,6 +77,14 @@ fun main() {
         }
         DesktopHost.showWindow = { showMain() }
         DesktopHost.hideWindow = { hideMain() }
+        // 开播提醒走托盘气泡；无托盘的环境（部分 Linux）静默跳过。
+        if (trayOk) {
+            app.ailiaili.core.data.DesktopNotify.send = { title, message ->
+                trayState.sendNotification(
+                    androidx.compose.ui.window.Notification(title, message, androidx.compose.ui.window.Notification.Type.Info),
+                )
+            }
+        }
         if (trayOk) {
             Tray(
                 icon = icon,

@@ -42,10 +42,17 @@ expect class PlayerEngine() {
     fun freeze()
 
     /**
-     * 媒体元数据（标题/作者）：Android 供媒体通知与锁屏显示；桌面无系统
-     * 媒体会话，空实现。起播前调用。
+     * 媒体元数据（标题/作者）：Android 供媒体通知与锁屏显示；桌面 Windows
+     * 起播时登记全局媒体键。起播前调用。
      */
     fun setMediaInfo(title: String, artist: String)
+
+    /**
+     * 登记全局媒体键的上一曲/下一曲回调（1=下一条 2=上一条）。
+     * 桌面 Windows 生效；Android 由 MediaSession 处理、其他桌面平台空实现。
+     * 传 null 注销（离开播放页时调用）。
+     */
+    fun setMediaKeyNav(nav: ((Int) -> Unit)?)
 
     fun play(info: PlayInfo, positionMs: Long = 0, audioOnly: Boolean = false)
     fun playAudioOnly(positionMs: Long): Boolean
