@@ -40,6 +40,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -51,6 +52,7 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -294,12 +296,23 @@ internal fun Dest.isPlayerLayer(): Boolean =
 internal fun composeOverlayLayer(overlay: Dest?, held: Dest?): Boolean =
     overlay != null || held != null
 
+/**
+ * 播放层保活：只要栈内还有播放层就返回它（不只是栈顶），播放器组合不被销毁，
+ * 从播放器点进 UP 空间/标签搜索/评论详情时播放继续。
+ * base 取栈顶的非播放层（用户当前浏览的页面）；栈顶本身是播放层时取其下方。
+ */
 internal fun playerLayers(stack: List<Dest>): Pair<Dest, Dest?> {
     val top = stack.lastOrNull() ?: Dest.Home
-    if (!top.isPlayerLayer()) return top to null
-    val base = stack.dropLast(1).lastOrNull { !it.isPlayerLayer() } ?: Dest.Home
-    return base to top
+    val player = stack.lastOrNull { it.isPlayerLayer() } ?: return top to null
+    // 栈顶不是播放层（用户从播放器进了别的页面）：当前页就是栈顶，播放层保活在下层。
+    if (!top.isPlayerLayer()) return top to player
+    val playerIdx = stack.lastIndexOf(player)
+    val base = stack.take(playerIdx).lastOrNull { !it.isPlayerLayer() } ?: Dest.Home
+    return base to player
 }
+
+/** 播放层是否在栈顶：决定它可见可交互，还是保活隐藏在内容下层。 */
+internal fun playerOnTop(stack: List<Dest>): Boolean = stack.lastOrNull()?.isPlayerLayer() == true
 
 @Composable
 fun AppRoot() {
@@ -340,8 +353,12 @@ private fun AppShell() {
         }
     }
     val liveOverlay = overlay.takeIf { enterReady }
+    // 播放层保活：栈内还有播放层但用户已进别的页面时，播放器继续组合（引擎不断、
+    // 音频继续），只是降到内容下层且不可交互；返回时立刻恢复画面。
+    val playerAlive = overlay != null
+    val playerVisible = playerOnTop(vm.stack)
 
-    BackHandler(enabled = vm.stack.size > 1 && overlay == null) { vm.pop() }
+    BackHandler(enabled = vm.stack.size > 1 && !playerVisible) { vm.pop() }
 
     val body: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize()) {
@@ -377,11 +394,15 @@ private fun AppShell() {
     val overlayLayer: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize()) {
             if (composeOverlayLayer(liveOverlay, heldOverlay)) {
-                AnimatedVisibility(
-                    visible = liveOverlay != null,
-                    modifier = Modifier.fillMaxSize().zIndex(1f),
-                    enter = slideInHorizontally(motion.defaultSpatialSpec()) { it / 4 } + fadeIn(motion.defaultEffectsSpec()),
-                    exit = slideOutHorizontally(motion.fastSpatialSpec()) { it / 4 } + fadeOut(motion.fastEffectsSpec()),
+                // 播放器只挂一份组合：栈内存在播放层就一直保留（引擎不断、音频继续）。
+                // 栈顶时可见可交互；用户进了别的页面时降到内容下层并透明、屏蔽输入，
+                // 返回时立刻恢复画面。只有真正退出播放（overlay 为空）才销毁。
+                val keepAlive = playerAlive && !playerVisible
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .alpha(if (keepAlive) 0f else 1f)
+                        .then(if (keepAlive) Modifier.clearAndSetSemantics {} else Modifier),
                 ) {
                     (liveOverlay ?: heldOverlay)?.let { dest ->
                         key(dest) {
@@ -452,6 +473,7 @@ private fun AppShell() {
                     )
                 },
                 overlay = overlayLayer,
+                overlayBelowContent = playerAlive && !playerVisible,
                 content = body,
             )
             if (quickToast != null) {

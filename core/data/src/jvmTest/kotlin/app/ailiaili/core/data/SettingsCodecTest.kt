@@ -156,6 +156,8 @@ class SettingsCodecTest {
             subtitleFontSp = 24,
             subtitleBottomPercent = 12,
             customUserAgent = "ailiaili/1.3.0 (test)",
+            playbackSpeed = 1.75f,
+            autoPlayNext = false,
             sponsorBlock = true,
             sponsorCategories = "sponsor,selfpromo",
             cdnMode = CdnMode.Auto,

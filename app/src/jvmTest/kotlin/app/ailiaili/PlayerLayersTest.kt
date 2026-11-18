@@ -101,4 +101,44 @@ class PlayerLayersTest {
         assertEquals(season, base)
         assertNull(overlay)
     }
+
+    // 播放层保活：从播放器进别的页面，播放器仍在组合里（引擎不断），
+    // 当前浏览页是栈顶，返回时立刻恢复画面。
+    @Test
+    fun playerStaysAliveWhenNavigatingIntoSpace() {
+        val play = Dest.Play(bvid = "BV1")
+        val stack = listOf(Dest.Home, play, Dest.Space(7))
+        val (base, overlay) = playerLayers(stack)
+        assertEquals(Dest.Space(7), base)
+        assertEquals(play, overlay)
+        assertFalse(playerOnTop(stack))
+    }
+
+    @Test
+    fun playerStaysAliveUnderSearchAndCommentDetail() {
+        val play = Dest.Play(bvid = "BV1")
+        val search = listOf(Dest.Home, play, Dest.Search("标签"))
+        assertEquals(play, playerLayers(search).second)
+        assertFalse(playerOnTop(search))
+        val detail = listOf(Dest.Home, play, Dest.CommentDetail(1, 2))
+        assertEquals(play, playerLayers(detail).second)
+        assertEquals(Dest.CommentDetail(1, 2), playerLayers(detail).first)
+    }
+
+    @Test
+    fun playerOnTopWhenItIsStackTop() {
+        assertTrue(playerOnTop(listOf(Dest.Home, Dest.Play(bvid = "BV1"))))
+        assertTrue(playerOnTop(listOf(Dest.Home, Dest.Space(7), Dest.Live(9, "直播"))))
+        assertFalse(playerOnTop(listOf(Dest.Home)))
+        assertFalse(playerOnTop(emptyList()))
+    }
+
+    @Test
+    fun popFromSpaceReturnsPlayerOnTop() {
+        val play = Dest.Play(bvid = "BV1")
+        val back = listOf(Dest.Home, play)
+        assertTrue(playerOnTop(back))
+        assertEquals(Dest.Home, playerLayers(back).first)
+        assertEquals(play, playerLayers(back).second)
+    }
 }

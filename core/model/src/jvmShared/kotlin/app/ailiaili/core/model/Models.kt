@@ -735,6 +735,10 @@ data class AppSettings(
      * 注意 UA 影响 B 站流结构协商，改动后需重新取流。
      */
     val customUserAgent: String = "",
+    /** 记忆播放倍速：与音量同规格，换片/重开应用保持上次选择。 */
+    val playbackSpeed: Float = 1f,
+    /** 多 P 视频播完自动播下一 P（番剧/课程/教程场景）。 */
+    val autoPlayNext: Boolean = true,
     val sponsorBlock: Boolean = false,
     /** 逗号分隔的 SponsorBlock category。默认只跳赞助广告。 */
     val sponsorCategories: String = SponsorCategories.DEFAULT,
