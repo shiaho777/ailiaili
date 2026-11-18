@@ -245,7 +245,7 @@ internal fun parseComment(e: JSONObject, upperMid: Long = 0, withReplies: Boolea
 internal fun decodeDurl(data: JSONObject): PlayInfo? {
     val segs = data.arr("durl")?.objects().orEmpty()
         .map { it.str("url") }
-        .filter { it.isNotBlank() }
+        .filter { it.isNotBlank() && app.ailiaili.core.model.isAllowedMediaUrl(it) }
     if (segs.size != 1) return null
     val actual = data.int("quality")
     val qualities = data.arr("accept_quality")?.let { arr ->

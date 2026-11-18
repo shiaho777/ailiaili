@@ -9,6 +9,8 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.model.AppSettings
 import app.ailiaili.core.model.BlockedUp
 import app.ailiaili.core.model.VideoItem
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 全站视频列表共用的屏蔽。
@@ -80,8 +82,22 @@ object ContentFilter {
         save()
     }
 
-    /** 关键词输入防抖后调用，把当前输入写回设置。 */
-    fun persist() = save()
+    /**
+     * 关键词输入防抖落盘。防抖协程必须活在这里（独立作用域），不能挂在页面组合上：
+     * 页面切走会取消 LaunchedEffect，输入后 300ms 内切页就静默丢字。
+     */
+    fun persist() {
+        persistJob?.cancel()
+        persistJob = persistScope.launch {
+            kotlinx.coroutines.delay(300)
+            save()
+        }
+    }
+
+    private val persistScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+    )
+    private var persistJob: kotlinx.coroutines.Job? = null
 
     fun clear() {
         title = ""

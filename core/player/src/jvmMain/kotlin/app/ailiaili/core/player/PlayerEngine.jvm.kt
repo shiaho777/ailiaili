@@ -110,6 +110,10 @@ actual class PlayerEngine actual constructor() {
             )
         }
 
+    actual fun setMediaInfo(title: String, artist: String) {
+        // 桌面无系统媒体会话（MPRIS 等待立项），元数据暂不消费。
+    }
+
     actual fun play() {
         media?.controls()?.play()
     }
@@ -126,22 +130,23 @@ actual class PlayerEngine actual constructor() {
         seekDeadline = System.currentTimeMillis() + 2_500
         seekRetries = 0
         val token = seekToken.incrementAndGet()
-        if (finished && !live && !videoUrl.isNullOrBlank()) {
+        if (finished && !live && !(if (audioOnly) audioUrl else videoUrl).isNullOrBlank()) {
             // 已结束的 input 对 setTime 只改读数不出画面：用 :start-time 重建并自动起播。
-            runCatching {
-                start(videoUrl.orEmpty(), if (audioOnly) null else audioUrl, target)
-            }
+            // 听视频模式重建的必须是音频流：DASH 视频流没有音轨，重建它会变成无声画面。
+            runCatching { rebuildAt(target) }
         } else {
             runCatching { media?.controls()?.setTime(target) }
         }
         notify { it.onPositionJump() }
         // 兜底：如果 VLC 卡死后连 timeChanged 都不再发，不能让弹幕永久冻结。
+        // 必须晚于 timeChanged 的完整升级链（首次 2.5s + 重发 2s），否则重发后的
+        // 确认窗口还没到期就被清掉，:start-time 重建分支永远走不到。
         runCatching {
             seekWatchdog.schedule({
                 if (seekToken.get() == token && pendingSeekMs == target) {
                     clearPendingSeek()
                 }
-            }, 3, TimeUnit.SECONDS)
+            }, 6, TimeUnit.SECONDS)
         }
     }
 
@@ -187,11 +192,20 @@ actual class PlayerEngine actual constructor() {
         start(url, if (this.audioOnly) null else info.audioUrl, positionMs)
     }
 
+    /**
+     * 听视频/还原视频的重建走后台串行：media().play() 内部会停上一路媒体，
+     * 等解码线程退出可能阻塞约 1 秒，放 UI 线程就是窗口定格（BiliDesk v1.7.6
+     * 同款修复）。单线程执行器保证连点按序生效，不会交叠出半状态。
+     */
+    private val switchExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "vlc-media-switch").apply { isDaemon = true }
+    }
+
     actual fun playAudioOnly(positionMs: Long): Boolean {
         val audio = audioUrl?.takeIf { it.isNotBlank() } ?: return false
         live = false
         audioOnly = true
-        start(audio, null, positionMs)
+        runCatching { switchExecutor.execute { runCatching { start(audio, null, positionMs) } } }
         return true
     }
 
@@ -199,7 +213,7 @@ actual class PlayerEngine actual constructor() {
         val video = videoUrl?.takeIf { it.isNotBlank() } ?: return
         live = false
         audioOnly = false
-        start(video, audioUrl, positionMs)
+        runCatching { switchExecutor.execute { runCatching { start(video, audioUrl, positionMs) } } }
     }
 
     actual fun failOver(positionMs: Long): Boolean {
@@ -219,12 +233,12 @@ actual class PlayerEngine actual constructor() {
         start(url, null, 0)
     }
 
-    actual fun playFiles(videoPath: String, audioPath: String?) {
+    actual fun playFiles(videoPath: String, audioPath: String?, positionMs: Long) {
         live = false
         audioOnly = false
         videoUrl = File(videoPath).toURI().toString()
         audioUrl = audioPath?.let { File(it).toURI().toString() }
-        start(videoUrl.orEmpty(), audioUrl, 0)
+        start(videoUrl.orEmpty(), audioUrl, positionMs)
     }
 
     actual fun release() {
@@ -239,6 +253,7 @@ actual class PlayerEngine actual constructor() {
             videoSurface = null
             eventAdapter = null
             runCatching { seekWatchdog.shutdownNow() }
+            runCatching { switchExecutor.shutdownNow() }
             pump.release()
         }
     }
@@ -248,8 +263,10 @@ actual class PlayerEngine actual constructor() {
     actual suspend fun snapshot(displayName: String): String? =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
-                val image = pump.peek() ?: return@runCatching null
-                val data = image.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG)
+                // 独立副本：编码期间播放侧换分辨率/释放不会关掉它；
+                // 也不把截图误标成「正在显示」干扰帧槽位选择。
+                val image = pump.snapshotCopy() ?: return@runCatching null
+                val data = image.use { it.encodeToData(org.jetbrains.skia.EncodedImageFormat.PNG) }
                     ?: return@runCatching null
                 val safe = displayName.ifBlank { "snapshot" }.replace(Regex("""[\\/:*?"<>|]"""), "_")
                 val dir = File(System.getProperty("user.home"), "Pictures/ailiaili").also { it.mkdirs() }
@@ -259,9 +276,14 @@ actual class PlayerEngine actual constructor() {
             }.getOrNull()
         }
 
+    @Volatile private var loadedTag = ""
+
+    actual val mediaTag: String get() = loadedTag
+
     private fun start(url: String, slave: String?, positionMs: Long) {
         val player = media ?: return
         if (url.isBlank()) return
+        loadedTag = url
         pendingSeekMs = -1L
         seekRetries = 0
         seeking = false
@@ -373,9 +395,11 @@ actual class PlayerEngine actual constructor() {
                 }
                 // 重发一次仍不到位：用 :start-time 重建 Media，跳到目标位置。
                 // 只对网络流做；本地文件 seek 是可靠的，重建反而会闪一下。
+                // 重建会调 media().play()，libvlc 禁止在事件回调线程里改播放状态（会死锁），
+                // 必须丢给看门狗线程执行。
                 clearPendingSeek()
-                if (!live && videoUrl?.startsWith("http") == true) {
-                    runCatching { start(videoUrl.orEmpty(), audioUrl, target) }
+                if (!live && (if (audioOnly) audioUrl else videoUrl)?.startsWith("http") == true) {
+                    runCatching { seekWatchdog.execute { runCatching { rebuildAt(target) } } }
                 }
             }
 
@@ -400,6 +424,15 @@ actual class PlayerEngine actual constructor() {
         pendingSeekMs = -1L
         seekRetries = 0
         seeking = false
+    }
+
+    /** 用 :start-time 重建当前媒体并起播。听视频模式用音频流，否则视频流 + 音轨 slave。 */
+    private fun rebuildAt(positionMs: Long) {
+        if (audioOnly) {
+            start(audioUrl.orEmpty(), null, positionMs)
+        } else {
+            start(videoUrl.orEmpty(), audioUrl, positionMs)
+        }
     }
 }
 

@@ -29,6 +29,7 @@ kotlin {
             dependsOn(jvmShared)
             dependencies {
                 implementation(libs.coroutines.android)
+                implementation(libs.core.ktx)
             }
         }
         val jvmMain by getting {

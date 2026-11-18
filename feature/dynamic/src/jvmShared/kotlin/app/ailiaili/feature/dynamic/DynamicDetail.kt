@@ -53,6 +53,7 @@ import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.BiliBackHeader
 import app.ailiaili.core.designsystem.BiliFilterChip
 import app.ailiaili.core.designsystem.BiliSectionTitle
@@ -279,8 +280,11 @@ fun DynamicDetailRoute(
         ) {
             val entry = vm.entry ?: return@LoadBox
             val post = entry.post
+            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+            val uiScope = androidx.compose.runtime.rememberCoroutineScope()
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.fillMaxSize().smoothWheelScroll(listState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                state = listState,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -363,7 +367,22 @@ fun DynamicDetailRoute(
                             )
                             BiliFilterChip(
                                 selected = false,
-                                onClick = {},
+                                onClick = {
+                                    // 评论区就在下方：滚到 comment-head；不在屏内时
+                                    // 先跳到底部附近让它进组合，再精确定位。
+                                    uiScope.launch {
+                                        val idx = listState.layoutInfo.visibleItemsInfo
+                                            .firstOrNull { it.key == "comment-head" }?.index
+                                        if (idx != null) {
+                                            listState.animateScrollToItem(idx)
+                                        } else {
+                                            listState.scrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1)
+                                            val near = listState.layoutInfo.visibleItemsInfo
+                                                .firstOrNull { it.key == "comment-head" }?.index
+                                            if (near != null) listState.animateScrollToItem(near)
+                                        }
+                                    }
+                                },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.Comment, null, Modifier.size(15.dp)) },
                                 label = { Text("评论 ${formatCount(post.commentCount)}".trim()) },
                             )

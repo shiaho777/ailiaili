@@ -34,6 +34,14 @@ actual class PlayerEngine actual constructor() {
 
     val player: ExoPlayer = ExoPlayer.Builder(AndroidHost.context)
         .setLoadControl(loadControl)
+        // 音频焦点交给 Media3：来电/其他应用出声自动暂停，焦点恢复自动续播。
+        .setAudioAttributes(
+            androidx.media3.common.AudioAttributes.Builder()
+                .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            /* handleAudioFocus= */ true,
+        )
         .build()
 
     private val http = DefaultHttpDataSource.Factory()
@@ -88,6 +96,23 @@ actual class PlayerEngine actual constructor() {
         }
 
     private var live = false
+
+    private var loadedTag = ""
+
+    actual val mediaTag: String get() = loadedTag
+
+    private var mediaTitle = ""
+    private var mediaArtist = ""
+
+    /** 通知/锁屏元数据：起播前由界面写入稿件标题与 UP 名。 */
+    actual fun setMediaInfo(title: String, artist: String) {
+        mediaTitle = title
+        mediaArtist = artist
+    }
+
+    private fun startMediaSession() {
+        AndroidMediaIntegration.onPlayStarted(AndroidHost.context, player, mediaTitle, mediaArtist)
+    }
 
     /**
      * 与桌面同一套 BufferPolicy 决策值；换片时映射成 Media3 缓冲参数生效。
@@ -169,6 +194,7 @@ actual class PlayerEngine actual constructor() {
 
     actual fun playLive(url: String) {
         live = true
+        loadedTag = url
         applyBufferPolicy()
         val mime = when {
             url.contains(".m3u8") -> MimeTypes.APPLICATION_M3U8
@@ -191,9 +217,11 @@ actual class PlayerEngine actual constructor() {
         player.setMediaSource(DefaultMediaSourceFactory(liveHttp).createMediaSource(item))
         player.prepare()
         player.playWhenReady = true
+        startMediaSession()
     }
 
-    actual fun playFiles(videoPath: String, audioPath: String?) {
+    actual fun playFiles(videoPath: String, audioPath: String?, positionMs: Long) {
+        loadedTag = videoPath
         val video = progressive.createMediaSource(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(videoPath))))
         val source = if (audioPath.isNullOrBlank()) {
             video
@@ -203,9 +231,10 @@ actual class PlayerEngine actual constructor() {
                 progressive.createMediaSource(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(audioPath)))),
             )
         }
-        player.setMediaSource(source)
+        player.setMediaSource(source, positionMs)
         player.prepare()
         player.playWhenReady = true
+        startMediaSession()
     }
 
     actual fun release() {
@@ -213,9 +242,11 @@ actual class PlayerEngine actual constructor() {
         // 调用方即使从 IO 线程进来，也切回主线程，避免 “Player is accessed on the wrong thread” 崩溃。
         if (Looper.myLooper() == Looper.getMainLooper()) {
             runCatching { player.release() }
+            AndroidMediaIntegration.onReleased(AndroidHost.context)
         } else {
             Handler(Looper.getMainLooper()).post {
                 runCatching { player.release() }
+                AndroidMediaIntegration.onReleased(AndroidHost.context)
             }
         }
     }
@@ -254,6 +285,7 @@ actual class PlayerEngine actual constructor() {
 
     private fun attach(videoUrl: String, positionMs: Long) {
         live = false
+        loadedTag = videoUrl
         applyBufferPolicy()
         val video = progressive.createMediaSource(MediaItem.fromUri(videoUrl))
         val audio = audioUrl
@@ -266,15 +298,19 @@ actual class PlayerEngine actual constructor() {
         player.prepare()
         if (positionMs > 0) player.seekTo(positionMs)
         player.playWhenReady = true
+        startMediaSession()
     }
 
     private fun attachSingle(url: String, positionMs: Long) {
         live = false
+        // 听视频只是同一条视频换了流，媒体身份沿用视频 URL，进度归属不变。
+        loadedTag = videoUrl?.takeIf { it.isNotBlank() } ?: url
         applyBufferPolicy()
         player.setMediaSource(progressive.createMediaSource(MediaItem.fromUri(url)))
         player.prepare()
         if (positionMs > 0) player.seekTo(positionMs)
         player.playWhenReady = true
+        startMediaSession()
     }
 }
 

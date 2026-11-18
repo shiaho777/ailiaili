@@ -55,6 +55,29 @@ actual suspend fun chooseDirectory(): String? = withContext(Dispatchers.Main) {
     }
 }
 
+actual suspend fun saveTextFile(suggestedName: String, text: String): String? = withContext(Dispatchers.Main) {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "导出设置"
+        selectedFile = File(suggestedName)
+    }
+    if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return@withContext null
+    val file = chooser.selectedFile ?: return@withContext null
+    runCatching {
+        file.writeText(text)
+        file.absolutePath
+    }.getOrNull()
+}
+
+actual suspend fun readTextFile(): String? = withContext(Dispatchers.Main) {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "导入设置"
+        fileSelectionMode = JFileChooser.FILES_ONLY
+    }
+    if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return@withContext null
+    val file = chooser.selectedFile ?: return@withContext null
+    runCatching { file.readText() }.getOrNull()
+}
+
 actual fun systemFontFiles(): List<String> {
     val os = System.getProperty("os.name").orEmpty().lowercase()
     val roots = when {
@@ -115,7 +138,11 @@ actual suspend fun pickImage(): PickedImage? = withContext(Dispatchers.Main) {
 actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {
     val dir = File(System.getProperty("user.home"), "Pictures/ailiaili").also { it.mkdirs() }
     val safe = displayName.ifBlank { "avatar" }.replace(Regex("""[\\/:*?"<>|]"""), "_")
-    val file = File(dir, "$safe.jpg")
+    // 按真实字节格式定扩展名：播放器截图是 PNG，不能一律标成 .jpg。
+    val isPng = bytes.size >= 8 &&
+        bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() &&
+        bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte()
+    val file = File(dir, "$safe.${if (isPng) "png" else "jpg"}")
     file.writeBytes(bytes)
     return "已保存到 ${file.absolutePath}"
 }

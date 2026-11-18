@@ -44,6 +44,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -418,7 +422,11 @@ private fun AppShell() {
                 .focusRequester(shellFocus)
                 .focusable()
                 .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.F5) {
+                    // 只认裸 F5：Ctrl/Shift/Alt/Meta+F5 是系统/浏览器组合键，
+                    // 吞掉会破坏强制刷新等既有语义。
+                    val bare = !event.isCtrlPressed && !event.isShiftPressed &&
+                        !event.isAltPressed && !event.isMetaPressed
+                    if (bare && event.type == KeyEventType.KeyDown && event.key == Key.F5) {
                         PageRefresh.refreshCurrent()
                         true
                     } else {

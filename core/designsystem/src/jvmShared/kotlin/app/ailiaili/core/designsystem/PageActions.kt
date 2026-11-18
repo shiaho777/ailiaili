@@ -26,11 +26,32 @@ object QuickActions {
     var laterAids by mutableStateOf<Set<Long>>(emptySet())
         private set
 
+    /** 选中态归属的账号。换号后必须清空，否则新账号误报「已在稍后再看」。 */
+    private var ownerUid: String? = null
+
+    init {
+        scope.launch {
+            AppGraph.repo.session.collect { s ->
+                val uid = s.dedeUserId
+                if (uid != ownerUid) {
+                    ownerUid = uid
+                    // mutableState 只在主线程写；后台线程读改写还会并发丢更新。
+                    kotlinx.coroutines.withContext(Dispatchers.Main) { laterAids = emptySet() }
+                }
+            }
+        }
+    }
+
     var toast by mutableStateOf<String?>(null)
         private set
 
     fun dismissToast(message: String) {
         if (toast == message) toast = null
+    }
+
+    /** 供页面级操作（设置备份等）显示结果提示。 */
+    fun showToast(message: String) {
+        toast = message
     }
 
     fun inLater(item: VideoItem): Boolean = item.aid > 0 && item.aid in laterAids
@@ -52,10 +73,17 @@ object QuickActions {
         scope.launch {
             AppGraph.repo.addWatchLater(aid)
                 .onSuccess {
-                    laterAids = laterAids + aid
-                    toast = "已加入稍后再看"
+                    // 读-改-写收进主线程串行：Default 线程并发写会互相覆盖丢 aid。
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        laterAids = laterAids + aid
+                        toast = "已加入稍后再看"
+                    }
                 }
-                .onFailure { toast = it.message ?: "加入稍后再看失败" }
+                .onFailure { failure ->
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        toast = failure.message ?: "加入稍后再看失败"
+                    }
+                }
         }
     }
 }

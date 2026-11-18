@@ -251,10 +251,16 @@ fun PlayerRoute(
     var error by remember { mutableStateOf<String?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     var info by remember { mutableStateOf<PlayInfo?>(null) }
+    // 引擎实际起播的媒体身份。进度只写给这套身份，且要 engine.mediaTag 仍一致：
+    // 换片瞬间 detail/page 已切新片而引擎还在播旧片，不能拿 detail 当进度归属。
+    var startedBvid by remember { mutableStateOf<String?>(null) }
+    var startedCid by remember { mutableLongStateOf(0L) }
+    var startedTag by remember { mutableStateOf("") }
     var livePlayInfo by remember { mutableStateOf<LivePlayInfo?>(null) }
     var liveRoomInfo by remember { mutableStateOf<LiveRoomInfo?>(null) }
     var liveChat by remember { mutableStateOf<List<LiveDanmaku>>(emptyList()) }
     var listening by remember { mutableStateOf(false) }
+    var listenSwitching by remember { mutableStateOf(false) }
     var listenClock by remember { mutableStateOf("00:00") }
     var avatarPreview by remember { mutableStateOf<String?>(null) }
     var commentImagePreview by remember { mutableStateOf<Triple<List<String>, Int, String>?>(null) }
@@ -362,6 +368,7 @@ fun PlayerRoute(
     var cacheOpen by remember { mutableStateOf(false) }
     var cacheQn by remember { mutableIntStateOf(0) }
     var attempt by remember { mutableIntStateOf(0) }
+    var liveRetries by remember { mutableIntStateOf(0) }
     val form = LocalWindowForm.current
     val desktop = isDesktopHost()
     val brightnessOk = canControlBrightness()
@@ -404,6 +411,7 @@ fun PlayerRoute(
                         d.pic,
                         play,
                         AppGraph.http,
+                        cid = page?.cid?.takeIf { it > 0 } ?: d.cid,
                     ) { done, total ->
                         if (done - lastProgressAt >= 512 * 1024 || done == total) {
                             lastProgressAt = done
@@ -508,7 +516,16 @@ fun PlayerRoute(
         val listener = object : PlaybackListener {
             override fun onError() {
                 val pos = engine.currentPosition
-                if (!engine.failOver(pos)) error = "播放失败，线路都不可用"
+                if (engine.failOver(pos)) return
+                // 直播没有备用线路：断流后重新取流地址（CDN 可能已切换），
+                // 最多自动重连 3 次，仍失败才交给错误页的手动重试。
+                if (liveRoom != null && liveRetries < 3) {
+                    liveRetries += 1
+                    toast = "直播断流，正在重连（$liveRetries/3）"
+                    attempt += 1
+                    return
+                }
+                error = "播放失败，线路都不可用"
             }
 
             override fun onEnded(endedNow: Boolean) {
@@ -611,9 +628,22 @@ fun PlayerRoute(
                     measuredBytesPerSecond = CdnPicker.lastMeasuredBytesPerSecond,
                     stallBoostMs = CdnPicker.stallBoostMs(mediaUrl),
                 )
+                engine.setMediaInfo(detail?.title.orEmpty(), detail?.owner.orEmpty())
                 runCatching { engine.play(got, startAt, audioOnly = audioOnly) }
-                    .onFailure { error = it.message ?: "播放失败" }
-            }.onFailure { error = it.message }
+                    .onSuccess {
+                        startedBvid = targetBvid
+                        startedCid = cid
+                        startedTag = engine.mediaTag
+                        listenSwitching = false
+                    }
+                    .onFailure {
+                        error = it.message ?: "播放失败"
+                        listenSwitching = false
+                    }
+            }.onFailure {
+                error = it.message
+                listenSwitching = false
+            }
         }
         scope.launch {
             if (!settings.sponsorBlock) return@launch
@@ -635,10 +665,14 @@ fun PlayerRoute(
 
     fun loadComments(aid: Long, pageNum: Int, mode: Int, append: Boolean) {
         if (aid <= 0) return
+        // 风控重试要等 30 秒，期间可能已换视频：结果落地前必须核对 aid，
+        // 否则旧片评论覆盖新片评论区。
+        if (detail?.aid != aid) return
         commentLoading = true
         commentError = null
         scope.launch {
             AppGraph.repo.comments(aid, pageNum, mode).onSuccess { got ->
+                if (detail?.aid != aid) return@onSuccess
                 comments = if (append) (comments + got.items).distinctBy { it.rpid } else got.items
                 commentPage = got.page
                 commentsMore = got.hasMore
@@ -646,6 +680,7 @@ fun PlayerRoute(
                 commentError = null
                 commentCooldownUntil = 0L
             }.onFailure { failure ->
+                if (detail?.aid != aid) return@onFailure
                 val message = failure.message ?: "评论加载失败"
                 commentError = message
                 val risk = message.contains("风控") || message.contains("-412") || message.contains("频繁")
@@ -654,12 +689,13 @@ fun PlayerRoute(
                     commentError = "$message（30 秒后自动重试）"
                     scope.launch {
                         delay(30_000)
+                        if (detail?.aid != aid) return@launch
                         commentCooldownUntil = 0L
                         loadComments(aid, pageNum, mode, append)
                     }
                 }
             }
-            commentLoading = false
+            if (detail?.aid == aid) commentLoading = false
         }
     }
 
@@ -829,13 +865,26 @@ fun PlayerRoute(
         val room = liveRoom ?: return@LaunchedEffect
         if (!settings.danmakuEnabled) return@LaunchedEffect
         while (true) {
+            // 聊天列表攒 100ms 一批上屏（对齐 BiliDesk v1.7.6）：密集弹幕下
+            // 逐条写状态会逐条重组。滚动弹幕的时间戳仍逐条打，保证入场时机。
+            val chatBatch = ArrayList<LiveDanmaku>()
+            var lastChatFlush = epochMs()
             AppGraph.repo.liveDanmaku(room)
                 .catch { }
                 .collect { msg ->
-                    liveChat = (liveChat + msg).takeLast(120)
                     val sec = runCatching { engine.currentPosition / 1000.0 }.getOrDefault(0.0)
                     danmaku = (danmaku + Danmaku(sec, msg.text, msg.mode, msg.color)).takeLast(400)
+                    chatBatch += msg
+                    val now = epochMs()
+                    if (now - lastChatFlush >= 100) {
+                        liveChat = (liveChat + chatBatch).takeLast(120)
+                        chatBatch.clear()
+                        lastChatFlush = now
+                    }
                 }
+            if (chatBatch.isNotEmpty()) {
+                liveChat = (liveChat + chatBatch).takeLast(120)
+            }
             delay(3_000)
         }
     }
@@ -846,7 +895,15 @@ fun PlayerRoute(
             when {
                 local != null -> {
                     ready.join()
-                    engine.playFiles(local.videoPath, local.audioPath)
+                    // 离线续播：按 bvid+cid 读在线时记下的进度（下载时已存 cid）。
+                    val remembered = if (local.cid > 0) PlayMemory.read(local.bvid, local.cid) else 0L
+                    val startAt = remembered.takeIf { it >= 5_000 } ?: 0L
+                    engine.setMediaInfo(local.title, "")
+                    engine.playFiles(local.videoPath, local.audioPath, startAt)
+                    startedBvid = local.bvid
+                    startedCid = local.cid
+                    startedTag = engine.mediaTag
+                    if (startAt > 0) hint = "已回到上次看到的位置"
                     // 播的是合流 MP4：正常播了 5 秒才清原始双流，坏了还能回退。
                     if (local.videoPath.endsWith(".mp4") && local.audioPath == null) {
                         launch(ioDispatcher) {
@@ -864,6 +921,7 @@ fun PlayerRoute(
                     ready.join()
                     play.onSuccess { got ->
                         livePlayInfo = got
+                        liveRetries = 0
                         engine.networkCachingMs = BufferPolicy.resolve(
                             kind = BufferMediaKind.Live,
                             shortVideo = false,
@@ -872,6 +930,7 @@ fun PlayerRoute(
                             measuredBytesPerSecond = CdnPicker.lastMeasuredBytesPerSecond,
                             stallBoostMs = CdnPicker.stallBoostMs(got.url),
                         )
+                        engine.setMediaInfo("直播 · 房间 $liveRoom", "")
                         engine.playLive(got.url)
                         scope.launch {
                             AppGraph.repo.liveRoomInfo(liveRoom).onSuccess { room ->
@@ -991,12 +1050,17 @@ fun PlayerRoute(
     )
     LaunchedEffect(engine) {
         while (true) {
-            if (sponsorOn.value) {
-                val pos = runCatching { engine.currentPosition }.getOrNull()
-                if (pos != null) {
-                    val bvidNow = detail?.bvid
-                    val cidNow = page?.cid ?: detail?.cid ?: 0L
-                    if (!bvidNow.isNullOrBlank() && cidNow > 0) PlayMemory.write(bvidNow, cidNow, pos)
+            val pos = runCatching { engine.currentPosition }.getOrNull()
+            if (pos != null) {
+                // 进度记录与 SponsorBlock 无关，任何时候都要写。身份取引擎实际在播的
+                // 媒体（started*），不是 detail/page：换片瞬间 detail 已切到新片而引擎
+                // 还在播旧片，用 detail 会把旧片进度写到新片名下。
+                val bvidNow = startedBvid
+                val cidNow = startedCid
+                if (!bvidNow.isNullOrBlank() && cidNow > 0 && engine.mediaTag == startedTag) {
+                    PlayMemory.write(bvidNow, cidNow, pos)
+                }
+                if (sponsorOn.value) {
                     val sec = pos / 1000.0
                     val seen = skippedState.value
                     val hit = SponsorCategories.select(sponsorRaw.value, sponsorCid.value, sponsorCats.value)
@@ -1120,6 +1184,11 @@ fun PlayerRoute(
             .fillMaxSize()
             .focusRequester(focus)
             .focusable()
+            .onFocusChanged { state ->
+                // 长按 → 期间 Alt-Tab/点走会丢 KeyUp，rightHeld 不复位就永远
+                // 卡在 3 倍速。焦点一丢立即按「松开」处理。
+                if (!state.hasFocus && rightHeld) rightHeld = false
+            }
             .onPreviewKeyEvent { event ->
                 // 裸字母快捷键不吞 Ctrl/Alt/Meta 组合键：Ctrl+C 复制、Ctrl+F 查找等
                 // 必须原样放行给文本框/系统，否则复制失效还会误触字幕/全屏。
@@ -1260,6 +1329,8 @@ fun PlayerRoute(
                     cues = subtitleCues,
                     delaySec = settings.subtitleDelaySec,
                     visible = settings.subtitleEnabled,
+                    fontSp = settings.subtitleFontSp,
+                    bottomPercent = settings.subtitleBottomPercent,
                     // 控制栏显示时字幕上移一点，不被工具条压住。
                     modifier = Modifier.padding(bottom = if (showChrome) 44.dp else 0.dp),
                 )
@@ -1780,35 +1851,54 @@ fun PlayerRoute(
                     }
                 }
                 if (liveRoom == null && local == null && info != null && !compactChrome) {
-                    TextButton(onClick = {
-                        val pos = engine.currentPosition
-                        if (listening) {
-                            listening = false
-                            engine.restoreVideo(pos)
-                        } else if (engine.playAudioOnly(pos)) {
-                            listening = true
-                        } else {
-                            // durl 合流单流没有独立音轨；切回 DASH 再取一次 audioUrl。
-                            val id = bvid ?: detail?.bvid
-                            val cidNow = page?.cid ?: detail?.cid ?: 0L
-                            if (id.isNullOrBlank() || cidNow <= 0) {
-                                toast = "这条视频没有可用的音轨"
-                            } else {
+                    TextButton(
+                        enabled = !listenSwitching,
+                        onClick = {
+                            // 切换闸门：重建媒体要停上一路解码，期间连点会出
+                            // 「按钮说听视频、实际播的是视频」的半状态。
+                            listenSwitching = true
+                            val pos = engine.currentPosition
+                            if (listening) {
+                                listening = false
+                                engine.restoreVideo(pos)
+                                scope.launch {
+                                    delay(600)
+                                    listenSwitching = false
+                                }
+                            } else if (engine.playAudioOnly(pos)) {
                                 listening = true
-                                start(
-                                    id,
-                                    cidNow,
-                                    seek = pos,
-                                    durationSec = page?.durationSec
-                                        ?: detail?.durationSec
-                                        ?: 0,
-                                    forceDash = true,
-                                )
+                                scope.launch {
+                                    delay(600)
+                                    listenSwitching = false
+                                }
+                            } else {
+                                // durl 合流单流没有独立音轨；切回 DASH 再取一次 audioUrl。
+                                val id = bvid ?: detail?.bvid
+                                val cidNow = page?.cid ?: detail?.cid ?: 0L
+                                if (id.isNullOrBlank() || cidNow <= 0) {
+                                    toast = "这条视频没有可用的音轨"
+                                    listenSwitching = false
+                                } else {
+                                    listening = true
+                                    start(
+                                        id,
+                                        cidNow,
+                                        seek = pos,
+                                        durationSec = page?.durationSec
+                                            ?: detail?.durationSec
+                                            ?: 0,
+                                        forceDash = true,
+                                    )
+                                }
                             }
-                        }
-                    }) {
+                        },
+                    ) {
                         Text(
-                            if (listening) "正在聆听 $listenClock" else "听视频",
+                            when {
+                                listenSwitching -> "切换中…"
+                                listening -> "正在聆听 $listenClock"
+                                else -> "听视频"
+                            },
                             color = if (listening) Color(0xFFF59E0B) else Color.White,
                         )
                     }
@@ -2795,7 +2885,8 @@ fun PlayerRoute(
                 onDismissRequest = { favOpen = false },
                 title = { Text("选择收藏夹") },
                 text = {
-                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                    val favScroll = rememberScrollState()
+                    Column(Modifier.verticalScroll(favScroll).smoothWheelScroll(favScroll, LocalWheelSpeed.current)) {
                         if (favDraft.isEmpty()) {
                             Text("没有可用的收藏夹")
                         }

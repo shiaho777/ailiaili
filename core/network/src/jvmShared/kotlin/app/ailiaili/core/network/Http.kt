@@ -45,7 +45,9 @@ expect class HttpEngine(connectTimeoutMs: Long, readTimeoutMs: Long) {
 
     /**
      * 流式下载到文件，不把整个响应读进内存。
-     * 先写 `<filePath>.part`，成功后再原子改名；失败会清掉临时文件。
+     * 先写 `<filePath>.part`，成功后原子改名；支持断点续传：失败保留 .part
+     * 与 .part.meta（URL+总长），下次同 URL 用 Range 从断点继续；URL 变化或
+     * 服务端不支持 Range 时整段重下。
      */
     fun downloadTo(
         url: String,

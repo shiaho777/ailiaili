@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 
 object CdnStatus {
@@ -66,6 +67,12 @@ class BiliClient(
     @Volatile private var wbiAt: Long = 0L
     private val wbiFlight = SingleFlight<String, String?>()
     private val buvidFlight = SingleFlight<String, Unit>()
+    /**
+     * 会话读-改-写必须串行：扫码吸收 Cookie、风控轮换 buvid、退出登录可能并发，
+     * 各自基于旧快照 copy 再写回会互相覆盖（最坏丢 SESSDATA，登录静默失效）。
+     * 锁内只做内存合并与落盘，网络请求一律在锁外。
+     */
+    private val sessionLock = kotlinx.coroutines.sync.Mutex()
     /** 同 URL 的并发 GET 合并成一次真实请求（快速切页/双栏同时打开不再重复打接口）。 */
     private val getFlight = SingleFlight<String, String?>()
     /** 低频变化的只读接口短缓存；播放地址/动态/评论等实时接口绝不进这里。 */
@@ -74,6 +81,7 @@ class BiliClient(
     private val msgDevId = randomHex(32)
     private var laterAids: Set<Long>? = null
     private var laterAt: Long = 0L
+    private var laterOwner: String? = null
 
     /**
      * 免登录 1080P 的“设备指纹”参数必须在一台设备/一个进程内保持稳定。
@@ -91,19 +99,26 @@ class BiliClient(
         // 首次启动多个页面并发进来时，finger/spi 只打一次。
         buvidFlight.run("buvid") {
             withContext(ioDispatcher) {
-                val now = session()
-                var next = now
-                if (next.buvid3.isNullOrBlank() || next.buvid4.isNullOrBlank()) {
+                var b3: String? = null
+                var b4: String? = null
+                if (cur.buvid3.isNullOrBlank() || cur.buvid4.isNullOrBlank()) {
                     val data = get("https://api.bilibili.com/x/frontend/finger/spi", emptyMap()).data
                     if (data != null) {
-                        if (next.buvid3.isNullOrBlank()) data.str("b_3").takeIf { it.isNotBlank() }?.let { next = next.copy(buvid3 = it) }
-                        if (next.buvid4.isNullOrBlank()) data.str("b_4").takeIf { it.isNotBlank() }?.let { next = next.copy(buvid4 = it) }
+                        b3 = data.str("b_3").takeIf { it.isNotBlank() }
+                        b4 = data.str("b_4").takeIf { it.isNotBlank() }
                     }
                 }
-                if (next.bNut.isNullOrBlank()) {
-                    next = next.copy(bNut = (epochMs() / 1000).toString())
+                // 网络请求在锁外；合并基于锁内最新快照，只补缺不覆盖别的字段。
+                sessionLock.withLock {
+                    val now = session()
+                    var next = now
+                    if (next.buvid3.isNullOrBlank()) b3?.let { next = next.copy(buvid3 = it) }
+                    if (next.buvid4.isNullOrBlank()) b4?.let { next = next.copy(buvid4 = it) }
+                    if (next.bNut.isNullOrBlank()) {
+                        next = next.copy(bNut = (epochMs() / 1000).toString())
+                    }
+                    if (next != now) updateSession(next)
                 }
-                if (next != now) updateSession(next)
             }
         }
     }
@@ -254,7 +269,7 @@ class BiliClient(
             } else {
                 "https://api.bilibili.com/x/web-interface/search/type"
             }
-            val resp = get(url, params, sign = signed, referer = referer)
+            val resp = get(url, params, sign = signed, referer = referer, transportRetry = false)
             if (resp.code != 0) {
                 if (app.ailiaili.core.model.isSearchRiskCode(resp.code)) {
                     return SearchPage(emptyList(), emptyList(), false, blocked = true)
@@ -295,13 +310,15 @@ class BiliClient(
         val b3 = data.str("b_3")
         val b4 = data.str("b_4")
         if (b3.isBlank() && b4.isBlank()) return
-        val cur = session()
-        updateSession(
-            cur.copy(
-                buvid3 = b3.ifBlank { cur.buvid3.orEmpty() }.takeIf { it.isNotBlank() },
-                buvid4 = b4.ifBlank { cur.buvid4.orEmpty() }.takeIf { it.isNotBlank() },
-            ),
-        )
+        sessionLock.withLock {
+            val cur = session()
+            updateSession(
+                cur.copy(
+                    buvid3 = b3.ifBlank { cur.buvid3.orEmpty() }.takeIf { it.isNotBlank() },
+                    buvid4 = b4.ifBlank { cur.buvid4.orEmpty() }.takeIf { it.isNotBlank() },
+                ),
+            )
+        }
     }
 
     suspend fun bangumiDetail(seasonId: Long): Result<BangumiDetail> = api {
@@ -326,6 +343,7 @@ class BiliClient(
             ),
             sign = false,
             referer = "https://search.bilibili.com/",
+            transportRetry = false,
         )
         if (resp.code != 0) emptyList()
         else resp.data?.arr("result")?.objects().orEmpty().mapNotNull(::parseBangumiItem)
@@ -430,7 +448,7 @@ class BiliClient(
             ps["dm_cover_img_str"] = dmCoverImgStr
             ps["dm_img_inter"] = """{"ds":[],"wh":[0,0,0],"of":[0,0,0]}"""
         }
-        val resp = get("https://api.bilibili.com/x/player/wbi/playurl", ps, sign = true)
+        val resp = get("https://api.bilibili.com/x/player/wbi/playurl", ps, sign = true, transportRetry = false)
         if (resp.code != 0) error(friendly(resp.code, resp.message ?: "获取播放地址失败"))
         val data = resp.data
         val dash = data?.obj("dash")
@@ -576,6 +594,7 @@ class BiliClient(
                 "pn" to page.toString(),
                 "ps" to "20",
             ),
+            transportRetry = false,
         )
         val data = resp.data
         if (resp.code != 0 || data == null) error(friendly(resp.code, resp.message ?: "评论加载失败"))
@@ -683,6 +702,7 @@ class BiliClient(
             ps,
             sign = true,
             referer = "https://t.bilibili.com/",
+            transportRetry = false,
         ).let { resp ->
             if (resp.code == -101) error("请先登录后查看动态")
             resp.data ?: error(resp.message ?: "动态加载失败")
@@ -706,6 +726,7 @@ class BiliClient(
             ps,
             sign = true,
             referer = "https://t.bilibili.com/",
+            transportRetry = false,
         )
         if (resp.code == -101) error("请先登录后查看动态")
         val data = resp.data ?: error(resp.message ?: "动态加载失败")
@@ -1370,7 +1391,9 @@ class BiliClient(
         if (aid <= 0) error("参数不完整")
         if (!session().loggedIn) error("未登录")
         val now = epochMs()
-        val cached = laterAids?.takeIf { now - laterAt < 60_000 }
+        // 缓存必须核对账号归属：换号后 60 秒内不能拿上个账号的集合判断。
+        val uid = session().dedeUserId.orEmpty()
+        val cached = laterAids?.takeIf { now - laterAt < 60_000 && laterOwner == uid }
         val set = cached ?: watchLater().getOrElse { error(it.message ?: "查询稍后再看失败") }
             .map { it.aid }
             .filter { it > 0 }
@@ -1378,6 +1401,7 @@ class BiliClient(
             .also {
                 laterAids = it
                 laterAt = now
+                laterOwner = uid
             }
         aid in set
     }
@@ -1438,6 +1462,7 @@ class BiliClient(
                 "mobi_app" to "web",
             ),
             referer = referer,
+            transportRetry = false,
         ).data ?: error("私信加载失败")
         val sessions = data.arr("session_list")?.objects().orEmpty().mapNotNull { s ->
             val id = s.lng("talker_id")
@@ -1468,6 +1493,7 @@ class BiliClient(
                 "mobi_app" to "web",
             ),
             referer = "https://message.bilibili.com/",
+            transportRetry = false,
         ).data ?: error("消息加载失败")
         data.arr("messages")?.objects().orEmpty().map { m ->
             val uid = m.lng("sender_uid")
@@ -1482,6 +1508,25 @@ class BiliClient(
                 seqno = m.lng("msg_seqno"),
             )
         }.sortedBy { it.seqno }
+    }
+
+    /**
+     * 会话已读回执：把已读位置推到最新一条。不上报的话服务端 unread_count
+     * 永远不清，收件箱红点与真实已读状态长期不一致。失败静默（尽力而为）。
+     */
+    suspend fun ackMsg(talkerId: Long, ackSeqno: Long): Result<Unit> {
+        if (talkerId <= 0 || ackSeqno <= 0) return Result.success(Unit)
+        return postOk(
+            "https://api.vc.bilibili.com/session_svr/v1/session_svr/update_ack",
+            mapOf(
+                "talker_id" to talkerId.toString(),
+                "session_type" to "1",
+                "ack_seqno" to ackSeqno.toString(),
+                "build" to "0",
+                "mobi_app" to "web",
+            ),
+            referer = "https://message.bilibili.com/",
+        )
     }
 
     suspend fun sendMsg(receiverId: Long, text: String): Result<Unit> =
@@ -1560,10 +1605,15 @@ class BiliClient(
             }
         }
 
-    suspend fun liveList(page: Int): Result<List<VideoItem>> = api {
+    /**
+     * 直播列表。parentAreaId < 0 表示「热门」：沿用旧的跨分区兜底；
+     * 指定分区时只查该分区，空列表就是空（不再拿别的分区凑数）。
+     */
+    suspend fun liveList(page: Int, parentAreaId: Int = -1): Result<List<VideoItem>> = api {
         ensureBuvid()
         var last = "直播列表为空"
-        for (area in intArrayOf(0, 1, 2)) {
+        val areas = if (parentAreaId >= 0) intArrayOf(parentAreaId) else intArrayOf(0, 1, 2)
+        for (area in areas) {
             val resp = get(
                 "https://api.live.bilibili.com/room/v1/Area/getRoomList",
                 mapOf(
@@ -1581,7 +1631,22 @@ class BiliClient(
             if (items.isNotEmpty()) return@api items
             last = resp.message ?: last
         }
-        error(last)
+        if (parentAreaId >= 0) emptyList() else error(last)
+    }
+
+    /** 直播大分区列表（id + 名称），供分区浏览选择条。 */
+    suspend fun liveAreas(): Result<List<app.ailiaili.core.model.LiveArea>> = api {
+        ensureBuvid()
+        val list = get(
+            "https://api.live.bilibili.com/room/v1/Area/getList",
+            mapOf("need_entrance" to "1", "parent_id" to "0"),
+            referer = "https://live.bilibili.com/",
+        ).data?.arr("list")?.objects().orEmpty()
+        list.mapNotNull { area ->
+            val id = area.int("id")
+            val name = area.str("name")
+            if (id > 0 && name.isNotBlank()) app.ailiaili.core.model.LiveArea(id, name) else null
+        }
     }
 
     suspend fun livePlay(roomId: Long, qn: Int = 0): Result<LivePlayInfo> = api {
@@ -1815,24 +1880,28 @@ class BiliClient(
     }
 
     suspend fun logout() {
-        updateSession(session().copy(sessData = null, biliJct = null, dedeUserId = null, dedeUserIdCkMd5 = null))
+        sessionLock.withLock {
+            updateSession(session().copy(sessData = null, biliJct = null, dedeUserId = null, dedeUserIdCkMd5 = null))
+        }
     }
 
-    private fun absorbCookies(headers: List<String>) {
-        var next = session()
-        for (raw in headers) {
-            val pair = raw.substringBefore(';').trim()
-            val name = pair.substringBefore('=')
-            val value = pair.substringAfter('=', "")
-            next = when (name) {
-                "SESSDATA" -> next.copy(sessData = value)
-                "bili_jct" -> next.copy(biliJct = value)
-                "DedeUserID" -> next.copy(dedeUserId = value)
-                "DedeUserID__ckMd5" -> next.copy(dedeUserIdCkMd5 = value)
-                else -> next
+    private suspend fun absorbCookies(headers: List<String>) {
+        sessionLock.withLock {
+            var next = session()
+            for (raw in headers) {
+                val pair = raw.substringBefore(';').trim()
+                val name = pair.substringBefore('=')
+                val value = pair.substringAfter('=', "")
+                next = when (name) {
+                    "SESSDATA" -> next.copy(sessData = value)
+                    "bili_jct" -> next.copy(biliJct = value)
+                    "DedeUserID" -> next.copy(dedeUserId = value)
+                    "DedeUserID__ckMd5" -> next.copy(dedeUserIdCkMd5 = value)
+                    else -> next
+                }
             }
+            if (next != session()) updateSession(next)
         }
-        if (next != session()) updateSession(next)
     }
 
     private suspend fun listOf(
@@ -1870,12 +1939,15 @@ class BiliClient(
         retry: Boolean = true,
         bodyKey: String = "data",
         cacheTtlMs: Long = 0L,
+        transportRetry: Boolean = true,
     ): Resp {
         // 缓存键用原始参数（不含 wts/w_rid 签名时间戳），同参数的两次调用才能命中；
-        // 带上登录态：登录前后同一 URL 的可见内容不同（如 AI 字幕）。
+        // 带上账号标识：只带 loggedIn 布尔的话，A 退登换 B（同为已登录）会命中
+        // A 的缓存（如 AI 字幕轨），TTL 内串号。
         val cacheKey = if (cacheTtlMs > 0) {
             val base = params.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
-            "${session().loggedIn}|$url?$base"
+            val s = session()
+            "${s.loggedIn}|${s.dedeUserId.orEmpty()}|$url?$base"
         } else {
             null
         }
@@ -1884,13 +1956,16 @@ class BiliClient(
             val mixin = mixin() ?: return Resp(-400, "WBI 密钥获取失败", null)
             signParams(ps, mixin)
         }
-        val full = if (ps.isEmpty()) url else url + "?" + ps.entries.joinToString("&") { "${it.key}=${wbiEnc(it.value)}" }
+        // 签名请求必须与 signParams 的 wbiEnc 逐字节一致（否则 w_rid 对不上）；
+        // 未签名请求用标准编码：wbiEnc 会剥掉 !'()*，搜索词里的这些字符不能被改写。
+        val enc: (String) -> String = if (sign) ::wbiEnc else ::urlEncode
+        val full = if (ps.isEmpty()) url else url + "?" + ps.entries.joinToString("&") { "${it.key}=${enc(it.value)}" }
         if (cacheKey != null) {
             readCache.get(cacheKey)?.let { cached ->
                 return parseResp(cached, bodyKey)
             }
         }
-        val text = getFlight.run(full) { text(full, referer) }
+        val text = getFlight.run(full) { text(full, referer, transportRetry) }
             ?: return Resp(-1, "网络请求失败", null)
         val trimmed = text.trimStart()
         val resp = parseResp(trimmed, bodyKey)
@@ -1898,7 +1973,7 @@ class BiliClient(
             wbiImg = null
             wbiSub = null
             wbiAt = 0L
-            return get(url, params, sign = true, referer = referer, retry = false, bodyKey = bodyKey)
+            return get(url, params, sign = true, referer = referer, retry = false, bodyKey = bodyKey, transportRetry = transportRetry)
         }
         if (cacheKey != null && resp.code == 0 && cacheTtlMs > 0) {
             readCache.put(cacheKey, trimmed, cacheTtlMs)
@@ -1931,12 +2006,15 @@ class BiliClient(
     /**
      * GET 传输：瞬时失败（网络异常 / 408 / 429 / 5xx）指数退避重试两次。
      * B 站业务错误在 200 响应体里，不会走到重试；POST 一律不重试（点赞/投币不可幂等）。
+     * 实时接口（播放地址/动态/评论/私信/搜索）传 transportRetry=false：
+     * 限流时重试只会加剧风控，一次失败直接交给上层降级链。
      */
-    private suspend fun text(url: String, referer: String): String? {
-        repeat(3) { attempt ->
+    private suspend fun text(url: String, referer: String, transportRetry: Boolean = true): String? {
+        val attempts = if (transportRetry) 3 else 1
+        repeat(attempts) { attempt ->
             val outcome = textOnce(url, referer)
             if (outcome != null) return outcome
-            if (attempt < 2) {
+            if (attempt < attempts - 1) {
                 kotlinx.coroutines.delay(retryBackoffMs(attempt, kotlin.random.Random.nextDouble(-0.2, 0.2)))
             }
         }
@@ -2077,7 +2155,17 @@ class BiliClient(
         val videoCands = urlsOf(chosen)
         if (videoCands.isEmpty()) return null
         val videoUrl = CdnPicker.pickVideo(videoCands, settings)
-        val audios = dash.arr("audio")?.objects().orEmpty()
+        // 杜比(30250)/Hi-Res(30251) 不在 audio 数组里，分别在 dash.dolby.audio /
+        // dash.flac.audio 对象中。fnval=4048 已请求这些档，不并进来就永远选不到。
+        val audios = buildList {
+            addAll(dash.arr("audio")?.objects().orEmpty())
+            dash.obj("dolby")?.arr("audio")?.objects()?.let { addAll(it) }
+            dash.obj("flac")?.let { flac ->
+                flac.obj("audio")?.let { add(it) }
+                // 个别响应把音轨字段直接平铺在 flac 对象里。
+                if (flac.has("id") && flac.int("id") > 0) add(flac)
+            }
+        }
         val audioQualities = audios.mapNotNull { track ->
             val urls = urlsOf(track)
             if (urls.isEmpty()) return@mapNotNull null
@@ -2134,7 +2222,7 @@ class BiliClient(
         stream.arr("backup_url")?.let { arr ->
             for (i in 0 until arr.length()) arr.optString(i).takeIf { it.isNotBlank() }?.let { add(it) }
         }
-    }.distinct()
+    }.distinct().let { app.ailiaili.core.model.filterAllowedMediaUrls(it) }
 
     private fun codecRank(codec: String): Int {
         val c = codec.lowercase()
@@ -2155,7 +2243,10 @@ class BiliClient(
                     val info = codec.arr("url_info")?.optJSONObject(0)
                     val host = info?.str("host").orEmpty()
                     val extra = info?.str("extra").orEmpty()
-                    if (base.isNotBlank() && host.isNotBlank()) return host + base + extra
+                    if (base.isNotBlank() && host.isNotBlank()) {
+                        val full = host + base + extra
+                        if (app.ailiaili.core.model.isAllowedMediaUrl(full)) return full
+                    }
                 }
             }
         }

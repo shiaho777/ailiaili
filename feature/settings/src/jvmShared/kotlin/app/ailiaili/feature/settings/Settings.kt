@@ -41,6 +41,9 @@ import app.ailiaili.core.data.hideAppWindow
 import app.ailiaili.core.data.imageCacheDirs
 import app.ailiaili.core.data.chooseDirectory
 import app.ailiaili.core.data.isDesktopHost
+import app.ailiaili.core.data.saveTextFile
+import app.ailiaili.core.data.readTextFile
+import app.ailiaili.core.data.SETTINGS_BACKUP_NAME
 import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.data.traySupported
 import app.ailiaili.core.model.SponsorCategories
@@ -65,6 +68,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VisibilityOff
 import app.ailiaili.core.designsystem.BiliSettingsLabel
 import app.ailiaili.core.designsystem.BiliSettingsNote
@@ -98,6 +102,12 @@ import app.ailiaili.core.network.get
 private val qualities = listOf(16, 32, 64, 80, 112, 116, 120)
 
 private val settingsTabs = listOf("通用", "播放", "数据管理", "关于")
+
+/** 关键词防抖落盘用独立作用域：页面离开组合被取消时，最后一次编辑也要写进去。 */
+private val keywordSaveScope = kotlinx.coroutines.CoroutineScope(
+    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+)
+private var keywordSaveJob: kotlinx.coroutines.Job? = null
 
 @Composable
 fun SettingsRoute(
@@ -428,7 +438,33 @@ fun SettingsRoute(
                             }
                         }
                     }
-                    BiliSettingsNote("桌面端生效；Android 由 Media3 自行管理缓冲。")
+                    BiliSettingsNote("双端生效：桌面映射 VLC 网络缓冲，Android 映射 Media3 缓冲参数。")
+                }
+                BiliSectionTitle("字幕", Modifier.padding(horizontal = 20.dp))
+                SettingsCard {
+                    BiliSettingsNote("字幕开关、语言与延迟在播放器字幕菜单里调；这里管外观。")
+                    var subFont by remember(settings.subtitleFontSp) { mutableFloatStateOf(settings.subtitleFontSp.toFloat()) }
+                    BiliSettingsLabel("字幕字号 ${subFont.toInt()}sp")
+                    Slider(
+                        value = subFont,
+                        onValueChange = { subFont = it },
+                        onValueChangeFinished = {
+                            AppGraph.repo.updateSettings { it.copy(subtitleFontSp = subFont.toInt()) }
+                        },
+                        valueRange = 12f..36f,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                    var subBottom by remember(settings.subtitleBottomPercent) { mutableFloatStateOf(settings.subtitleBottomPercent.toFloat()) }
+                    BiliSettingsLabel("距底部高度 ${subBottom.toInt()}%")
+                    Slider(
+                        value = subBottom,
+                        onValueChange = { subBottom = it },
+                        onValueChangeFinished = {
+                            AppGraph.repo.updateSettings { it.copy(subtitleBottomPercent = subBottom.toInt()) }
+                        },
+                        valueRange = 0f..40f,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
                 }
                 BiliSectionTitle("弹幕", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
@@ -486,8 +522,14 @@ fun SettingsRoute(
                     }
                     LaunchedEffect(keywordDraft) {
                         if (keywordDraft == settings.danmakuBlockKeywords) return@LaunchedEffect
-                        delay(500)
-                        AppGraph.repo.updateSettings { it.copy(danmakuBlockKeywords = keywordDraft) }
+                        // 防抖落盘放独立作用域：挂在页面组合上的话，输入后 500ms 内
+                        // 返回/切页会取消协程，最后编辑静默丢失。
+                        keywordSaveJob?.cancel()
+                        val draft = keywordDraft
+                        keywordSaveJob = keywordSaveScope.launch {
+                            delay(500)
+                            AppGraph.repo.updateSettings { it.copy(danmakuBlockKeywords = draft) }
+                        }
                     }
                     OutlinedTextField(
                         value = keywordDraft,
@@ -558,6 +600,49 @@ fun SettingsRoute(
                             size = MetricChipSize.Compact,
                         )
                     }
+                    BiliSettingsRow(
+                        title = "导出设置",
+                        supporting = if (isDesktopHost()) {
+                            "备份为 JSON 文件（不含登录凭据），换机可导入"
+                        } else {
+                            "写入备份文件并拉起分享，可发到网盘/聊天保存"
+                        },
+                        icon = Icons.Filled.Upload,
+                        tone = MetricTone.Online,
+                        onClick = {
+                            scope.launch {
+                                val json = AppGraph.repo.exportSettingsJson()
+                                val path = saveTextFile(SETTINGS_BACKUP_NAME, json)
+                                app.ailiaili.core.designsystem.QuickActions.showToast(
+                                    if (path != null) "设置已导出" else "导出失败",
+                                )
+                            }
+                        },
+                    )
+                    BiliSettingsRow(
+                        title = "导入设置",
+                        supporting = if (isDesktopHost()) {
+                            "从备份 JSON 恢复全部设置（不含登录凭据）"
+                        } else {
+                            "读取应用存储里的 $SETTINGS_BACKUP_NAME（先把备份放到该位置）"
+                        },
+                        icon = Icons.Filled.Download,
+                        tone = MetricTone.Favorite,
+                        onClick = {
+                            scope.launch {
+                                val text = readTextFile()
+                                if (text == null) {
+                                    app.ailiaili.core.designsystem.QuickActions.showToast("没有读到备份文件")
+                                    return@launch
+                                }
+                                AppGraph.repo.importSettingsJson(text)
+                                    .onSuccess { app.ailiaili.core.designsystem.QuickActions.showToast("设置已导入") }
+                                    .onFailure {
+                                        app.ailiaili.core.designsystem.QuickActions.showToast(it.message ?: "导入失败")
+                                    }
+                            }
+                        },
+                    )
                     BiliSettingsRow(
                         title = "已下载的视频",
                         supporting = "缓存在这台设备上，不上传账号",

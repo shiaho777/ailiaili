@@ -33,6 +33,7 @@ import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.MetaRow
 import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricTone
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material.icons.Icons
 import androidx.compose.runtime.Composable
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import app.ailiaili.core.designsystem.BiliAssistChip
@@ -88,9 +90,16 @@ class ListViewModel(private val loader: suspend () -> Result<List<VideoItem>>) :
     }
     fun remove(item: VideoItem) { items = items.filterNot { it.stableKey == item.stableKey } }
 
-    fun delete(item: VideoItem, remote: suspend () -> Unit) {
+    fun delete(item: VideoItem, remote: suspend () -> Result<Unit>) {
+        val before = items
         remove(item)
-        viewModelScope.launch { remote() }
+        viewModelScope.launch {
+            // 乐观删除失败要回滚：否则本地没了、云端还在，且无任何提示。
+            runCatching { remote() }.getOrElse { Result.failure(it) }.onFailure {
+                items = before
+                error = it.message ?: "删除失败，已恢复"
+            }
+        }
     }
 
     fun deleteAll(remote: suspend () -> Result<Unit>) {
@@ -101,15 +110,19 @@ class ListViewModel(private val loader: suspend () -> Result<List<VideoItem>>) :
 }
 
 @Composable
-private fun BackTitle(title: String, onBack: () -> Unit) {
-    BiliBackHeader(title, onBack)
+private fun BackTitle(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+) {
+    BiliBackHeader(title, onBack, actions = actions)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (VideoItem) -> Unit) {
     var live by remember { mutableStateOf(false) }
-    val vm = appViewModel(key = if (live) "history-live" else "history-video") {
+    val vm = app.ailiaili.core.designsystem.accountViewModel(key = if (live) "history-live" else "history-video") {
         ListViewModel { if (live) AppGraph.repo.liveHistory(1) else AppGraph.repo.history(1) }
     }
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
@@ -121,6 +134,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
             when {
                 item.isLive && item.roomId > 0 -> AppGraph.repo.deleteHistory(item.roomId, live = true)
                 item.aid > 0 -> AppGraph.repo.deleteHistory(item.aid)
+                else -> Result.failure(IllegalStateException("这条记录不能删除"))
             }
         }
     }
@@ -140,7 +154,13 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消") } },
         )
     }
-    Scaffold(topBar = { BackTitle("历史", onBack) }) { padding ->
+    Scaffold(topBar = {
+        BackTitle("历史", onBack) {
+            app.ailiaili.core.designsystem.BiliHeaderAction(
+                androidx.compose.material.icons.Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading,
+            )
+        }
+    }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -192,7 +212,13 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
             ) {
                 if (shown.isEmpty()) {
                     FilteredEmptyState()
-                } else LazyColumn(Modifier.fillMaxSize()) {
+                } else {
+                    val historyState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    LazyColumn(
+                        Modifier.fillMaxSize()
+                            .smoothWheelScroll(historyState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                        state = historyState,
+                    ) {
                     items(shown, key = { it.stableKey }) { item ->
                         val state = rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
@@ -266,6 +292,7 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
                             )
                         }
                     }
+                    }
                 }
             }
         }
@@ -287,7 +314,11 @@ fun FavoritesRoute(onBack: () -> Unit, onOpen: (FavFolder) -> Unit) {
     Scaffold(topBar = { BackTitle("收藏", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             LoadBox(loading, error, folders.isEmpty(), "没有收藏夹", { attempt++ }) {
-                LazyColumn {
+                val foldersState = androidx.compose.foundation.lazy.rememberLazyListState()
+                LazyColumn(
+                    state = foldersState,
+                    modifier = Modifier.smoothWheelScroll(foldersState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                ) {
                     items(folders, key = { it.id }) { folder ->
                         VideoListRow(
                             title = folder.title.ifBlank { "收藏夹" },
@@ -347,11 +378,17 @@ fun FavVideosRoute(
     onVideo: (VideoItem) -> Unit,
     onAuthor: (VideoItem) -> Unit,
 ) {
-    val vm = appViewModel(key = "fav-$mediaId") { ListViewModel { AppGraph.repo.favVideos(mediaId, 1) } }
+    val vm = app.ailiaili.core.designsystem.accountViewModel(key = "fav-$mediaId") { ListViewModel { AppGraph.repo.favVideos(mediaId, 1) } }
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     var editing by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<String>()) }
-    Scaffold(topBar = { BackTitle(title, onBack) }) { padding ->
+    Scaffold(topBar = {
+        BackTitle(title, onBack) {
+            app.ailiaili.core.designsystem.BiliHeaderAction(
+                androidx.compose.material.icons.Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading,
+            )
+        }
+    }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             EditBar(
@@ -378,7 +415,12 @@ fun FavVideosRoute(
                 if (shown.isEmpty()) {
                     FilteredEmptyState()
                 } else if (editing) {
-                    LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
+                    val favEditState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    LazyColumn(
+                        state = favEditState,
+                        modifier = Modifier.smoothWheelScroll(favEditState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                        contentPadding = PaddingValues(vertical = 4.dp),
+                    ) {
                         items(shown, key = { it.stableKey }) { item ->
                             val toggle = {
                                 picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
@@ -434,7 +476,7 @@ fun FavVideosRoute(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (VideoItem) -> Unit) {
-    val vm = appViewModel(key = "later") { ListViewModel { AppGraph.repo.watchLater() } }
+    val vm = app.ailiaili.core.designsystem.accountViewModel(key = "later") { ListViewModel { AppGraph.repo.watchLater() } }
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     var editing by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<String>()) }
@@ -455,7 +497,13 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消") } },
         )
     }
-    Scaffold(topBar = { BackTitle("稍后再看", onBack) }) { padding ->
+    Scaffold(topBar = {
+        BackTitle("稍后再看", onBack) {
+            app.ailiaili.core.designsystem.BiliHeaderAction(
+                androidx.compose.material.icons.Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading,
+            )
+        }
+    }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             EditBar(
@@ -471,7 +519,10 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
                 },
                 onDelete = {
                     shown.filter { it.stableKey in picked }.forEach { item ->
-                        vm.delete(item) { if (item.aid > 0) AppGraph.repo.removeWatchLater(item.aid) }
+                        vm.delete(item) {
+                            if (item.aid > 0) AppGraph.repo.removeWatchLater(item.aid)
+                            else Result.failure(IllegalStateException("这条内容不能移出"))
+                        }
                     }
                     picked = emptySet()
                 },
@@ -480,7 +531,13 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
             LoadBox(vm.loading, vm.error, vm.items.isEmpty(), "稍后再看是空的", vm::reload) {
                 if (shown.isEmpty() && ContentFilter.active) {
                     FilteredEmptyState()
-                } else LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
+                } else {
+                    val laterState = androidx.compose.foundation.lazy.rememberLazyListState()
+                    LazyColumn(
+                        state = laterState,
+                        modifier = Modifier.smoothWheelScroll(laterState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                        contentPadding = PaddingValues(vertical = 4.dp),
+                    ) {
                     items(shown, key = { it.stableKey }) { item ->
                         val toggle = {
                             picked = if (item.stableKey in picked) picked - item.stableKey else picked + item.stableKey
@@ -498,6 +555,7 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
                                         close()
                                         vm.delete(item) {
                                             if (item.aid > 0) AppGraph.repo.removeWatchLater(item.aid)
+                                            else Result.failure(IllegalStateException("这条内容不能移出"))
                                         }
                                     },
                                 )
@@ -526,7 +584,10 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
                             trailing = if (editing) null else {
                                 {
                                     IconButton(onClick = {
-                                        vm.delete(item) { if (item.aid > 0) AppGraph.repo.removeWatchLater(item.aid) }
+                                        vm.delete(item) {
+                                            if (item.aid > 0) AppGraph.repo.removeWatchLater(item.aid)
+                                            else Result.failure(IllegalStateException("这条内容不能移出"))
+                                        }
                                     }) {
                                         Icon(
                                             Icons.Filled.Close,
@@ -537,6 +598,7 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
                                 }
                             },
                         )
+                    }
                     }
                 }
             }
@@ -644,7 +706,12 @@ fun CacheRoute(onBack: () -> Unit, onPlay: (CacheEntry) -> Unit) {
                     )
                 }
             } else {
-                LazyColumn(contentPadding = PaddingValues(vertical = 4.dp)) {
+                val cacheState = androidx.compose.foundation.lazy.rememberLazyListState()
+                LazyColumn(
+                    state = cacheState,
+                    modifier = Modifier.smoothWheelScroll(cacheState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                ) {
                     items(entries, key = { it.bvid }) { entry ->
                         VideoListRow(
                             title = entry.title,

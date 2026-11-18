@@ -42,6 +42,9 @@ interface BiliRepository {
     val settings: StateFlow<AppSettings>
     val cdnReport: StateFlow<String>
     fun updateSettings(block: (AppSettings) -> AppSettings)
+    /** 设置备份：导出完整 JSON（不含登录凭据）；导入校验后整体替换。 */
+    fun exportSettingsJson(): String
+    fun importSettingsJson(text: String): Result<Unit>
     fun invalidateCdn()
     suspend fun userState(): Result<UserState>
     suspend fun navStat(): Result<NavStat>
@@ -103,10 +106,12 @@ interface BiliRepository {
     suspend fun batchRemoveFav(mediaId: Long, aids: Collection<Long>): Result<Unit>
     suspend fun messages(): Result<List<MsgSession>>
     suspend fun msgHistory(talkerId: Long): Result<List<MsgItem>>
+    suspend fun ackMsg(talkerId: Long, ackSeqno: Long): Result<Unit>
     suspend fun sendMsg(receiverId: Long, text: String): Result<Unit>
     suspend fun msgEmotes(): Result<List<Pair<String, String>>>
     suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String): Result<Unit>
-    suspend fun liveList(page: Int): Result<List<VideoItem>>
+    suspend fun liveList(page: Int, parentAreaId: Int = -1): Result<List<VideoItem>>
+    suspend fun liveAreas(): Result<List<app.ailiaili.core.model.LiveArea>>
     suspend fun livePlay(roomId: Long, qn: Int = 0): Result<LivePlayInfo>
     suspend fun liveRoomInfo(roomId: Long): Result<LiveRoomInfo>
     fun liveDanmaku(roomId: Long): kotlinx.coroutines.flow.Flow<LiveDanmaku>
@@ -139,6 +144,8 @@ class BiliRepositoryImpl(
     override val settings = settingsStore.settings
     override val cdnReport = CdnStatus.report
     override fun updateSettings(block: (AppSettings) -> AppSettings) = settingsStore.update(block)
+    override fun exportSettingsJson(): String = settingsStore.exportJson()
+    override fun importSettingsJson(text: String): Result<Unit> = settingsStore.importJson(text)
     override fun invalidateCdn() = CdnPicker.invalidate()
     override suspend fun userState() = client.userState()
     override suspend fun navStat() = client.navStat()
@@ -209,11 +216,13 @@ class BiliRepositoryImpl(
     override suspend fun batchRemoveFav(mediaId: Long, aids: Collection<Long>) = client.batchRemoveFav(mediaId, aids)
     override suspend fun messages() = client.messages()
     override suspend fun msgHistory(talkerId: Long) = client.msgHistory(talkerId)
+    override suspend fun ackMsg(talkerId: Long, ackSeqno: Long) = client.ackMsg(talkerId, ackSeqno)
     override suspend fun sendMsg(receiverId: Long, text: String) = client.sendMsg(receiverId, text)
     override suspend fun msgEmotes() = client.msgEmotes()
     override suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String) =
         client.sendMsgImage(receiverId, bytes, fileName)
-    override suspend fun liveList(page: Int) = client.liveList(page)
+    override suspend fun liveList(page: Int, parentAreaId: Int) = client.liveList(page, parentAreaId)
+    override suspend fun liveAreas() = client.liveAreas()
     override suspend fun livePlay(roomId: Long, qn: Int) = client.livePlay(roomId, qn)
     override suspend fun liveRoomInfo(roomId: Long) = client.liveRoomInfo(roomId)
     override fun liveDanmaku(roomId: Long) = client.liveDanmaku(roomId)

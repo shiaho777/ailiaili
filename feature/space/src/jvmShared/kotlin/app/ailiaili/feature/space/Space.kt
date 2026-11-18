@@ -66,6 +66,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.BiliBackHeader
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
@@ -151,6 +152,8 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
     var foldersHasMore by mutableStateOf(false)
     var foldersLoadingMore by mutableStateOf(false)
     private val enriched = mutableSetOf<String>()
+    /** 投稿列表请求代号：刷新/切排序作废在途翻页，防旧页混入与跳页。 */
+    private var videosTicket = 0
 
     init { reload() }
 
@@ -187,6 +190,7 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
         if (refreshing || (loading && info == null)) return
         val first = info == null
         if (first) loading = true else refreshing = true
+        val ticketNow = ++videosTicket
         enriched.clear()
         viewModelScope.launch {
             coroutineScope {
@@ -195,14 +199,15 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
                 }
                 launch {
                     AppGraph.repo.spaceVideos(mid, 1, order).onSuccess { got ->
+                        if (ticketNow != videosTicket) return@onSuccess
                         items = got.items
                         page = 1
                         hasMore = got.hasMore
                         videoTotal = got.total
                         videoError = null
                         enrich(got.items)
-                    }.onFailure { videoError = it.message ?: "投稿加载失败" }
-                    videosReady = true
+                    }.onFailure { if (ticketNow == videosTicket) videoError = it.message ?: "投稿加载失败" }
+                    if (ticketNow == videosTicket) videosReady = true
                 }
                 launch {
                     AppGraph.repo.spaceCollections(mid, 1).onSuccess {
@@ -251,11 +256,13 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
     }
 
     fun loadMore() {
-        if (loadingMore || refreshing || loading || !hasMore || items.isEmpty()) return
+        if (loadingMore || refreshing || loading || !videosReady || !hasMore || items.isEmpty()) return
         val next = page + 1
+        val ticketNow = videosTicket
         loadingMore = true
         viewModelScope.launch {
             AppGraph.repo.spaceVideos(mid, next, order).onSuccess { got ->
+                if (ticketNow != videosTicket) return@onSuccess
                 page = next
                 val known = items.map { it.bvid }.toSet()
                 val fresh = got.items.filter { it.bvid !in known }
@@ -264,7 +271,7 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
                 if (got.total > 0) videoTotal = got.total
                 enrich(fresh)
             }.onFailure {
-                toast = it.message ?: "投稿加载失败"
+                if (ticketNow == videosTicket) toast = it.message ?: "投稿加载失败"
             }
             loadingMore = false
         }
@@ -356,9 +363,11 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
         if (next == order) return
         val previous = order
         order = next
+        val ticketNow = ++videosTicket
         viewModelScope.launch {
             videosReady = false
             AppGraph.repo.spaceVideos(mid, 1, next).onSuccess { got ->
+                if (ticketNow != videosTicket) return@onSuccess
                 items = got.items
                 page = 1
                 hasMore = got.hasMore
@@ -366,10 +375,11 @@ class SpaceViewModel(private val mid: Long) : ViewModel() {
                 videoError = null
                 enrich(got.items)
             }.onFailure {
+                if (ticketNow != videosTicket) return@onFailure
                 order = previous
                 toast = it.message ?: "这个排序暂时拿不到"
             }
-            videosReady = true
+            if (ticketNow == videosTicket) videosReady = true
         }
     }
 
@@ -495,7 +505,8 @@ fun SpaceRoute(
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(168.dp),
                         state = gridState,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize()
+                            .smoothWheelScroll(gridState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
                         contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 28.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),

@@ -91,6 +91,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Android 13+ 媒体通知需要运行时授权；拒绝也不影响播放本身。
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+            }
+        }
         enableEdgeToEdge()
         setContent {
             InstallBiliImages()
@@ -105,5 +114,18 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AndroidHost.activity = this
+    }
+
+    override fun onDestroy() {
+        // 静态持有必须随销毁清空：否则进程存活期间泄漏整个 Activity，
+        // openUrl/亮度调节还可能作用于已销毁的窗口。只清自己安装的引用。
+        if (AndroidHost.activity === this) AndroidHost.activity = null
+        AndroidHost.imagePicker = null
+        AndroidHost.fontPicker = null
+        pendingPick?.cancel()
+        pendingPick = null
+        pendingFont?.cancel()
+        pendingFont = null
+        super.onDestroy()
     }
 }

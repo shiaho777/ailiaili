@@ -116,6 +116,8 @@ class DynamicViewModel : ViewModel() {
     private var unreadBusy = false
     private var usersPage by mutableIntStateOf(1)
     private var usersLoading = false
+    /** 关注列表请求代号：刷新作废在途翻页，防旧页拼进新列表后跳页。 */
+    private var usersTicket = 0
     private var offset: String? = null
     private var upPage = 1
     private var selfMid = 0L
@@ -174,7 +176,9 @@ class DynamicViewModel : ViewModel() {
             }
             selfMid = mid
             refreshLive()
+            val usersTicketNow = ++usersTicket
             AppGraph.repo.followings(mid, 1).onSuccess { page ->
+                if (usersTicketNow != usersTicket) return@onSuccess
                 users = page.items
                 usersPage = 1
                 usersHasMore = page.hasMore
@@ -262,9 +266,11 @@ class DynamicViewModel : ViewModel() {
     fun loadMoreUsers() {
         if (usersLoading || !usersHasMore || selfMid <= 0) return
         val next = usersPage + 1
+        val ticketNow = usersTicket
         usersLoading = true
         viewModelScope.launch {
             AppGraph.repo.followings(selfMid, next).onSuccess { page ->
+                if (ticketNow != usersTicket) return@onSuccess
                 usersPage = next
                 val known = users.map { it.mid }.toSet()
                 users = users + page.items.filter { it.mid !in known }
@@ -430,6 +436,9 @@ fun DynamicRoute(
     val navBottom = shellNavigationBottom()
     val haptic = LocalHapticFeedback.current
     val userRow = rememberLazyListState()
+    // 宽屏左栏是 LazyColumn、窄屏是 LazyRow，翻页监听必须两个都盯：
+    // 只盯窄屏的话，宽屏关注列表永远只有第一页。
+    val userColumn = androidx.compose.foundation.lazy.rememberLazyListState()
     var userQuery by remember { mutableStateOf("") }
     LaunchedEffect(session.loggedIn) { vm.onEnter() }
     // 看板每分钟刷新一次；未读角标慢一拍（每 2 分钟），避免多打一次动态接口。
@@ -444,12 +453,15 @@ fun DynamicRoute(
             if (tick % 2 == 0) vm.refreshUnreadBadges()
         }
     }
-    LaunchedEffect(userRow, vm.users.size, vm.usersHasMore) {
-        snapshotFlow { userRow.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
-            .collect { last ->
-                val total = userRow.layoutInfo.totalItemsCount
-                if (total > 0 && last >= total - 3) vm.loadMoreUsers()
-            }
+    LaunchedEffect(userRow, userColumn, vm.users.size, vm.usersHasMore) {
+        snapshotFlow {
+            val rowLast = userRow.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val colLast = userColumn.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            maxOf(rowLast, colLast)
+        }.collect { last ->
+            val total = maxOf(userRow.layoutInfo.totalItemsCount, userColumn.layoutInfo.totalItemsCount)
+            if (total > 0 && last >= total - 3) vm.loadMoreUsers()
+        }
     }
     Column(Modifier.fillMaxSize()) {
         BiliPageHeader("动态") {
@@ -475,7 +487,7 @@ fun DynamicRoute(
             val wide = maxWidth >= 720.dp && vm.users.isNotEmpty()
             Row(Modifier.fillMaxSize()) {
             if (wide) {
-                val userListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                val userListState = userColumn
                 LazyColumn(
                     state = userListState,
                     modifier = Modifier

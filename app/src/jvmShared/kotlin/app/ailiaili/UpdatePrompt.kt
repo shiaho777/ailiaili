@@ -96,8 +96,24 @@ private suspend fun newerRelease(skipped: String): UpdateNote? = withContext(ioD
         )
         val tag = json.optString("tag_name").removePrefix("v")
         val page = json.optString("html_url")
-        if (tag.isBlank() || tag == CURRENT_VERSION) return@runCatching null
+        // 只比「不相等」会把旧版本当新版本：开发版比 latest 新、或 release
+        // 被回滚时，会弹窗推荐降级。必须做语义化比较，严格更新才提示。
+        if (tag.isBlank() || !isNewerVersion(tag, CURRENT_VERSION)) return@runCatching null
         if (tag.equals(skipped.removePrefix("v"), ignoreCase = true)) return@runCatching null
         UpdateNote(tag, page)
     }.getOrNull()
+}
+
+/** 语义化版本比较：candidate 严格大于 current 才算新版本。解析不了按段补 0。 */
+internal fun isNewerVersion(candidate: String, current: String): Boolean {
+    fun parts(v: String): List<Int> = v.trim().removePrefix("v").substringBefore('-')
+        .split('.').map { it.trim().toIntOrNull() ?: 0 }
+    val a = parts(candidate)
+    val b = parts(current)
+    for (i in 0 until maxOf(a.size, b.size)) {
+        val x = a.getOrElse(i) { 0 }
+        val y = b.getOrElse(i) { 0 }
+        if (x != y) return x > y
+    }
+    return false
 }

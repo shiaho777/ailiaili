@@ -33,6 +33,7 @@ import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.BiliBackHeader
 import app.ailiaili.core.designsystem.BiliFilterChip
 import app.ailiaili.core.designsystem.LoadBox
@@ -215,8 +216,11 @@ fun CommentDetailRoute(
     }
     Scaffold(topBar = { BiliBackHeader("评论详情", onBack) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+            val detailState = androidx.compose.foundation.lazy.rememberLazyListState()
             LazyColumn(
-                Modifier.weight(1f).fillMaxWidth(),
+                Modifier.weight(1f).fillMaxWidth()
+                    .smoothWheelScroll(detailState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                state = detailState,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             ) {
                 vm.root?.let { rootComment ->

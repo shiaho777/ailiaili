@@ -69,10 +69,14 @@ internal class DanmakuRuntime {
         playing: Boolean,
         nowNanos: Long = 0L,
         speed: Float = 1f,
+        live: Boolean = false,
     ): Double {
         if (playing) {
             pinned = false
-            val shown = advanceClock(sample, nowNanos, speed)
+            // 直播时间轴按块上报、缓冲后会前跳：拿播放器时间做校准就是
+            // 「匀速走一段再突然跳一截」。直播只用首帧采样定基准，之后纯墙钟
+            // 单调外推；暂停冻结、恢复续跑（对齐 BiliDesk v1.7.6）。
+            val shown = advanceClock(sample, nowNanos, speed, live)
             if (!shown.isNaN()) pinnedSec = shown
             return shown
         }
@@ -99,7 +103,7 @@ internal class DanmakuRuntime {
         clockNanos = 0L
     }
 
-    private fun advanceClock(sample: Double, nowNanos: Long, speed: Float): Double {
+    private fun advanceClock(sample: Double, nowNanos: Long, speed: Float, live: Boolean = false): Double {
         val rate = speed.coerceAtLeast(0.01f)
         if (nowNanos <= 0L) {
             if (!sample.isNaN()) clockSec = sample
@@ -120,7 +124,7 @@ internal class DanmakuRuntime {
         val predicted = clockSec + elapsed * clockSpeed
         clockNanos = nowNanos
         clockSpeed = rate
-        if (!sample.isNaN()) {
+        if (!live && !sample.isNaN()) {
             val diff = sample - predicted
             if (diff > SNAP_SEC) {
                 // 采样明显跑到墙钟前面：真正的跳转（seek / 换片），硬对齐。

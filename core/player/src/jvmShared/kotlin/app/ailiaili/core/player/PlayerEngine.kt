@@ -25,6 +25,13 @@ expect class PlayerEngine() {
     /** 网络预读缓冲（毫秒）。桌面端映射到 VLC :network-caching；Android 端暂存。 */
     var networkCachingMs: Int
 
+    /**
+     * 当前加载媒体的标识（主媒体 URL）。同一条流上切音质/听视频不改变它；
+     * 换片、故障切换、直播、本地文件都会变。上层用它核对"引擎在播的还是不是
+     * 我记录的那条媒体"，避免换片瞬间把旧片进度写到新片名下。未加载时为空串。
+     */
+    val mediaTag: String
+
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)
@@ -34,12 +41,18 @@ expect class PlayerEngine() {
     fun prepare()
     fun freeze()
 
+    /**
+     * 媒体元数据（标题/作者）：Android 供媒体通知与锁屏显示；桌面无系统
+     * 媒体会话，空实现。起播前调用。
+     */
+    fun setMediaInfo(title: String, artist: String)
+
     fun play(info: PlayInfo, positionMs: Long = 0, audioOnly: Boolean = false)
     fun playAudioOnly(positionMs: Long): Boolean
     fun restoreVideo(positionMs: Long)
     fun failOver(positionMs: Long): Boolean
     fun playLive(url: String)
-    fun playFiles(videoPath: String, audioPath: String?)
+    fun playFiles(videoPath: String, audioPath: String?, positionMs: Long = 0L)
     fun release()
 
     /**

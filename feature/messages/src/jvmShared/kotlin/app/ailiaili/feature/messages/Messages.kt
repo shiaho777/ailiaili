@@ -76,6 +76,7 @@ import app.ailiaili.core.designsystem.BiliHeaderAction
 import app.ailiaili.core.designsystem.BiliLoadingState
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.appViewModel
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.model.MsgItem
 import app.ailiaili.core.model.MsgSession
 import coil3.compose.AsyncImage
@@ -109,7 +110,12 @@ class ChatViewModel(private val talkerId: Long) : ViewModel() {
         loading = true
         viewModelScope.launch {
             AppGraph.repo.msgHistory(talkerId)
-                .onSuccess { items = it; error = null }
+                .onSuccess { got ->
+                    items = got
+                    error = null
+                    // 已读回执：推到最新一条，服务端未读数才会清。尽力而为，失败静默。
+                    got.maxOfOrNull { it.seqno }?.let { AppGraph.repo.ackMsg(talkerId, it) }
+                }
                 .onFailure { error = it.message }
             loading = false
         }
@@ -161,7 +167,7 @@ fun MessagesRoute(
     onBack: () -> Unit,
     onOpen: (MsgSession) -> Unit,
     onLogin: () -> Unit,
-    vm: InboxViewModel = appViewModel { InboxViewModel() },
+    vm: InboxViewModel = app.ailiaili.core.designsystem.accountViewModel(key = "inbox") { InboxViewModel() },
 ) {
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     val session by AppGraph.repo.session.collectAsState()
@@ -169,6 +175,11 @@ fun MessagesRoute(
     LaunchedEffect(session.loggedIn) {
         if (session.loggedIn && !seenLogin) vm.reload()
         seenLogin = session.loggedIn
+    }
+    // 从聊天页返回时收件箱重新进组合：重拉一次会话列表，
+    // 刚读完的会话未读数（已上报回执）才能及时清掉。
+    LaunchedEffect(Unit) {
+        if (session.loggedIn && vm.items.isNotEmpty()) vm.reload()
     }
     Scaffold(
         topBar = {
@@ -202,8 +213,11 @@ fun MessagesRoute(
                 if (wide) {
                     // 微信式双栏：左侧会话列表，右侧直接聊天，不再整页跳转。
                     Row(Modifier.fillMaxSize()) {
+                        val inboxWideState = androidx.compose.foundation.lazy.rememberLazyListState()
                         LazyColumn(
-                            modifier = Modifier.width(300.dp).fillMaxSize(),
+                            state = inboxWideState,
+                            modifier = Modifier.width(300.dp).fillMaxSize()
+                                .smoothWheelScroll(inboxWideState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
@@ -234,7 +248,10 @@ fun MessagesRoute(
                         }
                     }
                 } else {
+                    val inboxState = androidx.compose.foundation.lazy.rememberLazyListState()
                     LazyColumn(
+                        state = inboxState,
+                        modifier = Modifier.smoothWheelScroll(inboxState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
@@ -343,7 +360,7 @@ private fun Avatar(face: String, name: String, size: Dp) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatRoute(talkerId: Long, name: String, onBack: () -> Unit) {
-    val vm = appViewModel(key = "chat-$talkerId") { ChatViewModel(talkerId) }
+    val vm = app.ailiaili.core.designsystem.accountViewModel(key = "chat-$talkerId") { ChatViewModel(talkerId) }
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     val listState = rememberLazyListState()
     var preview by remember { mutableStateOf<String?>(null) }
@@ -393,7 +410,8 @@ fun ChatRoute(talkerId: Long, name: String, onBack: () -> Unit) {
                 } else {
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize()
+                            .smoothWheelScroll(listState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
@@ -635,9 +653,12 @@ private fun ChatInputBar(
                         CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                     }
                 } else {
+                    val emoteState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
                     androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                         columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(52.dp),
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp),
+                        state = emoteState,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp)
+                            .smoothWheelScroll(emoteState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     ) {
                         gridItems(emotes, key = { it.first }) { (code, url) ->

@@ -14,13 +14,13 @@ class DurlDecodeTest {
               "timelength": 120000,
               "accept_quality": [64, 32, 16],
               "durl": [
-                { "url": "https://example.com/video.mp4", "order": 1 }
+                { "url": "https://upos-sz-mirrorcos.bilivideo.com/video.mp4", "order": 1 }
               ]
             }
             """.trimIndent(),
         )
         val info = decodeDurl(json)
-        assertEquals("https://example.com/video.mp4", info?.videoUrl)
+        assertEquals("https://upos-sz-mirrorcos.bilivideo.com/video.mp4", info?.videoUrl)
         assertEquals(null, info?.audioUrl)
         assertEquals(64, info?.actualQn)
         assertEquals(120000L, info?.durationMs)
@@ -47,5 +47,14 @@ class DurlDecodeTest {
     fun rejectsEmptyStreams() {
         assertNull(decodeDurl(JSONObject("""{"durl":[]}""")))
         assertNull(decodeDurl(JSONObject("""{}""")))
+    }
+
+    @Test
+    fun rejectsNonOfficialHosts() {
+        // 播放源白名单：第三方域名/IP 直连/带凭据的地址一律判不可用。
+        assertNull(decodeDurl(JSONObject("""{"durl":[{"url":"https://evil.example.com/v.mp4"}]}""")))
+        assertNull(decodeDurl(JSONObject("""{"durl":[{"url":"https://1.2.3.4/v.mp4"}]}""")))
+        assertNull(decodeDurl(JSONObject("""{"durl":[{"url":"https://u:p@upos.bilivideo.com/v.mp4"}]}""")))
+        assertNull(decodeDurl(JSONObject("""{"durl":[{"url":"http://upos.bilivideo.com/v.mp4"}]}""")))
     }
 }
