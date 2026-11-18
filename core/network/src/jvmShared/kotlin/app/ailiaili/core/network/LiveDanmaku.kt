@@ -63,7 +63,7 @@ internal class LiveDanmakuConnection(
             .build()
         val request = Request.Builder()
             .url("wss://$host:$port/sub")
-            .header("User-Agent", USER_AGENT)
+            .header("User-Agent", app.ailiaili.core.model.effectiveUserAgent())
             .header("Origin", "https://live.bilibili.com")
             .header("Referer", "https://live.bilibili.com/$roomId")
             .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }

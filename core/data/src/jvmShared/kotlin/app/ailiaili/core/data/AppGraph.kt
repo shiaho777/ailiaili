@@ -29,6 +29,10 @@ object AppGraph {
             setExtraRoot(settings.current.downloadDir)
         }
         http = SharedHttp.default
+        // 自定义 UA（高级设置）：空串回退默认浏览器 UA。
+        app.ailiaili.core.model.userAgentProvider = {
+            settings.current.customUserAgent.ifBlank { app.ailiaili.core.model.USER_AGENT }
+        }
         val client = BiliClient(
             session = { sessionStore.current },
             updateSession = { sessionStore.save(it) },

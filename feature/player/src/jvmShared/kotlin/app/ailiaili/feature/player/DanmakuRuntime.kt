@@ -264,6 +264,9 @@ internal class DanmakuRuntime {
         val typeFilter = !(config.allowScroll && config.allowFixed && config.allowColorful && config.allowAdvanced)
         if (!config.smart && rules == null && !typeFilter) return list
         val seen = if (config.smart) HashMap<String, Int>(64) else null
+        // 相似合并（pakku.js 思路）：归一化后相同的弹幕在 10 秒窗口内只留 1 条，
+        // 抑制「前方高能!!!」「前方高能～」「前 方 高 能」这类刷屏变体。
+        val normSeen = if (config.smart) HashMap<String, Double>(64) else null
         val out = ArrayList<Danmaku>(list.size.coerceAtMost(4096))
         for (item in list) {
             val text = item.text
@@ -273,7 +276,13 @@ internal class DanmakuRuntime {
             if (config.smart) {
                 if (text.length > 30) continue
                 val count = seen!![text] ?: 0
-                if (count >= 4) continue
+                if (count >= 3) continue
+                val norm = normalizeDanmaku(text)
+                if (norm.length >= 2) {
+                    val lastAt = normSeen!![norm]
+                    if (lastAt != null && item.timeSec - lastAt < SIMILAR_WINDOW_SEC) continue
+                    normSeen[norm] = item.timeSec
+                }
                 seen[text] = count + 1
             }
             out += item
@@ -647,6 +656,19 @@ private class KeywordRules(private val plain: List<String>, private val regex: L
     }
 }
 
+/**
+ * 弹幕归一化：小写、去空白与常见装饰标点，用于相似合并。
+ * 保留文字本体，「前方高能!!!」「前方高能～」「前 方 高 能」归一后相同。
+ */
+internal fun normalizeDanmaku(text: String): String = buildString(text.length) {
+    for (ch in text.lowercase()) {
+        if (ch.isWhitespace()) continue
+        if (ch in "!！?？~～.。,，·…-—_＿*＊#＃@＠\"'“”‘’()（）[]【】<>《》") continue
+        append(ch)
+    }
+}
+
+private const val SIMILAR_WINDOW_SEC = 10.0
 private const val SNAP_SEC = 1.2
 private const val SCROLL_SEC = 8.0
 private const val HOLD_SEC = 4.0

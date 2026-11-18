@@ -644,6 +644,10 @@ fun PlayerRoute(
                     stallBoostMs = CdnPicker.stallBoostMs(mediaUrl),
                 )
                 engine.setMediaInfo(detail?.title.orEmpty(), detail?.owner.orEmpty())
+                app.ailiaili.core.data.Diagnostics.lastPlayInfo =
+                    "$targetBvid cid=$cid 请求画质=${settings.defaultQn} 实际=${got.actualQn} " +
+                        "编码=${got.videoCodecs.ifBlank { "?" }} 音质=${got.audioQn} " +
+                        "起播=${startAt}ms 听视频=$audioOnly"
                 runCatching { engine.play(got, startAt, audioOnly = audioOnly) }
                     .onSuccess {
                         startedBvid = targetBvid

@@ -291,7 +291,7 @@ actual class PlayerEngine actual constructor() {
         statusMessage = null
         val options = buildList {
             add(if (live) ":http-referrer=https://live.bilibili.com/" else ":http-referrer=https://www.bilibili.com/")
-            add(":http-user-agent=$USER_AGENT")
+            add(":http-user-agent=${app.ailiaili.core.model.effectiveUserAgent()}")
             add(":network-caching=$networkCaching")
             // libvlc 自带的 mp4 解复用器读不出 B 站 fMP4 的最后一个分片，
             // 长视频片尾最后 1~2 秒会没有声音；avformat 能完整读到 sidx 末段。

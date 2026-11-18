@@ -80,7 +80,7 @@ internal fun randomHex(len: Int): String {
 internal const val REFERER = "https://www.bilibili.com/"
 
 internal fun defaultHeaders(referer: String, cookie: String): Map<String, String> = buildMap {
-    put("User-Agent", USER_AGENT)
+    put("User-Agent", app.ailiaili.core.model.effectiveUserAgent())
     put("Referer", referer)
     put("Accept", "application/json, text/plain, */*")
     put("Accept-Language", "zh-CN,zh;q=0.9")
