@@ -169,7 +169,7 @@ private class DanmakuNode(
             !runCatching { player.isBuffering }.getOrDefault(false)
         val speed = runCatching { player.playbackSpeed }.getOrDefault(1f)
         val now = frameNanos.takeIf { it > 0L } ?: System.nanoTime()
-        val videoSec = runtime.presentedSec(sample, playing, now, speed)
+        val videoSec = runtime.presentedSec(sample, playing, now, speed, live)
         if (videoSec.isNaN()) return
         runtime.step(
             videoSec = videoSec,

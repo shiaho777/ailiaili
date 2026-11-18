@@ -203,6 +203,8 @@ fun HomeRoute(
                         AppGraph.repo.updateSettings { it.copy(theme = next) }
                     })
                     Spacer(Modifier.width(8.dp))
+                    BiliHeaderAction(Icons.Filled.Refresh, "刷新", onClick = vm::refresh, enabled = !vm.loading)
+                    Spacer(Modifier.width(8.dp))
                     BiliHeaderAction(Icons.AutoMirrored.Filled.Message, "消息", onClick = onMessages)
                 },
             )

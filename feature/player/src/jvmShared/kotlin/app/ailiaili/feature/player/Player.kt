@@ -260,6 +260,7 @@ fun PlayerRoute(
     var liveRoomInfo by remember { mutableStateOf<LiveRoomInfo?>(null) }
     var liveChat by remember { mutableStateOf<List<LiveDanmaku>>(emptyList()) }
     var listening by remember { mutableStateOf(false) }
+    var listenSwitching by remember { mutableStateOf(false) }
     var listenClock by remember { mutableStateOf("00:00") }
     var avatarPreview by remember { mutableStateOf<String?>(null) }
     var commentImagePreview by remember { mutableStateOf<Triple<List<String>, Int, String>?>(null) }
@@ -632,9 +633,16 @@ fun PlayerRoute(
                         startedBvid = targetBvid
                         startedCid = cid
                         startedTag = engine.mediaTag
+                        listenSwitching = false
                     }
-                    .onFailure { error = it.message ?: "播放失败" }
-            }.onFailure { error = it.message }
+                    .onFailure {
+                        error = it.message ?: "播放失败"
+                        listenSwitching = false
+                    }
+            }.onFailure {
+                error = it.message
+                listenSwitching = false
+            }
         }
         scope.launch {
             if (!settings.sponsorBlock) return@launch
@@ -856,13 +864,26 @@ fun PlayerRoute(
         val room = liveRoom ?: return@LaunchedEffect
         if (!settings.danmakuEnabled) return@LaunchedEffect
         while (true) {
+            // 聊天列表攒 100ms 一批上屏（对齐 BiliDesk v1.7.6）：密集弹幕下
+            // 逐条写状态会逐条重组。滚动弹幕的时间戳仍逐条打，保证入场时机。
+            val chatBatch = ArrayList<LiveDanmaku>()
+            var lastChatFlush = epochMs()
             AppGraph.repo.liveDanmaku(room)
                 .catch { }
                 .collect { msg ->
-                    liveChat = (liveChat + msg).takeLast(120)
                     val sec = runCatching { engine.currentPosition / 1000.0 }.getOrDefault(0.0)
                     danmaku = (danmaku + Danmaku(sec, msg.text, msg.mode, msg.color)).takeLast(400)
+                    chatBatch += msg
+                    val now = epochMs()
+                    if (now - lastChatFlush >= 100) {
+                        liveChat = (liveChat + chatBatch).takeLast(120)
+                        chatBatch.clear()
+                        lastChatFlush = now
+                    }
                 }
+            if (chatBatch.isNotEmpty()) {
+                liveChat = (liveChat + chatBatch).takeLast(120)
+            }
             delay(3_000)
         }
     }
@@ -1825,35 +1846,54 @@ fun PlayerRoute(
                     }
                 }
                 if (liveRoom == null && local == null && info != null && !compactChrome) {
-                    TextButton(onClick = {
-                        val pos = engine.currentPosition
-                        if (listening) {
-                            listening = false
-                            engine.restoreVideo(pos)
-                        } else if (engine.playAudioOnly(pos)) {
-                            listening = true
-                        } else {
-                            // durl 合流单流没有独立音轨；切回 DASH 再取一次 audioUrl。
-                            val id = bvid ?: detail?.bvid
-                            val cidNow = page?.cid ?: detail?.cid ?: 0L
-                            if (id.isNullOrBlank() || cidNow <= 0) {
-                                toast = "这条视频没有可用的音轨"
-                            } else {
+                    TextButton(
+                        enabled = !listenSwitching,
+                        onClick = {
+                            // 切换闸门：重建媒体要停上一路解码，期间连点会出
+                            // 「按钮说听视频、实际播的是视频」的半状态。
+                            listenSwitching = true
+                            val pos = engine.currentPosition
+                            if (listening) {
+                                listening = false
+                                engine.restoreVideo(pos)
+                                scope.launch {
+                                    delay(600)
+                                    listenSwitching = false
+                                }
+                            } else if (engine.playAudioOnly(pos)) {
                                 listening = true
-                                start(
-                                    id,
-                                    cidNow,
-                                    seek = pos,
-                                    durationSec = page?.durationSec
-                                        ?: detail?.durationSec
-                                        ?: 0,
-                                    forceDash = true,
-                                )
+                                scope.launch {
+                                    delay(600)
+                                    listenSwitching = false
+                                }
+                            } else {
+                                // durl 合流单流没有独立音轨；切回 DASH 再取一次 audioUrl。
+                                val id = bvid ?: detail?.bvid
+                                val cidNow = page?.cid ?: detail?.cid ?: 0L
+                                if (id.isNullOrBlank() || cidNow <= 0) {
+                                    toast = "这条视频没有可用的音轨"
+                                    listenSwitching = false
+                                } else {
+                                    listening = true
+                                    start(
+                                        id,
+                                        cidNow,
+                                        seek = pos,
+                                        durationSec = page?.durationSec
+                                            ?: detail?.durationSec
+                                            ?: 0,
+                                        forceDash = true,
+                                    )
+                                }
                             }
-                        }
-                    }) {
+                        },
+                    ) {
                         Text(
-                            if (listening) "正在聆听 $listenClock" else "听视频",
+                            when {
+                                listenSwitching -> "切换中…"
+                                listening -> "正在聆听 $listenClock"
+                                else -> "听视频"
+                            },
                             color = if (listening) Color(0xFFF59E0B) else Color.White,
                         )
                     }

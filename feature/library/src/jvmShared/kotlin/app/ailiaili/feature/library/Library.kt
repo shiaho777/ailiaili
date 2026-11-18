@@ -70,6 +70,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import app.ailiaili.core.designsystem.BiliAssistChip
@@ -109,8 +110,12 @@ class ListViewModel(private val loader: suspend () -> Result<List<VideoItem>>) :
 }
 
 @Composable
-private fun BackTitle(title: String, onBack: () -> Unit) {
-    BiliBackHeader(title, onBack)
+private fun BackTitle(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {},
+) {
+    BiliBackHeader(title, onBack, actions = actions)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -149,7 +154,13 @@ fun HistoryRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: (Vi
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消") } },
         )
     }
-    Scaffold(topBar = { BackTitle("历史", onBack) }) { padding ->
+    Scaffold(topBar = {
+        BackTitle("历史", onBack) {
+            app.ailiaili.core.designsystem.BiliHeaderAction(
+                androidx.compose.material.icons.Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading,
+            )
+        }
+    }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -371,7 +382,13 @@ fun FavVideosRoute(
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     var editing by remember { mutableStateOf(false) }
     var picked by remember { mutableStateOf(setOf<String>()) }
-    Scaffold(topBar = { BackTitle(title, onBack) }) { padding ->
+    Scaffold(topBar = {
+        BackTitle(title, onBack) {
+            app.ailiaili.core.designsystem.BiliHeaderAction(
+                androidx.compose.material.icons.Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading,
+            )
+        }
+    }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             EditBar(
@@ -480,7 +497,13 @@ fun WatchLaterRoute(onBack: () -> Unit, onVideo: (VideoItem) -> Unit, onAuthor: 
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消") } },
         )
     }
-    Scaffold(topBar = { BackTitle("稍后再看", onBack) }) { padding ->
+    Scaffold(topBar = {
+        BackTitle("稍后再看", onBack) {
+            app.ailiaili.core.designsystem.BiliHeaderAction(
+                androidx.compose.material.icons.Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading,
+            )
+        }
+    }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
             EditBar(

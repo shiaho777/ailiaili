@@ -178,7 +178,9 @@ fun RegionRoute(
     val scope = rememberCoroutineScope()
     Scaffold(
         topBar = {
-            BiliBackHeader(name, onBack)
+            BiliBackHeader(name, onBack) {
+                BiliHeaderAction(Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading)
+            }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {

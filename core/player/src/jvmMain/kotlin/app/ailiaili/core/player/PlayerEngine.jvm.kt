@@ -188,11 +188,20 @@ actual class PlayerEngine actual constructor() {
         start(url, if (this.audioOnly) null else info.audioUrl, positionMs)
     }
 
+    /**
+     * 听视频/还原视频的重建走后台串行：media().play() 内部会停上一路媒体，
+     * 等解码线程退出可能阻塞约 1 秒，放 UI 线程就是窗口定格（BiliDesk v1.7.6
+     * 同款修复）。单线程执行器保证连点按序生效，不会交叠出半状态。
+     */
+    private val switchExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "vlc-media-switch").apply { isDaemon = true }
+    }
+
     actual fun playAudioOnly(positionMs: Long): Boolean {
         val audio = audioUrl?.takeIf { it.isNotBlank() } ?: return false
         live = false
         audioOnly = true
-        start(audio, null, positionMs)
+        runCatching { switchExecutor.execute { runCatching { start(audio, null, positionMs) } } }
         return true
     }
 
@@ -200,7 +209,7 @@ actual class PlayerEngine actual constructor() {
         val video = videoUrl?.takeIf { it.isNotBlank() } ?: return
         live = false
         audioOnly = false
-        start(video, audioUrl, positionMs)
+        runCatching { switchExecutor.execute { runCatching { start(video, audioUrl, positionMs) } } }
     }
 
     actual fun failOver(positionMs: Long): Boolean {
@@ -240,6 +249,7 @@ actual class PlayerEngine actual constructor() {
             videoSurface = null
             eventAdapter = null
             runCatching { seekWatchdog.shutdownNow() }
+            runCatching { switchExecutor.shutdownNow() }
             pump.release()
         }
     }
