@@ -49,6 +49,11 @@ object QuickActions {
         if (toast == message) toast = null
     }
 
+    /** 供页面级操作（设置备份等）显示结果提示。 */
+    fun showToast(message: String) {
+        toast = message
+    }
+
     fun inLater(item: VideoItem): Boolean = item.aid > 0 && item.aid in laterAids
 
     fun addWatchLater(item: VideoItem) {

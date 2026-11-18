@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 设置备份导出：只暴露应用私有存储里的备份文件。 -->
+    <files-path name="ailiaili_files" path="ailiaili/" />
+</paths>

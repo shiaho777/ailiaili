@@ -36,6 +36,8 @@ internal fun SubtitleOverlay(
     delaySec: Double,
     visible: Boolean,
     modifier: Modifier = Modifier,
+    fontSp: Int = 17,
+    bottomPercent: Int = 4,
 ) {
     if (!visible || cues.isEmpty()) return
     var current by remember(cues) { mutableStateOf<SubtitleCue?>(null) }
@@ -54,19 +56,24 @@ internal fun SubtitleOverlay(
             delay(if (playing) 100 else 500)
         }
     }
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-        current?.let { cue ->
-            Text(
-                cue.text,
-                modifier = Modifier
-                    .padding(horizontal = 24.dp, vertical = 14.dp)
-                    .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 5.dp),
-                color = Color.White,
-                fontSize = 17.sp,
-                lineHeight = 24.sp,
-                textAlign = TextAlign.Center,
-            )
+    val size = fontSp.coerceIn(12, 36)
+    val bottom = bottomPercent.coerceIn(0, 40)
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.fillMaxSize()) {
+        val bottomPad = maxHeight * (bottom / 100f)
+        Box(Modifier.fillMaxSize().padding(bottom = bottomPad), contentAlignment = Alignment.BottomCenter) {
+            current?.let { cue ->
+                Text(
+                    cue.text,
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp, vertical = 14.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    color = Color.White,
+                    fontSize = size.sp,
+                    lineHeight = (size * 1.4f).sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }

@@ -1605,10 +1605,15 @@ class BiliClient(
             }
         }
 
-    suspend fun liveList(page: Int): Result<List<VideoItem>> = api {
+    /**
+     * 直播列表。parentAreaId < 0 表示「热门」：沿用旧的跨分区兜底；
+     * 指定分区时只查该分区，空列表就是空（不再拿别的分区凑数）。
+     */
+    suspend fun liveList(page: Int, parentAreaId: Int = -1): Result<List<VideoItem>> = api {
         ensureBuvid()
         var last = "直播列表为空"
-        for (area in intArrayOf(0, 1, 2)) {
+        val areas = if (parentAreaId >= 0) intArrayOf(parentAreaId) else intArrayOf(0, 1, 2)
+        for (area in areas) {
             val resp = get(
                 "https://api.live.bilibili.com/room/v1/Area/getRoomList",
                 mapOf(
@@ -1626,7 +1631,22 @@ class BiliClient(
             if (items.isNotEmpty()) return@api items
             last = resp.message ?: last
         }
-        error(last)
+        if (parentAreaId >= 0) emptyList() else error(last)
+    }
+
+    /** 直播大分区列表（id + 名称），供分区浏览选择条。 */
+    suspend fun liveAreas(): Result<List<app.ailiaili.core.model.LiveArea>> = api {
+        ensureBuvid()
+        val list = get(
+            "https://api.live.bilibili.com/room/v1/Area/getList",
+            mapOf("need_entrance" to "1", "parent_id" to "0"),
+            referer = "https://live.bilibili.com/",
+        ).data?.arr("list")?.objects().orEmpty()
+        list.mapNotNull { area ->
+            val id = area.int("id")
+            val name = area.str("name")
+            if (id > 0 && name.isNotBlank()) app.ailiaili.core.model.LiveArea(id, name) else null
+        }
     }
 
     suspend fun livePlay(roomId: Long, qn: Int = 0): Result<LivePlayInfo> = api {
@@ -2202,7 +2222,7 @@ class BiliClient(
         stream.arr("backup_url")?.let { arr ->
             for (i in 0 until arr.length()) arr.optString(i).takeIf { it.isNotBlank() }?.let { add(it) }
         }
-    }.distinct()
+    }.distinct().let { app.ailiaili.core.model.filterAllowedMediaUrls(it) }
 
     private fun codecRank(codec: String): Int {
         val c = codec.lowercase()
@@ -2223,7 +2243,10 @@ class BiliClient(
                     val info = codec.arr("url_info")?.optJSONObject(0)
                     val host = info?.str("host").orEmpty()
                     val extra = info?.str("extra").orEmpty()
-                    if (base.isNotBlank() && host.isNotBlank()) return host + base + extra
+                    if (base.isNotBlank() && host.isNotBlank()) {
+                        val full = host + base + extra
+                        if (app.ailiaili.core.model.isAllowedMediaUrl(full)) return full
+                    }
                 }
             }
         }

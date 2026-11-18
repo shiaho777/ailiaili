@@ -153,6 +153,8 @@ class SettingsCodecTest {
             subtitleEnabled = true,
             subtitleLan = "zh-CN",
             subtitleDelaySec = 0.6,
+            subtitleFontSp = 24,
+            subtitleBottomPercent = 12,
             sponsorBlock = true,
             sponsorCategories = "sponsor,selfpromo",
             cdnMode = CdnMode.Auto,

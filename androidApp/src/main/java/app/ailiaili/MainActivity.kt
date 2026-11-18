@@ -91,6 +91,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        // Android 13+ 媒体通知需要运行时授权；拒绝也不影响播放本身。
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1001)
+            }
+        }
         enableEdgeToEdge()
         setContent {
             InstallBiliImages()

@@ -55,6 +55,29 @@ actual suspend fun chooseDirectory(): String? = withContext(Dispatchers.Main) {
     }
 }
 
+actual suspend fun saveTextFile(suggestedName: String, text: String): String? = withContext(Dispatchers.Main) {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "导出设置"
+        selectedFile = File(suggestedName)
+    }
+    if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return@withContext null
+    val file = chooser.selectedFile ?: return@withContext null
+    runCatching {
+        file.writeText(text)
+        file.absolutePath
+    }.getOrNull()
+}
+
+actual suspend fun readTextFile(): String? = withContext(Dispatchers.Main) {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "导入设置"
+        fileSelectionMode = JFileChooser.FILES_ONLY
+    }
+    if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return@withContext null
+    val file = chooser.selectedFile ?: return@withContext null
+    runCatching { file.readText() }.getOrNull()
+}
+
 actual fun systemFontFiles(): List<String> {
     val os = System.getProperty("os.name").orEmpty().lowercase()
     val roots = when {

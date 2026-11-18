@@ -41,6 +41,12 @@ expect class PlayerEngine() {
     fun prepare()
     fun freeze()
 
+    /**
+     * 媒体元数据（标题/作者）：Android 供媒体通知与锁屏显示；桌面无系统
+     * 媒体会话，空实现。起播前调用。
+     */
+    fun setMediaInfo(title: String, artist: String)
+
     fun play(info: PlayInfo, positionMs: Long = 0, audioOnly: Boolean = false)
     fun playAudioOnly(positionMs: Long): Boolean
     fun restoreVideo(positionMs: Long)

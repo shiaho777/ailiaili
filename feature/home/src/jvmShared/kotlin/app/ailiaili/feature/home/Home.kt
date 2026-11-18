@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Message
@@ -69,6 +70,7 @@ import app.ailiaili.core.designsystem.shellBottomPadding
 import app.ailiaili.core.designsystem.shellNavigationBottom
 import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.model.ThemeMode
 import app.ailiaili.core.model.VideoItem
 
@@ -84,10 +86,24 @@ class HomeViewModel : ViewModel() {
     var error by mutableStateOf<String?>(null)
     var page by mutableIntStateOf(1)
     var hasMore by mutableStateOf(true)
+    /** 直播分区：-1 = 热门（跨分区兜底），其余为官方大分区 id。 */
+    var liveAreas by mutableStateOf<List<app.ailiaili.core.model.LiveArea>>(emptyList())
+    var liveAreaId by mutableIntStateOf(-1)
     private var source = AppGraph.repo.settings.value.recommendSource
     private var loadTicket = 0
 
-    init { refresh() }
+    init {
+        refresh()
+        viewModelScope.launch {
+            AppGraph.repo.liveAreas().onSuccess { liveAreas = it }
+        }
+    }
+
+    fun selectLiveArea(id: Int) {
+        if (liveAreaId == id) return
+        liveAreaId = id
+        if (tab == HomeTab.Live) refresh()
+    }
 
     fun onSourceChanged() {
         val next = AppGraph.repo.settings.value.recommendSource
@@ -127,7 +143,7 @@ class HomeViewModel : ViewModel() {
                 HomeTab.Recommend -> AppGraph.repo.recommend(requestPage)
                 HomeTab.Popular -> AppGraph.repo.popular(requestPage)
                 HomeTab.Ranking -> AppGraph.repo.ranking()
-                HomeTab.Live -> AppGraph.repo.liveList(requestPage)
+                HomeTab.Live -> AppGraph.repo.liveList(requestPage, liveAreaId)
             }
             if (tab != current || ticketNow != loadTicket) return@launch
             loading = false
@@ -336,6 +352,32 @@ fun HomeRoute(
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             TextButton(onClick = ContentFilter::clear) { Text("清除全部屏蔽") }
                         }
+                    }
+                }
+            }
+            // 直播分区浏览：热门 + 官方大分区，横向滚动选择。
+            if (vm.tab == HomeTab.Live && vm.liveAreas.isNotEmpty()) {
+                val areaRow = androidx.compose.foundation.lazy.rememberLazyListState()
+                androidx.compose.foundation.lazy.LazyRow(
+                    state = areaRow,
+                    modifier = Modifier.fillMaxWidth()
+                        .smoothWheelScroll(areaRow, app.ailiaili.core.designsystem.LocalWheelSpeed.current)
+                        .padding(horizontal = 16.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item(key = -1) {
+                        BiliFilterChip(
+                            selected = vm.liveAreaId == -1,
+                            onClick = { vm.selectLiveArea(-1) },
+                            label = { Text("热门") },
+                        )
+                    }
+                    items(vm.liveAreas, key = { it.id }) { area ->
+                        BiliFilterChip(
+                            selected = vm.liveAreaId == area.id,
+                            onClick = { vm.selectLiveArea(area.id) },
+                            label = { Text(area.name) },
+                        )
                     }
                 }
             }

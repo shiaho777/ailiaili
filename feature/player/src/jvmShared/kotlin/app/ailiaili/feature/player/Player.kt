@@ -628,6 +628,7 @@ fun PlayerRoute(
                     measuredBytesPerSecond = CdnPicker.lastMeasuredBytesPerSecond,
                     stallBoostMs = CdnPicker.stallBoostMs(mediaUrl),
                 )
+                engine.setMediaInfo(detail?.title.orEmpty(), detail?.owner.orEmpty())
                 runCatching { engine.play(got, startAt, audioOnly = audioOnly) }
                     .onSuccess {
                         startedBvid = targetBvid
@@ -897,6 +898,7 @@ fun PlayerRoute(
                     // 离线续播：按 bvid+cid 读在线时记下的进度（下载时已存 cid）。
                     val remembered = if (local.cid > 0) PlayMemory.read(local.bvid, local.cid) else 0L
                     val startAt = remembered.takeIf { it >= 5_000 } ?: 0L
+                    engine.setMediaInfo(local.title, "")
                     engine.playFiles(local.videoPath, local.audioPath, startAt)
                     startedBvid = local.bvid
                     startedCid = local.cid
@@ -928,6 +930,7 @@ fun PlayerRoute(
                             measuredBytesPerSecond = CdnPicker.lastMeasuredBytesPerSecond,
                             stallBoostMs = CdnPicker.stallBoostMs(got.url),
                         )
+                        engine.setMediaInfo("直播 · 房间 $liveRoom", "")
                         engine.playLive(got.url)
                         scope.launch {
                             AppGraph.repo.liveRoomInfo(liveRoom).onSuccess { room ->
@@ -1326,6 +1329,8 @@ fun PlayerRoute(
                     cues = subtitleCues,
                     delaySec = settings.subtitleDelaySec,
                     visible = settings.subtitleEnabled,
+                    fontSp = settings.subtitleFontSp,
+                    bottomPercent = settings.subtitleBottomPercent,
                     // 控制栏显示时字幕上移一点，不被工具条压住。
                     modifier = Modifier.padding(bottom = if (showChrome) 44.dp else 0.dp),
                 )

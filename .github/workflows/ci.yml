@@ -33,6 +33,13 @@ jobs:
           :app:jvmTest
           :desktopApp:compileKotlin
           --no-daemon --max-workers=2
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jvm-test-results
+          path: '**/build/test-results/jvmTest/*.xml'
+          retention-days: 14
 
   android:
     name: Android debug APK
@@ -49,3 +56,22 @@ jobs:
           packages: "platforms;android-37.0 build-tools;37.0.0"
       - name: Assemble debug
         run: ./gradlew :androidApp:assembleDebug --no-daemon --max-workers=2
+      - name: Verify APK (sha256 + package/version)
+        run: |
+          APK=androidApp/build/outputs/apk/debug/androidApp-debug.apk
+          test -f "$APK"
+          sha256sum "$APK" | tee SHA256SUMS
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort | tail -1)
+          "$AAPT" dump badging "$APK" > badging.txt
+          cat badging.txt | head -2
+          grep -q "package: name='app.ailiaili'" badging.txt
+          grep -q "versionName=" badging.txt
+      - name: Upload APK + evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: |
+            androidApp/build/outputs/apk/debug/androidApp-debug.apk
+            SHA256SUMS
+            badging.txt
+          retention-days: 14

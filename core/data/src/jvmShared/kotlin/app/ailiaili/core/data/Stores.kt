@@ -83,6 +83,26 @@ class SettingsStore(private val file: AppFile) {
             file.writeTextAtomic(encodeAppSettings(next).toString(2))
         }
     }
+
+    /** 设置备份导出：带格式标记的完整 JSON（不含登录凭据）。 */
+    fun exportJson(): String = JSONObject()
+        .put("ailiailiSettingsBackup", 1)
+        .put("settings", encodeAppSettings(current))
+        .toString(2)
+
+    /**
+     * 设置备份导入：校验格式标记后整体替换并落盘。
+     * 解码对缺失字段取默认值，旧版本备份也能导入。
+     */
+    fun importJson(text: String): Result<Unit> = runCatching {
+        val root = JSONObject(text)
+        require(root.optInt("ailiailiSettingsBackup", 0) == 1) { "不是 ailiaili 的设置备份文件" }
+        val settingsObj = root.optJSONObject("settings") ?: error("备份里没有设置内容")
+        val next = decodeAppSettings(settingsObj)
+        _settings.value = next
+        file.parentFile?.mkdirs()
+        file.writeTextAtomic(encodeAppSettings(next).toString(2))
+    }
 }
 
 internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
@@ -106,6 +126,8 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     subtitleEnabled = o.optBoolean("subtitleEnabled", false),
     subtitleLan = o.optString("subtitleLan"),
     subtitleDelaySec = o.optDouble("subtitleDelaySec", 0.0),
+    subtitleFontSp = o.optInt("subtitleFontSp", 17).coerceIn(12, 36),
+    subtitleBottomPercent = o.optInt("subtitleBottomPercent", 4).coerceIn(0, 40),
     sponsorBlock = o.optBoolean("sponsorBlock", false),
     sponsorCategories = SponsorCategories.sanitize(o.optString("sponsorCategories")),
     cdnMode = if (!o.optBoolean("cdnModeMigrated", false)) {
@@ -184,6 +206,8 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("subtitleEnabled", next.subtitleEnabled)
     .put("subtitleLan", next.subtitleLan)
     .put("subtitleDelaySec", next.subtitleDelaySec)
+    .put("subtitleFontSp", next.subtitleFontSp)
+    .put("subtitleBottomPercent", next.subtitleBottomPercent)
     .put("sponsorBlock", next.sponsorBlock)
     .put("sponsorCategories", SponsorCategories.sanitize(next.sponsorCategories))
     .put("cdnMode", next.cdnMode.name)

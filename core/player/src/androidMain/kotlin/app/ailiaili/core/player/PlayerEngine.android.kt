@@ -34,6 +34,14 @@ actual class PlayerEngine actual constructor() {
 
     val player: ExoPlayer = ExoPlayer.Builder(AndroidHost.context)
         .setLoadControl(loadControl)
+        // 音频焦点交给 Media3：来电/其他应用出声自动暂停，焦点恢复自动续播。
+        .setAudioAttributes(
+            androidx.media3.common.AudioAttributes.Builder()
+                .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                .build(),
+            /* handleAudioFocus= */ true,
+        )
         .build()
 
     private val http = DefaultHttpDataSource.Factory()
@@ -92,6 +100,19 @@ actual class PlayerEngine actual constructor() {
     private var loadedTag = ""
 
     actual val mediaTag: String get() = loadedTag
+
+    private var mediaTitle = ""
+    private var mediaArtist = ""
+
+    /** 通知/锁屏元数据：起播前由界面写入稿件标题与 UP 名。 */
+    actual fun setMediaInfo(title: String, artist: String) {
+        mediaTitle = title
+        mediaArtist = artist
+    }
+
+    private fun startMediaSession() {
+        AndroidMediaIntegration.onPlayStarted(AndroidHost.context, player, mediaTitle, mediaArtist)
+    }
 
     /**
      * 与桌面同一套 BufferPolicy 决策值；换片时映射成 Media3 缓冲参数生效。
@@ -196,6 +217,7 @@ actual class PlayerEngine actual constructor() {
         player.setMediaSource(DefaultMediaSourceFactory(liveHttp).createMediaSource(item))
         player.prepare()
         player.playWhenReady = true
+        startMediaSession()
     }
 
     actual fun playFiles(videoPath: String, audioPath: String?, positionMs: Long) {
@@ -212,6 +234,7 @@ actual class PlayerEngine actual constructor() {
         player.setMediaSource(source, positionMs)
         player.prepare()
         player.playWhenReady = true
+        startMediaSession()
     }
 
     actual fun release() {
@@ -219,9 +242,11 @@ actual class PlayerEngine actual constructor() {
         // 调用方即使从 IO 线程进来，也切回主线程，避免 “Player is accessed on the wrong thread” 崩溃。
         if (Looper.myLooper() == Looper.getMainLooper()) {
             runCatching { player.release() }
+            AndroidMediaIntegration.onReleased(AndroidHost.context)
         } else {
             Handler(Looper.getMainLooper()).post {
                 runCatching { player.release() }
+                AndroidMediaIntegration.onReleased(AndroidHost.context)
             }
         }
     }
@@ -273,6 +298,7 @@ actual class PlayerEngine actual constructor() {
         player.prepare()
         if (positionMs > 0) player.seekTo(positionMs)
         player.playWhenReady = true
+        startMediaSession()
     }
 
     private fun attachSingle(url: String, positionMs: Long) {
@@ -284,6 +310,7 @@ actual class PlayerEngine actual constructor() {
         player.prepare()
         if (positionMs > 0) player.seekTo(positionMs)
         player.playWhenReady = true
+        startMediaSession()
     }
 }
 

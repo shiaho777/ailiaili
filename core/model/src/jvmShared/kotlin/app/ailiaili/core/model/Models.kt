@@ -212,6 +212,12 @@ data class LiveQuality(
     val label: String,
 )
 
+/** 直播大分区（网游/手游/单机/娱乐/电台/虚拟主播…）。 */
+data class LiveArea(
+    val id: Int,
+    val name: String,
+)
+
 data class LivePlayInfo(
     val url: String,
     val currentQn: Int,
@@ -709,6 +715,10 @@ data class AppSettings(
     val subtitleLan: String = "",
     /** 字幕延迟（秒），±0.2 步进微调。 */
     val subtitleDelaySec: Double = 0.0,
+    /** 字幕字号（sp），12–36 可调。 */
+    val subtitleFontSp: Int = 17,
+    /** 字幕距画面底部的高度百分比，0–40。 */
+    val subtitleBottomPercent: Int = 4,
     val sponsorBlock: Boolean = false,
     /** 逗号分隔的 SponsorBlock category。默认只跳赞助广告。 */
     val sponsorCategories: String = SponsorCategories.DEFAULT,

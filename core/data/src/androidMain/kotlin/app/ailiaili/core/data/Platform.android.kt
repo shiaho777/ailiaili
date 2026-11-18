@@ -67,6 +67,38 @@ actual fun systemFontFiles(): List<String> = emptyList()
 
 actual suspend fun pickFontFile(): PickedImage? = AndroidHost.fontPicker?.invoke()
 
+actual suspend fun saveTextFile(suggestedName: String, text: String): String? {
+    // 安卓没有通用保存对话框：写到应用存储的固定备份文件，再拉起分享，
+    // 用户可发到网盘/聊天/文件应用保存。
+    val file = File(appStorageDir().absolutePath, SETTINGS_BACKUP_NAME)
+    val ok = runCatching {
+        file.parentFile?.mkdirs()
+        file.writeText(text)
+    }.isSuccess
+    if (!ok) return null
+    val host = AndroidHost.activity ?: return file.absolutePath
+    runCatching {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            host,
+            "${host.packageName}.fileprovider",
+            file,
+        )
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        host.startActivity(Intent.createChooser(send, "导出设置").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+    return file.absolutePath
+}
+
+actual suspend fun readTextFile(): String? {
+    val file = File(appStorageDir().absolutePath, SETTINGS_BACKUP_NAME)
+    if (!file.isFile) return null
+    return runCatching { file.readText() }.getOrNull()
+}
+
 actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {
     val resolver = AndroidHost.context.contentResolver
     // 按真实字节格式定扩展名/MIME：播放器截图是 PNG，不能一律标成 .jpg。

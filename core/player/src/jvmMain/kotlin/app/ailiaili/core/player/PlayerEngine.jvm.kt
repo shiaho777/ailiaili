@@ -110,6 +110,10 @@ actual class PlayerEngine actual constructor() {
             )
         }
 
+    actual fun setMediaInfo(title: String, artist: String) {
+        // 桌面无系统媒体会话（MPRIS 等待立项），元数据暂不消费。
+    }
+
     actual fun play() {
         media?.controls()?.play()
     }

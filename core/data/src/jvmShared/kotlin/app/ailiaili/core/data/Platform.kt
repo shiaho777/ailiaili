@@ -36,6 +36,21 @@ expect fun systemFontFiles(): List<String>
 /** 选一个字体文件导入。返回文件名与字节；取消返回 null。 */
 expect suspend fun pickFontFile(): PickedImage?
 
+/**
+ * 设置导出：桌面弹保存对话框把文本写成文件；Android 写入应用存储的固定
+ * 备份文件并返回路径（配合分享发出）。失败返回 null。
+ */
+expect suspend fun saveTextFile(suggestedName: String, text: String): String?
+
+/**
+ * 设置导入：桌面弹打开对话框读文本文件；Android 读应用存储的固定备份
+ * 文件（用户先把它放到该位置）。无文件/取消返回 null。
+ */
+expect suspend fun readTextFile(): String?
+
+/** Android 设置备份的固定文件名；桌面端不使用。 */
+const val SETTINGS_BACKUP_NAME = "ailiaili-settings.json"
+
 /** 应用字体目录：导入/复制的字体统一放这里，重启后按路径加载。 */
 fun appFontDir(): AppFile = AppFile(appStorageDir(), "fonts").also { it.mkdirs() }
 
