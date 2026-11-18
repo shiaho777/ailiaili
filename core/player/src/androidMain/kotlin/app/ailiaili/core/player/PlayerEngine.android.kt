@@ -45,7 +45,7 @@ actual class PlayerEngine actual constructor() {
         .build()
 
     private val http = DefaultHttpDataSource.Factory()
-        .setUserAgent(USER_AGENT)
+        .setUserAgent(app.ailiaili.core.model.effectiveUserAgent())
         .setDefaultRequestProperties(
             mapOf(
                 "Referer" to "https://www.bilibili.com/",
@@ -211,7 +211,7 @@ actual class PlayerEngine actual constructor() {
             if (cookie.isNotBlank()) props["Cookie"] = cookie
         }
         val liveHttp = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT)
+            .setUserAgent(app.ailiaili.core.model.effectiveUserAgent())
             .setDefaultRequestProperties(props)
             .setAllowCrossProtocolRedirects(true)
         player.setMediaSource(DefaultMediaSourceFactory(liveHttp).createMediaSource(item))

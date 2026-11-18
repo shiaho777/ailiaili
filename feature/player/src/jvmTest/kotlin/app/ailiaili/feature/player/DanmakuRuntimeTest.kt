@@ -2,6 +2,7 @@ package app.ailiaili.feature.player
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class DanmakuRuntimeTest {
     @Test
@@ -58,5 +59,23 @@ class DanmakuRuntimeTest {
         runtime.presentedSec(3.0, false, 1_016_000_000L, 1f)
         runtime.pin(12.0)
         assertEquals(12.0, runtime.presentedSec(3.0, false, 1_032_000_000L, 1f), 0.001)
+    }
+
+    @Test
+    fun normalizationMergesSpamVariants() {
+        val base = normalizeDanmaku("前方高能")
+        assertEquals(base, normalizeDanmaku("前方高能!!!"))
+        assertEquals(base, normalizeDanmaku("前方高能～"))
+        assertEquals(base, normalizeDanmaku("前 方 高 能"))
+        assertEquals(base, normalizeDanmaku("【前方高能】"))
+        assertEquals(normalizeDanmaku("AWSL"), normalizeDanmaku("awsl"))
+    }
+
+    @Test
+    fun normalizationKeepsDistinctContent() {
+        assertTrue(normalizeDanmaku("前方高能") != normalizeDanmaku("前方高能为"))
+        assertTrue(normalizeDanmaku("哈哈") != normalizeDanmaku("呵呵"))
+        // 纯标点归一后为空，不参与合并（长度门槛在调用侧）。
+        assertEquals("", normalizeDanmaku("!!!～～"))
     }
 }

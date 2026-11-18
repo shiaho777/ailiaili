@@ -26,7 +26,8 @@ import app.ailiaili.core.model.ioDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private const val CURRENT_VERSION = "1.3.0"
+/** 版本号由 Gradle 从 gradle.properties 生成，与安装包版本永远一致。 */
+private const val CURRENT_VERSION = app.ailiaili.core.model.APP_VERSION
 
 private data class UpdateNote(val tag: String, val page: String)
 

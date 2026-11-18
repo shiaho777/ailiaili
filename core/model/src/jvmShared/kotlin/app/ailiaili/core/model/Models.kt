@@ -10,6 +10,16 @@ package app.ailiaili.core.model
 const val USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
+/**
+ * 有效请求 UA 提供器：默认浏览器 UA；设置里填了自定义 UA 则由 AppGraph
+ * 注入读取（低信誉出口下浏览器 UA 与 TLS 指纹不符会被 WAF 判伪装，
+ * FocuBili #93）。放模型层让网络/播放/图片各层都能用，不破坏依赖方向。
+ */
+@Volatile
+var userAgentProvider: () -> String = { USER_AGENT }
+
+fun effectiveUserAgent(): String = userAgentProvider().ifBlank { USER_AGENT }
+
 fun normalizeUrl(url: String): String = when {
     url.startsWith("//") -> "https:$url"
     url.startsWith("http://") -> "https://" + url.removePrefix("http://")
@@ -719,6 +729,16 @@ data class AppSettings(
     val subtitleFontSp: Int = 17,
     /** 字幕距画面底部的高度百分比，0–40。 */
     val subtitleBottomPercent: Int = 4,
+    /**
+     * 自定义请求 UA（高级）。空 = 默认浏览器 UA。低信誉出口/代理下浏览器 UA
+     * 与实际 TLS 指纹不符会被 WAF 判伪装（FocuBili #93），可换非浏览器 UA 自救。
+     * 注意 UA 影响 B 站流结构协商，改动后需重新取流。
+     */
+    val customUserAgent: String = "",
+    /** 记忆播放倍速：与音量同规格，换片/重开应用保持上次选择。 */
+    val playbackSpeed: Float = 1f,
+    /** 多 P 视频播完自动播下一 P（番剧/课程/教程场景）。 */
+    val autoPlayNext: Boolean = true,
     val sponsorBlock: Boolean = false,
     /** 逗号分隔的 SponsorBlock category。默认只跳赞助广告。 */
     val sponsorCategories: String = SponsorCategories.DEFAULT,

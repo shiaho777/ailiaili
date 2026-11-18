@@ -128,6 +128,9 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     subtitleDelaySec = o.optDouble("subtitleDelaySec", 0.0),
     subtitleFontSp = o.optInt("subtitleFontSp", 17).coerceIn(12, 36),
     subtitleBottomPercent = o.optInt("subtitleBottomPercent", 4).coerceIn(0, 40),
+    customUserAgent = o.optString("customUserAgent").trim().take(300),
+    playbackSpeed = o.optDouble("playbackSpeed", 1.0).toFloat().coerceIn(0.25f, 4f),
+    autoPlayNext = o.optBoolean("autoPlayNext", true),
     sponsorBlock = o.optBoolean("sponsorBlock", false),
     sponsorCategories = SponsorCategories.sanitize(o.optString("sponsorCategories")),
     cdnMode = if (!o.optBoolean("cdnModeMigrated", false)) {
@@ -208,6 +211,9 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("subtitleDelaySec", next.subtitleDelaySec)
     .put("subtitleFontSp", next.subtitleFontSp)
     .put("subtitleBottomPercent", next.subtitleBottomPercent)
+    .put("customUserAgent", next.customUserAgent)
+    .put("playbackSpeed", next.playbackSpeed.coerceIn(0.25f, 4f).toDouble())
+    .put("autoPlayNext", next.autoPlayNext)
     .put("sponsorBlock", next.sponsorBlock)
     .put("sponsorCategories", SponsorCategories.sanitize(next.sponsorCategories))
     .put("cdnMode", next.cdnMode.name)

@@ -119,6 +119,7 @@ fun SettingsRoute(
     val settings by AppGraph.repo.settings.collectAsState()
     val session by AppGraph.repo.session.collectAsState()
     val scope = rememberCoroutineScope()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val platformContext = coil3.compose.LocalPlatformContext.current
     val pageScroll = rememberScrollState()
     var updateText by remember { mutableStateOf<String?>(null) }
@@ -366,6 +367,14 @@ fun SettingsRoute(
                         supporting = "播放页简介下方的「相关推荐」。关掉后不请求也不展示",
                         icon = Icons.AutoMirrored.Filled.ViewList,
                     )
+                    BiliSwitchRow(
+                        title = "自动连播下一 P",
+                        checked = settings.autoPlayNext,
+                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(autoPlayNext = on) } },
+                        supporting = "多 P 视频播完自动播下一 P，倍速与画质偏好沿用",
+                        icon = Icons.Filled.FastForward,
+                        tone = MetricTone.Online,
+                    )
                     BiliSettingsLabel("网络线路")
                     RowChips {
                         listOf(CdnMode.Auto to "自动测速", CdnMode.Server to "跟随服务端", CdnMode.Manual to "指定线路").forEach { (mode, label) ->
@@ -406,6 +415,25 @@ fun SettingsRoute(
                             }
                         }
                     }
+                    var uaDraft by remember(settings.customUserAgent) { mutableStateOf(settings.customUserAgent) }
+                    LaunchedEffect(uaDraft) {
+                        if (uaDraft == settings.customUserAgent) return@LaunchedEffect
+                        keywordSaveJob?.cancel()
+                        val draft = uaDraft
+                        keywordSaveJob = keywordSaveScope.launch {
+                            delay(500)
+                            AppGraph.repo.updateSettings { it.copy(customUserAgent = draft.trim()) }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = uaDraft,
+                        onValueChange = { uaDraft = it },
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        label = { Text("自定义 User-Agent（高级，可留空）") },
+                        placeholder = { Text("默认浏览器 UA；代理/校园网频繁风控时可换非浏览器 UA") },
+                        singleLine = true,
+                    )
+                    BiliSettingsNote("UA 影响取流协商，修改后重新播放生效；不确定就留空。")
                 }
                 BiliSectionTitle("缓冲", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
@@ -717,7 +745,7 @@ fun SettingsRoute(
                 SettingsCard {
                     BiliSettingsRow(
                         title = "ailiaili",
-                        supporting = "版本 1.3.0 · Android、Windows、macOS、Linux 共用这一套界面",
+                        supporting = "版本 ${app.ailiaili.core.model.APP_VERSION} · Android、Windows、macOS、Linux 共用这一套界面",
                         icon = Icons.Filled.Apps,
                     )
                     BiliSwitchRow(
@@ -730,7 +758,7 @@ fun SettingsRoute(
                     )
                     BiliSettingsRow(
                         title = "检查更新",
-                        supporting = updateText ?: "当前版本 1.3.0",
+                        supporting = updateText ?: "当前版本 ${app.ailiaili.core.model.APP_VERSION}",
                         icon = Icons.Filled.Refresh,
                         tone = MetricTone.Danmaku,
                         onClick = {
@@ -756,6 +784,17 @@ fun SettingsRoute(
                             onClick = { openUrl(page) },
                         )
                     }
+                    BiliSettingsRow(
+                        title = "复制诊断信息",
+                        supporting = "反馈播放/风控问题时贴上它（已脱敏，不含凭据）",
+                        icon = Icons.Filled.Info,
+                        tone = MetricTone.Neutral,
+                        onClick = {
+                            val text = app.ailiaili.core.data.Diagnostics.build(app.ailiaili.core.model.APP_VERSION)
+                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                            app.ailiaili.core.designsystem.QuickActions.showToast("诊断信息已复制到剪贴板")
+                        },
+                    )
                     BiliSettingsRow(
                         title = "原作者 ABing",
                         supporting = "打开 B 站主页",

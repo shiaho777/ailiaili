@@ -109,6 +109,12 @@ fun BiliShell(
     rail: @Composable (wide: Boolean) -> Unit,
     bottomBar: @Composable () -> Unit,
     overlay: @Composable () -> Unit = {},
+    /**
+     * 覆盖层置底：播放器保活（用户从播放页进了别的页面）时，播放层要画在
+     * 内容下面。zIndex 只在同一 Box 的直接子级间生效，跨子布局无效，
+     * 所以这里直接调整绘制顺序，而不是靠 zIndex。
+     */
+    overlayBelowContent: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val latest = rememberUpdatedState(content)
@@ -122,17 +128,32 @@ fun BiliShell(
     ) {
         when (chrome) {
             BiliChrome.None -> {
-                page()
-                layer()
+                if (overlayBelowContent) {
+                    layer()
+                    page()
+                } else {
+                    page()
+                    layer()
+                }
             }
             BiliChrome.Rail -> RailFrame(rail) {
-                page()
-                layer()
+                if (overlayBelowContent) {
+                    layer()
+                    page()
+                } else {
+                    page()
+                    layer()
+                }
             }
             BiliChrome.Bottom -> {
                 // 底栏留在布局里让下层标签页不重排；覆盖层盖住整屏，播放页不被底栏挤占。
-                BottomFrame(bottomBar, page)
-                layer()
+                if (overlayBelowContent) {
+                    layer()
+                    BottomFrame(bottomBar, page)
+                } else {
+                    BottomFrame(bottomBar, page)
+                    layer()
+                }
             }
         }
     }

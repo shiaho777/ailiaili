@@ -301,7 +301,7 @@ fun PlayerRoute(
     var undoAt by remember { mutableLongStateOf(-1L) }
     val skippedState = remember { mutableStateOf(setOf<Double>()) }
     var skippedStarts by skippedState
-    var baseSpeed by remember { mutableFloatStateOf(1f) }
+    var baseSpeed by remember { mutableFloatStateOf(settings.playbackSpeed.coerceIn(0.25f, 4f)) }
     var rawSegments by remember { mutableStateOf<List<SponsorSegment>>(emptyList()) }
     var chapters by remember { mutableStateOf<List<ViewChapter>>(emptyList()) }
     var shot by remember { mutableStateOf<VideoShot?>(null) }
@@ -338,8 +338,8 @@ fun PlayerRoute(
     var qualityOpen by remember { mutableStateOf(false) }
     var speedOpen by remember { mutableStateOf(false) }
     var audioOpen by remember { mutableStateOf(false) }
-    var speed by remember { mutableFloatStateOf(1f) }
-    var speedDraft by remember { mutableFloatStateOf(1f) }
+    var speed by remember { mutableFloatStateOf(settings.playbackSpeed.coerceIn(0.25f, 4f)) }
+    var speedDraft by remember { mutableFloatStateOf(settings.playbackSpeed.coerceIn(0.25f, 4f)) }
     // 长按 →：超过阈值进入 3 倍速，松开恢复；短按仍是快进 5 秒。
     var rightHeld by remember { mutableStateOf(false) }
     var rightBoost by remember { mutableStateOf(false) }
@@ -364,11 +364,15 @@ fun PlayerRoute(
     var draft by remember { mutableStateOf("") }
     var composerExpanded by remember { mutableStateOf(false) }
     var downloading by remember { mutableStateOf(false) }
+    var downloadCancelled by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableFloatStateOf(-1f) }
     var cacheOpen by remember { mutableStateOf(false) }
     var cacheQn by remember { mutableIntStateOf(0) }
     var attempt by remember { mutableIntStateOf(0) }
     var liveRetries by remember { mutableIntStateOf(0) }
+    var refetchRetries by remember { mutableIntStateOf(0) }
+    var refetchRequest by remember { mutableStateOf<Triple<String, Long, Long>?>(null) }
+    var autoNextCid by remember { mutableStateOf<Long?>(null) }
     val form = LocalWindowForm.current
     val desktop = isDesktopHost()
     val brightnessOk = canControlBrightness()
@@ -400,6 +404,7 @@ fun PlayerRoute(
     fun cacheToDisk(play: PlayInfo) {
         val d = detail ?: return
         downloading = true
+        downloadCancelled = false
         downloadProgress = -1f
         var lastProgressAt = 0L
         scope.launch {
@@ -413,6 +418,9 @@ fun PlayerRoute(
                         AppGraph.http,
                         cid = page?.cid?.takeIf { it > 0 } ?: d.cid,
                     ) { done, total ->
+                        // 取消检查点：下载器在写循环里调本回调，抛出即中断。
+                        // .part 与 meta 保留，下次同 URL 从断点续传。
+                        if (downloadCancelled) throw DownloadCancelledException()
                         if (done - lastProgressAt >= 512 * 1024 || done == total) {
                             lastProgressAt = done
                             val ratio = if (total > 0) {
@@ -430,8 +438,11 @@ fun PlayerRoute(
                     "已缓存到离线缓存"
                 }
                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-            }.onFailure { toast = it.message ?: "缓存失败" }
+            }.onFailure {
+                toast = if (it is DownloadCancelledException) "已取消缓存，进度已保留可续传" else it.message ?: "缓存失败"
+            }
             downloading = false
+            downloadCancelled = false
             downloadProgress = -1f
         }
     }
@@ -525,12 +536,34 @@ fun PlayerRoute(
                     attempt += 1
                     return
                 }
+                // 点播：playurl 链接有效期短，长暂停/慢速播放后会过期
+                // （PiliPlus #2711 同款）。备用线路用尽后重新取流续播，
+                // 最多 2 次；换片/手动重试会复位计数。
+                val id = bvid ?: detail?.bvid
+                val cidNow = page?.cid ?: detail?.cid ?: 0L
+                if (liveRoom == null && local == null && !id.isNullOrBlank() && cidNow > 0 && refetchRetries < 2) {
+                    refetchRetries += 1
+                    toast = "播放链接可能已过期，正在重新取流（$refetchRetries/2）"
+                    refetchRequest = Triple(id, cidNow, pos)
+                    return
+                }
                 error = "播放失败，线路都不可用"
             }
 
             override fun onEnded(endedNow: Boolean) {
                 ended = endedNow
-                if (endedNow) fireHistory(now = true)
+                if (endedNow) {
+                    fireHistory(now = true)
+                    // 自动连播下一 P（番剧/课程/多P教程）。用状态触发，
+                    // 监听器里不能前向引用 start。
+                    val pages = detail?.pages.orEmpty()
+                    val curCid = page?.cid ?: detail?.cid ?: 0L
+                    val idx = pages.indexOfFirst { it.cid == curCid }
+                    val next = if (idx >= 0) pages.getOrNull(idx + 1) else null
+                    if (settings.autoPlayNext && liveRoom == null && local == null && next != null) {
+                        autoNextCid = next.cid
+                    }
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -571,6 +604,8 @@ fun PlayerRoute(
         durationSec: Int = 0,
         forceDash: Boolean = false,
     ) {
+        // 换片复位重取流额度；同片重取流（seek>0 的错误恢复）保留计数防死循环。
+        if (targetBvid != startedBvid || cid != startedCid) refetchRetries = 0
         ended = false
         skippedStarts = emptySet()
         undoAt = -1L
@@ -629,6 +664,10 @@ fun PlayerRoute(
                     stallBoostMs = CdnPicker.stallBoostMs(mediaUrl),
                 )
                 engine.setMediaInfo(detail?.title.orEmpty(), detail?.owner.orEmpty())
+                app.ailiaili.core.data.Diagnostics.lastPlayInfo =
+                    "$targetBvid cid=$cid 请求画质=${settings.defaultQn} 实际=${got.actualQn} " +
+                        "编码=${got.videoCodecs.ifBlank { "?" }} 音质=${got.audioQn} " +
+                        "起播=${startAt}ms 听视频=$audioOnly"
                 runCatching { engine.play(got, startAt, audioOnly = audioOnly) }
                     .onSuccess {
                         startedBvid = targetBvid
@@ -661,6 +700,25 @@ fun PlayerRoute(
                 if (playingCid() == cid) shot = got
             }
         }
+    }
+
+    // 取流过期的自动恢复：onError 里不能前向引用 start，用状态触发。
+    LaunchedEffect(refetchRequest) {
+        val req = refetchRequest ?: return@LaunchedEffect
+        refetchRequest = null
+        start(req.first, req.second, seek = req.third, durationSec = page?.durationSec ?: detail?.durationSec ?: 0)
+    }
+
+    // 自动连播：切到下一 P，同步分P选中态与简介 cid，倍速/画质偏好自然沿用。
+    LaunchedEffect(autoNextCid) {
+        val nextCid = autoNextCid ?: return@LaunchedEffect
+        autoNextCid = null
+        val d = detail ?: return@LaunchedEffect
+        val next = d.pages.firstOrNull { it.cid == nextCid } ?: return@LaunchedEffect
+        page = next
+        detail = d.copy(cid = nextCid)
+        toast = "自动连播：${next.part.ifBlank { "P${next.page}" }}"
+        start(d.bvid, nextCid, durationSec = next.durationSec.takeIf { it > 0 } ?: d.durationSec)
     }
 
     fun loadComments(aid: Long, pageNum: Int, mode: Int, append: Boolean) {
@@ -1648,7 +1706,11 @@ fun PlayerRoute(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(message, color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = { attempt++ }) { Text("重试") }
+                        TextButton(onClick = {
+                            refetchRetries = 0
+                            liveRetries = 0
+                            attempt++
+                        }) { Text("重试") }
                     }
                 }
             }
@@ -1958,6 +2020,7 @@ fun PlayerRoute(
                                         speedOpen = false
                                         speed = value
                                         baseSpeed = value
+                                        AppGraph.repo.updateSettings { it.copy(playbackSpeed = value) }
                                         runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
                                     },
                                 )
@@ -1971,6 +2034,7 @@ fun PlayerRoute(
                                     onValueChangeFinished = {
                                         speed = speedDraft
                                         baseSpeed = speedDraft
+                                        AppGraph.repo.updateSettings { it.copy(playbackSpeed = speedDraft) }
                                         runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
                                     },
                                     valueRange = 0.25f..4f,
@@ -2295,12 +2359,17 @@ fun PlayerRoute(
                             if (message.isNotEmpty()) toast = message
                         }
                         Act(
-                            Icons.Filled.Download,
-                            if (downloading) "缓存中" else "缓存",
+                            if (downloading) Icons.Filled.Close else Icons.Filled.Download,
+                            if (downloading) "取消缓存" else "缓存",
                             Modifier.weight(1f),
                             on = downloading,
                             active = MaterialTheme.colorScheme.primary,
                         ) {
+                            // 下载中点同一按钮即取消：断点保留，下次续传。
+                            if (downloading) {
+                                downloadCancelled = true
+                                return@Act
+                            }
                             val play = info ?: return@Act
                             cacheQn = play.actualQn
                             cacheOpen = true
@@ -2308,13 +2377,21 @@ fun PlayerRoute(
                     }
                 }
                 if (downloading) {
-                    if (downloadProgress >= 0f) {
-                        LinearProgressIndicator(
-                            progress = { downloadProgress },
-                            modifier = Modifier.fillMaxWidth(),
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (downloadProgress >= 0f) {
+                            LinearProgressIndicator(
+                                progress = { downloadProgress },
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            LinearProgressIndicator(Modifier.weight(1f))
+                        }
+                        Text(
+                            "取消",
+                            modifier = Modifier.clickable { downloadCancelled = true },
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge,
                         )
-                    } else {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                 }
                 val pages = detail?.pages.orEmpty()
@@ -2798,7 +2875,7 @@ fun PlayerRoute(
                             }
                         }
                         Text(
-                            "保存到应用缓存，可在「我的 → 离线缓存」查看。",
+                            "保存到应用缓存，可在「我的 → 离线缓存」查看。高画质需要登录/大会员，权限不足时按实际可取的最高画质缓存。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -2966,6 +3043,9 @@ fun PlayerRoute(
 }
 
 private enum class FlashKind { Play, Pause }
+
+/** 用户主动取消缓存：与真实失败区分，提示语不同且保留断点。 */
+private class DownloadCancelledException : RuntimeException("已取消")
 
 private fun mergeDanmaku(current: List<Danmaku>, extra: List<Danmaku>): List<Danmaku> {
     if (extra.isEmpty()) return current
