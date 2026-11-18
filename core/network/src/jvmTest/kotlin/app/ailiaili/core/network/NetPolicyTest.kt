@@ -1,8 +1,10 @@
 package app.ailiaili.core.network
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
@@ -65,6 +67,27 @@ class NetPolicyTest {
         val result = runCatching { flight.run("k") { error("boom") } }
         assertTrue(result.isFailure)
         // 失败后不留残留：下一次调用正常执行。
+        assertEquals(7, flight.run("k") { 7 })
+    }
+
+    @Test
+    fun singleFlightOwnerCancellationDoesNotPoisonKey() = runBlocking {
+        val flight = SingleFlight<String, Int>()
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        // 独立作用域：不能挂在 runBlocking 下，否则取消前要先等子协程。
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+        val job = scope.launch {
+            flight.run("k") {
+                started.complete(Unit)
+                delay(10_000)
+                1
+            }
+        }
+        started.await()
+        job.cancel()
+        job.join()
+        scope.cancel()
+        // 取消路径的清理必须执行，否则该 key 的单飞永久失效。
         assertEquals(7, flight.run("k") { 7 })
     }
 

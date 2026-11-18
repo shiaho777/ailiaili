@@ -114,36 +114,45 @@ actual class HttpEngine actual constructor(
         val builder = Request.Builder().url(url).get()
         headers.forEach { (key, value) -> builder.header(key, value) }
         val target = File(filePath)
-        val temp = File("$filePath.part")
         target.parentFile?.mkdirs()
-        try {
-            downloadClient.newCall(builder.build()).execute().use { resp ->
-                if (!resp.isSuccessful) error("下载失败 ${resp.code}")
-                val body = resp.body ?: error("下载失败：响应为空")
-                val total = body.contentLength()
-                body.byteStream().use { input ->
-                    temp.outputStream().use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        var downloaded = 0L
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            output.write(buffer, 0, read)
-                            downloaded += read
-                            onProgress(downloaded, total)
+        // 同一目标的并发下载必须串行：共用 .part 会字节交叉后 rename 成
+        // 「完整」视频。临时名再加唯一后缀，双保险。
+        val gate = downloadGates.getOrPut(target.absolutePath) { Any() }
+        synchronized(gate) {
+            val temp = File("$filePath.${java.util.UUID.randomUUID()}.part")
+            try {
+                downloadClient.newCall(builder.build()).execute().use { resp ->
+                    if (!resp.isSuccessful) error("下载失败 ${resp.code}")
+                    val body = resp.body ?: error("下载失败：响应为空")
+                    val total = body.contentLength()
+                    body.byteStream().use { input ->
+                        temp.outputStream().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            var downloaded = 0L
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                output.write(buffer, 0, read)
+                                downloaded += read
+                                onProgress(downloaded, total)
+                            }
                         }
                     }
                 }
-            }
-            if (!temp.renameTo(target)) {
-                temp.copyTo(target, overwrite = true)
+                if (!temp.renameTo(target)) {
+                    temp.copyTo(target, overwrite = true)
+                    temp.delete()
+                }
+            } catch (t: Throwable) {
                 temp.delete()
+                throw t
             }
-        } catch (t: Throwable) {
-            temp.delete()
-            throw t
         }
     }
+
+    /** 同目标下载互斥。条目数最多等于历史下载目标数，内存可忽略；
+     *  不能在下载结束时移除：还在排队的第二个下载会拿到新锁失去互斥。 */
+    private val downloadGates = java.util.concurrent.ConcurrentHashMap<String, Any>()
 
     actual fun openStream(url: String, headers: Map<String, String>): InputStream {
         val builder = Request.Builder().url(url).get()

@@ -69,9 +69,15 @@ actual suspend fun pickFontFile(): PickedImage? = AndroidHost.fontPicker?.invoke
 
 actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {
     val resolver = AndroidHost.context.contentResolver
+    // 按真实字节格式定扩展名/MIME：播放器截图是 PNG，不能一律标成 .jpg。
+    val isPng = bytes.size >= 8 &&
+        bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() &&
+        bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte()
+    val ext = if (isPng) "png" else "jpg"
+    val mime = if (isPng) "image/png" else "image/jpeg"
     val values = ContentValues().apply {
-        put(MediaStore.Images.Media.DISPLAY_NAME, "$displayName.jpg")
-        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+        put(MediaStore.Images.Media.DISPLAY_NAME, "$displayName.$ext")
+        put(MediaStore.Images.Media.MIME_TYPE, mime)
         if (Build.VERSION.SDK_INT >= 29) {
             put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/ailiaili")
             put(MediaStore.Images.Media.IS_PENDING, 1)
@@ -85,7 +91,7 @@ actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {
         values.put(MediaStore.Images.Media.IS_PENDING, 0)
         resolver.update(uri, values, null, null)
     }
-    return "头像已保存到相册"
+    return "图片已保存到相册"
 }
 
 actual fun exitApp() {

@@ -69,6 +69,20 @@ inline fun <reified VM : ViewModel> appViewModel(
     return viewModel(key = key) { create() }
 }
 
+/**
+ * 账号相关数据（历史/收藏/稍后再看/私信）的视图模型：键里带账号标识。
+ * 视图模型是 Activity 级缓存，换号后旧实例还活着——不带账号标识就会
+ * 继续显示上一个账号的数据。账号变化 → 键变化 → 旧实例销毁、新实例重建。
+ */
+@Composable
+inline fun <reified VM : ViewModel> accountViewModel(
+    key: String,
+    noinline create: () -> VM,
+): VM {
+    val uid = app.ailiaili.core.data.AppGraph.repo.session.value.dedeUserId.orEmpty()
+    return viewModel(key = "$key@$uid") { create() }
+}
+
 @Composable
 fun LoadBox(
     loading: Boolean,
@@ -157,7 +171,15 @@ fun VideoCard(
                     interactionSource = interaction,
                     indication = LocalIndication.current,
                     onClick = { onClick(item) },
-                    onLongClick = { if (item.cover.isNotBlank()) previewCover = true },
+                    onLongClick = {
+                        // 安卓没有右键/悬停：长按必须能打开菜单（稍后再看/屏蔽），
+                        // 否则这些操作在安卓完全不可达。桌面长按仍是封面预览。
+                        if (app.ailiaili.core.data.isDesktopHost()) {
+                            if (item.cover.isNotBlank()) previewCover = true
+                        } else {
+                            menuOpen = true
+                        }
+                    },
                 )
                 .secondaryClick {
                     menuOpen = true

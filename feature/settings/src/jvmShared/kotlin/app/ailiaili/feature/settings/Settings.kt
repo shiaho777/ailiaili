@@ -99,6 +99,12 @@ private val qualities = listOf(16, 32, 64, 80, 112, 116, 120)
 
 private val settingsTabs = listOf("通用", "播放", "数据管理", "关于")
 
+/** 关键词防抖落盘用独立作用域：页面离开组合被取消时，最后一次编辑也要写进去。 */
+private val keywordSaveScope = kotlinx.coroutines.CoroutineScope(
+    kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+)
+private var keywordSaveJob: kotlinx.coroutines.Job? = null
+
 @Composable
 fun SettingsRoute(
     onLogout: () -> Unit,
@@ -428,7 +434,7 @@ fun SettingsRoute(
                             }
                         }
                     }
-                    BiliSettingsNote("桌面端生效；Android 由 Media3 自行管理缓冲。")
+                    BiliSettingsNote("双端生效：桌面映射 VLC 网络缓冲，Android 映射 Media3 缓冲参数。")
                 }
                 BiliSectionTitle("弹幕", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
@@ -486,8 +492,14 @@ fun SettingsRoute(
                     }
                     LaunchedEffect(keywordDraft) {
                         if (keywordDraft == settings.danmakuBlockKeywords) return@LaunchedEffect
-                        delay(500)
-                        AppGraph.repo.updateSettings { it.copy(danmakuBlockKeywords = keywordDraft) }
+                        // 防抖落盘放独立作用域：挂在页面组合上的话，输入后 500ms 内
+                        // 返回/切页会取消协程，最后编辑静默丢失。
+                        keywordSaveJob?.cancel()
+                        val draft = keywordDraft
+                        keywordSaveJob = keywordSaveScope.launch {
+                            delay(500)
+                            AppGraph.repo.updateSettings { it.copy(danmakuBlockKeywords = draft) }
+                        }
                     }
                     OutlinedTextField(
                         value = keywordDraft,

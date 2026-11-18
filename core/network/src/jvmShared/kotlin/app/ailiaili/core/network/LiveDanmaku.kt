@@ -118,7 +118,9 @@ internal class LiveDanmakuConnection(
             val version = head.short.toInt()
             head.int // op
             head.int // sequence
-            if (total < headerLen || offset + total > data.size) break
+            // total/headerLen 必须有 16 字节协议头的下界：total=0 的畸形帧会让
+            // offset 永不前进（读线程死循环），headerLen>total 会构造非法区间。
+            if (total < 16 || headerLen < 16 || total < headerLen || offset + total > data.size) break
             val body = data.copyOfRange(offset + headerLen, offset + total)
             when (version) {
                 2 -> {

@@ -31,6 +31,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
@@ -90,8 +91,10 @@ fun SeasonRoute(
             Modifier.padding(padding),
         ) {
             val shown = detail ?: return@LoadBox
+            val seasonState = androidx.compose.foundation.lazy.rememberLazyListState()
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.fillMaxSize().smoothWheelScroll(seasonState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                state = seasonState,
                 contentPadding = PaddingValues(bottom = 24.dp),
             ) {
                 item(key = "header") {

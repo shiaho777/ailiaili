@@ -71,7 +71,7 @@ import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.model.ThemeMode
 import app.ailiaili.core.model.VideoItem
-import kotlinx.coroutines.delay
+
 import kotlinx.coroutines.launch
 
 enum class HomeTab(val label: String) { Recommend("推荐"), Popular("热门"), Ranking("排行榜"), Live("直播") }
@@ -85,6 +85,7 @@ class HomeViewModel : ViewModel() {
     var page by mutableIntStateOf(1)
     var hasMore by mutableStateOf(true)
     private var source = AppGraph.repo.settings.value.recommendSource
+    private var loadTicket = 0
 
     init { refresh() }
 
@@ -115,6 +116,9 @@ class HomeViewModel : ViewModel() {
 
     private fun load(reset: Boolean) {
         val current = tab
+        // 刷新会作废所有在途请求（含加载更多）：旧页后回会把第 N 页拼到
+        // 新的第 1 页后面，中间页丢失且页码跳号。
+        val ticketNow = if (reset) ++loadTicket else loadTicket
         val requestPage = if (reset) 1 else page + 1
         loading = true
         error = null
@@ -125,7 +129,7 @@ class HomeViewModel : ViewModel() {
                 HomeTab.Ranking -> AppGraph.repo.ranking()
                 HomeTab.Live -> AppGraph.repo.liveList(requestPage)
             }
-            if (tab != current) return@launch
+            if (tab != current || ticketNow != loadTicket) return@launch
             loading = false
             refreshing = false
             result.onSuccess { list ->
@@ -221,9 +225,9 @@ fun HomeRoute(
                 onSelect = { vm.select(HomeTab.entries[it]) },
             )
             var filterOpen by remember { mutableStateOf(false) }
-    // 关键词输入防抖落盘：不要每敲一个字就写一次设置文件。
+    // 关键词输入落盘：防抖在 ContentFilter 内部的独立作用域里做，
+    // 切页取消这里的协程也不会丢掉最后一次输入。
     LaunchedEffect(ContentFilter.title, ContentFilter.up) {
-        delay(300)
         ContentFilter.persist()
     }
             Row(

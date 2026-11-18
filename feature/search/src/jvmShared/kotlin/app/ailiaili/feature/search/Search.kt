@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import app.ailiaili.core.designsystem.BiliHeaderAction
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.BiliSearchField
 import app.ailiaili.core.designsystem.BiliSectionHeader
 import androidx.compose.runtime.Composable
@@ -184,14 +185,15 @@ class SearchViewModel(initial: String) : ViewModel() {
                         }
                     }
                     ContentKind.Video, ContentKind.Live -> {
-                        items = if (reset) pageData.items else items + pageData.items
+                        // 排序翻页边界可能重叠：不去重会出现重复 key，LazyGrid 直接崩。
+                        items = if (reset) pageData.items else (items + pageData.items).distinctBy { it.stableKey }
                         if (reset) {
                             bangumiItems = emptyList()
                             userItems = emptyList()
                         }
                     }
                     ContentKind.User -> {
-                        userItems = if (reset) pageData.userItems else userItems + pageData.userItems
+                        userItems = if (reset) pageData.userItems else (userItems + pageData.userItems).distinctBy { it.mid }
                         if (reset) {
                             items = emptyList()
                             bangumiItems = emptyList()
@@ -280,7 +282,13 @@ fun SearchRoute(
                 )
             }
             if (!vm.searched) {
-                Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                val idleScroll = rememberScrollState()
+                Column(
+                    Modifier.verticalScroll(idleScroll)
+                        .smoothWheelScroll(idleScroll, app.ailiaili.core.designsystem.LocalWheelSpeed.current)
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     Text(
                         searchIdleHint(vm.kind),
                         style = MaterialTheme.typography.bodySmall,
@@ -527,7 +535,7 @@ private fun UserSearchList(
     }
     LazyColumn(
         state = state,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().smoothWheelScroll(state, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
         contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

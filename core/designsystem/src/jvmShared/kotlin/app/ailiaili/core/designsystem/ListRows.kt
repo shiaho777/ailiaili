@@ -81,7 +81,11 @@ fun VideoListRow(
                 interactionSource = interaction,
                 indication = androidx.compose.foundation.LocalIndication.current,
                 onClick = onClick,
-                onLongClick = onLongClick,
+                // 安卓没有右键：长按未被页面占用（编辑态等）时兜底打开菜单，
+                // 否则「屏蔽此 UP/标题」在安卓列表页不可达。
+                onLongClick = onLongClick ?: {
+                    if (!app.ailiaili.core.data.isDesktopHost()) menuOpen = true
+                },
             )
             .secondaryClick { menuOpen = true }
             .padding(horizontal = 8.dp, vertical = 8.dp),

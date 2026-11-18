@@ -1,9 +1,12 @@
 package app.ailiaili.core.data
 
+import app.ailiaili.core.model.AppSettings
 import app.ailiaili.core.model.BlockedUp
 import app.ailiaili.core.model.CdnMode
 import app.ailiaili.core.model.ContentKind
 import app.ailiaili.core.model.RecommendSource
+import app.ailiaili.core.model.ShellLayout
+import app.ailiaili.core.model.ThemeMode
 import app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
 import app.ailiaili.core.model.NETWORK_CACHING_MAX_MS
 import app.ailiaili.core.network.JSONObject
@@ -98,6 +101,82 @@ class SettingsCodecTest {
         val out = decodeAppSettings(json)
         assertEquals(listOf(BlockedUp(5, "")), out.blockedUps)
         assertEquals(listOf("标题"), out.blockedTitles)
+    }
+
+    @Test
+    fun roundTripsSubtitleRelatedAndFont() {
+        val src = decodeAppSettings(JSONObject()).copy(
+            showRelated = false,
+            subtitleEnabled = true,
+            subtitleLan = "ai-zh",
+            subtitleDelaySec = -0.4,
+            fontPath = "fonts/my.ttf",
+        )
+        val out = decodeAppSettings(encodeAppSettings(src))
+        assertEquals(false, out.showRelated)
+        assertEquals(true, out.subtitleEnabled)
+        assertEquals("ai-zh", out.subtitleLan)
+        assertEquals(-0.4, out.subtitleDelaySec)
+        assertEquals("fonts/my.ttf", out.fontPath)
+    }
+
+    @Test
+    fun missingSubtitleRelatedAndFontFieldsDefault() {
+        val out = decodeAppSettings(JSONObject())
+        assertEquals(true, out.showRelated)
+        assertEquals(false, out.subtitleEnabled)
+        assertEquals("", out.subtitleLan)
+        assertEquals(0.0, out.subtitleDelaySec)
+        assertEquals("", out.fontPath)
+    }
+
+    /** 全字段非默认值往返：新增设置字段忘了同步编解码时，这里会直接红。 */
+    @Test
+    fun everyFieldSurvivesRoundTrip() {
+        val src = AppSettings(
+            theme = ThemeMode.Dark,
+            shellLayout = ShellLayout.Rail,
+            recommendSource = RecommendSource.App,
+            danmakuEnabled = false,
+            danmakuAreaPercent = 50,
+            danmakuSmartFilter = false,
+            danmakuColorful = false,
+            danmakuPillBackground = false,
+            danmakuBlockKeywords = "词A 词B",
+            danmakuFilterScroll = false,
+            danmakuFilterFixed = false,
+            danmakuFilterColorful = false,
+            danmakuFilterAdvanced = false,
+            defaultQn = 116,
+            noLogin1080 = false,
+            showRelated = false,
+            subtitleEnabled = true,
+            subtitleLan = "zh-CN",
+            subtitleDelaySec = 0.6,
+            sponsorBlock = true,
+            sponsorCategories = "sponsor,selfpromo",
+            cdnMode = CdnMode.Auto,
+            cdnManualId = "cos",
+            blockPcdn = false,
+            bufferAuto = false,
+            networkCachingMs = 2_500,
+            accentHex = "#123456",
+            fontPath = "fonts/x.ttf",
+            accentFollowSystem = true,
+            autoCheckUpdate = false,
+            skippedVersion = "9.9.9",
+            acceptedDisclaimerVersion = 2,
+            closeToTray = false,
+            playerVolume = 0.3f,
+            lastSearchKind = ContentKind.Live,
+            downloadDir = "/tmp/dl",
+            wheelSpeedPercent = 400,
+            filterTitleKeyword = "标题词",
+            filterUpKeyword = "UP词",
+            blockedUps = listOf(BlockedUp(7, "甲")),
+            blockedTitles = listOf("标题A"),
+        )
+        assertEquals(src, decodeAppSettings(encodeAppSettings(src)))
     }
 
     @Test

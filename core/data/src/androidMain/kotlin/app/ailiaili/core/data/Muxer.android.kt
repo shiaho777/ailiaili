@@ -28,7 +28,10 @@ actual fun muxToMp4(
     var started = false
     return try {
         videoExtractor = MediaExtractor().apply { setDataSource(videoPath) }
-        val videoTrack = firstTrackOf(videoExtractor, "video/") ?: return false
+        val videoTrack = firstTrackOf(videoExtractor, "video/")
+        // Int 永不为 null，旧写法 ?: return false 是死代码；-1 要走 catch
+        // 统一清理半成品，不能靠 selectTrack 抛异常兜底。
+        if (videoTrack < 0) error("视频流里没有可识别的视频轨")
         videoExtractor.selectTrack(videoTrack)
         val videoFormat = videoExtractor.getTrackFormat(videoTrack)
 
@@ -40,11 +43,13 @@ actual fun muxToMp4(
         if (audioPath != null && File(audioPath).isFile) {
             audioExtractor = MediaExtractor().apply { setDataSource(audioPath) }
             val audioTrack = firstTrackOf(audioExtractor, "audio/")
-            if (audioTrack >= 0) {
-                audioExtractor.selectTrack(audioTrack)
-                audioFormat = audioExtractor.getTrackFormat(audioTrack)
-                muxAudio = muxer.addTrack(audioFormat)
-            }
+            // 音频文件存在却读不出音轨（损坏/空流）：必须判失败回退双流。
+            // 静默跳过会产出无声 MP4，验证可播后 pruneSources 把原始音频
+            // 删掉，视频永久无声。
+            if (audioTrack < 0) return false
+            audioExtractor.selectTrack(audioTrack)
+            audioFormat = audioExtractor.getTrackFormat(audioTrack)
+            muxAudio = muxer.addTrack(audioFormat)
         }
 
         muxer.start()

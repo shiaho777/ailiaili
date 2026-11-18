@@ -106,4 +106,17 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         AndroidHost.activity = this
     }
+
+    override fun onDestroy() {
+        // 静态持有必须随销毁清空：否则进程存活期间泄漏整个 Activity，
+        // openUrl/亮度调节还可能作用于已销毁的窗口。只清自己安装的引用。
+        if (AndroidHost.activity === this) AndroidHost.activity = null
+        AndroidHost.imagePicker = null
+        AndroidHost.fontPicker = null
+        pendingPick?.cancel()
+        pendingPick = null
+        pendingFont?.cancel()
+        pendingFont = null
+        super.onDestroy()
+    }
 }

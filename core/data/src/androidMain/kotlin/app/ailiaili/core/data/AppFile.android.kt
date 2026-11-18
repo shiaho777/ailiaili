@@ -29,17 +29,29 @@ actual class AppFile {
     }
     actual fun writeTextAtomic(text: String) {
         file.parentFile?.mkdirs()
-        val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(text)
-        runCatching {
-            java.nio.file.Files.move(
-                tmp.toPath(),
-                file.toPath(),
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-            )
-        }.onFailure {
-            file.writeText(text)
+        // 临时名必须唯一：固定 ".tmp" 在并发写同一文件时互相截断/交叉。
+        val tmp = java.nio.file.Files.createTempFile(
+            file.parentFile.toPath(), file.name + ".", ".tmp",
+        ).toFile()
+        try {
+            tmp.writeText(text)
+            try {
+                java.nio.file.Files.move(
+                    tmp.toPath(),
+                    file.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                // 文件系统不支持原子移动时退一步用普通替换；绝不直接覆写目标
+                // （非原子，进程中断会留半写 JSON）。
+                java.nio.file.Files.move(
+                    tmp.toPath(),
+                    file.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+        } finally {
             tmp.delete()
         }
     }

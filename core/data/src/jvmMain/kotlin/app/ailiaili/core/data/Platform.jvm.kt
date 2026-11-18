@@ -115,7 +115,11 @@ actual suspend fun pickImage(): PickedImage? = withContext(Dispatchers.Main) {
 actual fun saveImageBytes(bytes: ByteArray, displayName: String): String {
     val dir = File(System.getProperty("user.home"), "Pictures/ailiaili").also { it.mkdirs() }
     val safe = displayName.ifBlank { "avatar" }.replace(Regex("""[\\/:*?"<>|]"""), "_")
-    val file = File(dir, "$safe.jpg")
+    // 按真实字节格式定扩展名：播放器截图是 PNG，不能一律标成 .jpg。
+    val isPng = bytes.size >= 8 &&
+        bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() &&
+        bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte()
+    val file = File(dir, "$safe.${if (isPng) "png" else "jpg"}")
     file.writeBytes(bytes)
     return "已保存到 ${file.absolutePath}"
 }

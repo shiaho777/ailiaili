@@ -16,7 +16,22 @@ internal object PlayMemory {
 
     fun read(bvid: String, cid: Long): Long {
         if (bvid.isBlank() || cid <= 0) return 0
-        return load().optLong(key(bvid, cid), 0L)
+        return positionOf(load(), key(bvid, cid))
+    }
+
+    /** 新格式 {"pos":…,"at":…}；旧格式直接存毫秒数，读时兼容。 */
+    private fun positionOf(root: JSONObject, k: String): Long {
+        val v = root.opt(k)
+        return when (v) {
+            is JSONObject -> v.optLong("pos", 0L)
+            is Number -> v.toLong()
+            else -> 0L
+        }
+    }
+
+    private fun touchedAt(root: JSONObject, k: String): Long {
+        val v = root.opt(k)
+        return if (v is JSONObject) v.optLong("at", 0L) else 0L
     }
 
     /**
@@ -29,11 +44,17 @@ internal object PlayMemory {
     fun write(bvid: String, cid: Long, positionMs: Long) {
         if (bvid.isBlank() || cid <= 0 || positionMs < 5_000) return
         val root = load()
-        root.put(key(bvid, cid), positionMs)
-        val keys = root.keys().asSequence().toList()
-        if (keys.size > Max) keys.take(keys.size - Max).forEach { root.remove(it) }
-        dirty = true
         val now = System.currentTimeMillis()
+        root.put(key(bvid, cid), JSONObject().put("pos", positionMs).put("at", now))
+        val keys = root.keys().asSequence().toList()
+        if (keys.size > Max) {
+            // 按最近访问淘汰（LRU）：JSONObject 的键序是首次插入序，
+            // 直接删头部会把常续看的旧视频先丢掉。
+            keys.sortedBy { touchedAt(root, it) }
+                .take(keys.size - Max)
+                .forEach { root.remove(it) }
+        }
+        dirty = true
         if (now - lastFlushAt >= FlushIntervalMs) flush(now)
     }
 

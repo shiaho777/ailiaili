@@ -102,6 +102,10 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     danmakuFilterAdvanced = o.optBoolean("danmakuFilterAdvanced", true),
     defaultQn = o.optInt("defaultQn", 80),
     noLogin1080 = o.optBoolean("noLogin1080", true),
+    showRelated = o.optBoolean("showRelated", true),
+    subtitleEnabled = o.optBoolean("subtitleEnabled", false),
+    subtitleLan = o.optString("subtitleLan"),
+    subtitleDelaySec = o.optDouble("subtitleDelaySec", 0.0),
     sponsorBlock = o.optBoolean("sponsorBlock", false),
     sponsorCategories = SponsorCategories.sanitize(o.optString("sponsorCategories")),
     cdnMode = if (!o.optBoolean("cdnModeMigrated", false)) {
@@ -116,6 +120,7 @@ internal fun decodeAppSettings(o: JSONObject): AppSettings = AppSettings(
     networkCachingMs = o.optInt("networkCachingMs", NETWORK_CACHING_DEFAULT_MS)
         .coerceIn(NETWORK_CACHING_MIN_MS, NETWORK_CACHING_MAX_MS),
     accentHex = o.optString("accentHex"),
+    fontPath = o.optString("fontPath"),
     accentFollowSystem = o.optBoolean("accentFollowSystem", false),
     autoCheckUpdate = o.optBoolean("autoCheckUpdate", true),
     skippedVersion = o.optString("skippedVersion"),
@@ -175,6 +180,10 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("danmakuFilterAdvanced", next.danmakuFilterAdvanced)
     .put("defaultQn", next.defaultQn)
     .put("noLogin1080", next.noLogin1080)
+    .put("showRelated", next.showRelated)
+    .put("subtitleEnabled", next.subtitleEnabled)
+    .put("subtitleLan", next.subtitleLan)
+    .put("subtitleDelaySec", next.subtitleDelaySec)
     .put("sponsorBlock", next.sponsorBlock)
     .put("sponsorCategories", SponsorCategories.sanitize(next.sponsorCategories))
     .put("cdnMode", next.cdnMode.name)
@@ -184,6 +193,7 @@ internal fun encodeAppSettings(next: AppSettings): JSONObject = JSONObject()
     .put("bufferAuto", next.bufferAuto)
     .put("networkCachingMs", next.networkCachingMs.coerceIn(NETWORK_CACHING_MIN_MS, NETWORK_CACHING_MAX_MS))
     .put("accentHex", next.accentHex)
+    .put("fontPath", next.fontPath)
     .put("accentFollowSystem", next.accentFollowSystem)
     .put("autoCheckUpdate", next.autoCheckUpdate)
     .put("skippedVersion", next.skippedVersion)
@@ -277,10 +287,14 @@ class OfflineCache(private val root: AppFile) {
                     videoPath = primary.absolutePath,
                     audioPath = audio?.absolutePath,
                     qn = o.optInt("qn"),
+                    cid = o.optLong("cid", 0L),
                 )
             }.getOrNull()
         }
     }
+
+    /** 同稿件下载互斥：并发重下会互踩双流与合流件。 */
+    private val downloadGates = java.util.concurrent.ConcurrentHashMap<String, Any>()
 
     fun download(
         bvid: String,
@@ -288,43 +302,51 @@ class OfflineCache(private val root: AppFile) {
         cover: String,
         info: PlayInfo,
         client: HttpEngine,
+        cid: Long = 0L,
         onProgress: (downloaded: Long, total: Long) -> Unit = { _, _ -> },
     ): CacheEntry {
         val folder = AppFile(extraRoot ?: root, bvid.ifBlank { "local" })
-        folder.mkdirs()
-        val video = AppFile(folder, "video.m4s")
-        val audio = AppFile(folder, "audio.m4s")
-        fetch(client, info.videoUrl, video, onProgress)
-        val audioUrl = info.audioUrl
-        if (audioUrl != null) fetch(client, audioUrl, audio, onProgress)
-        val meta = JSONObject()
-            .put("bvid", bvid)
-            .put("title", title)
-            .put("cover", cover)
-            .put("qn", info.actualQn)
-            .put("video", "video.m4s")
-            .put("audio", "audio.m4s")
-            .put("videoCodecs", info.videoCodecs)
-            .put("audioCodecs", info.audioCodecs)
-        AppFile(folder, "meta.json").writeTextAtomic(meta.toString())
-        // 无损合流为单个 MP4（Android 系统合成器；桌面保留双流）。
-        // 合流失败绝不删原始文件，播放回退双流。
-        val merged = AppFile(folder, "merged.mp4")
-        val muxed = runCatching {
-            muxToMp4(
-                video.absolutePath,
-                audio.takeIf { it.exists() }?.absolutePath,
-                merged.absolutePath,
-                info.videoCodecs,
-                info.audioCodecs,
-            )
-        }.getOrDefault(false)
-        // 合流成功后保留原始双流：扫描以 video.m4s 存在为锚点，
-        // 且合流件万一损坏还能回退。删除缓存时整个文件夹一起清，不会泄漏。
-        return if (muxed && merged.exists()) {
-            CacheEntry(bvid, title, cover, merged.absolutePath, null, info.actualQn)
-        } else {
-            CacheEntry(bvid, title, cover, video.absolutePath, audio.takeIf { it.exists() }?.absolutePath, info.actualQn)
+        val gate = downloadGates.getOrPut(folder.absolutePath) { Any() }
+        synchronized(gate) {
+            folder.mkdirs()
+            // 重下载（换画质）必须先清旧合流件：旧 merged 还在的话，本次合流
+            // 失败会播旧件，旧件播放成功还会触发 pruneSources 误删新双流。
+            AppFile(folder, "merged.mp4").deleteRecursively()
+            val video = AppFile(folder, "video.m4s")
+            val audio = AppFile(folder, "audio.m4s")
+            fetch(client, info.videoUrl, video, onProgress)
+            val audioUrl = info.audioUrl
+            if (audioUrl != null) fetch(client, audioUrl, audio, onProgress)
+            val meta = JSONObject()
+                .put("bvid", bvid)
+                .put("cid", cid)
+                .put("title", title)
+                .put("cover", cover)
+                .put("qn", info.actualQn)
+                .put("video", "video.m4s")
+                .put("audio", "audio.m4s")
+                .put("videoCodecs", info.videoCodecs)
+                .put("audioCodecs", info.audioCodecs)
+            AppFile(folder, "meta.json").writeTextAtomic(meta.toString())
+            // 无损合流为单个 MP4（Android 系统合成器；桌面保留双流）。
+            // 合流失败绝不删原始文件，播放回退双流。
+            val merged = AppFile(folder, "merged.mp4")
+            val muxed = runCatching {
+                muxToMp4(
+                    video.absolutePath,
+                    audio.takeIf { it.exists() }?.absolutePath,
+                    merged.absolutePath,
+                    info.videoCodecs,
+                    info.audioCodecs,
+                )
+            }.getOrDefault(false)
+            // 合流成功后保留原始双流：扫描以 video.m4s 存在为锚点，
+            // 且合流件万一损坏还能回退。删除缓存时整个文件夹一起清，不会泄漏。
+            return if (muxed && merged.exists()) {
+                CacheEntry(bvid, title, cover, merged.absolutePath, null, info.actualQn, cid)
+            } else {
+                CacheEntry(bvid, title, cover, video.absolutePath, audio.takeIf { it.exists() }?.absolutePath, info.actualQn, cid)
+            }
         }
     }
 

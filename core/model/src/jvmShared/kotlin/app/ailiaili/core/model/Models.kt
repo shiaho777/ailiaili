@@ -790,6 +790,8 @@ data class CacheEntry(
     val videoPath: String,
     val audioPath: String?,
     val qn: Int,
+    /** 下载时的分P cid：离线续播按 bvid+cid 对齐在线进度。旧缓存缺省 0。 */
+    val cid: Long = 0L,
 )
 
 object PartitionCatalog {

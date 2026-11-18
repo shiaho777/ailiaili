@@ -27,23 +27,30 @@ internal class TtlCache<K : Any, V : Any>(
 
     suspend fun get(key: K, load: suspend () -> Result<V>): Result<V> {
         val now = clock()
-        val deferred = lock.withLock {
+        // 查缓存与注册单飞必须在同一个锁段里：分成两段的话，并发未命中会
+        // 各自成为 owner 重复请求，后注册者还会覆盖前者的 deferred。
+        val (deferred, own) = lock.withLock {
             val hit = entries[key]
             if (hit != null) {
                 if (now - hit.at <= ttlMs) return Result.success(hit.value)
                 entries.remove(key)
             }
-            inFlight[key]
+            val existing = inFlight[key]
+            if (existing != null) {
+                existing to null
+            } else {
+                val fresh = CompletableDeferred<Result<V>>()
+                inFlight[key] = fresh
+                null to fresh
+            }
         }
-        if (deferred != null) {
+        if (own == null) {
             return try {
-                deferred.await()
+                deferred!!.await()
             } catch (_: Throwable) {
                 load()
             }
         }
-        val own = CompletableDeferred<Result<V>>()
-        lock.withLock { inFlight[key] = own }
         return try {
             val result = load()
             result.onSuccess { value ->
@@ -67,7 +74,11 @@ internal class TtlCache<K : Any, V : Any>(
             own.completeExceptionally(t)
             throw t
         } finally {
-            lock.withLock { inFlight.remove(key) }
+            // 取消路径下 withLock 会因挂起抛 CancellationException 跳过清理，
+            // inFlight 残留异常态 deferred 让该 key 的单飞永久失效。必须不可取消。
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                lock.withLock { if (inFlight[key] === own) inFlight.remove(key) }
+            }
         }
     }
 

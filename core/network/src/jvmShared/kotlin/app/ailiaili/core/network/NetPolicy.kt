@@ -53,7 +53,12 @@ class SingleFlight<K : Any, V> {
                 deferred.completeExceptionally(t)
                 throw t
             } finally {
-                lock.withLock { inFlight.remove(key) }
+                // 取消路径下 withLock 挂起即抛 CancellationException，清理被跳过，
+                // 残留异常态 deferred 会让该 key 的单飞永久失效。必须不可取消，
+                // 且只删自己注册的那份，不误删后来者的条目。
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    lock.withLock { if (inFlight[key] === deferred) inFlight.remove(key) }
+                }
             }
         }
         return try {

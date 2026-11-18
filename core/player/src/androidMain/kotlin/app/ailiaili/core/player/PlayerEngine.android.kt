@@ -89,6 +89,10 @@ actual class PlayerEngine actual constructor() {
 
     private var live = false
 
+    private var loadedTag = ""
+
+    actual val mediaTag: String get() = loadedTag
+
     /**
      * 与桌面同一套 BufferPolicy 决策值；换片时映射成 Media3 缓冲参数生效。
      * 弱网深预读抗抖动，快线浅预读省内存。
@@ -169,6 +173,7 @@ actual class PlayerEngine actual constructor() {
 
     actual fun playLive(url: String) {
         live = true
+        loadedTag = url
         applyBufferPolicy()
         val mime = when {
             url.contains(".m3u8") -> MimeTypes.APPLICATION_M3U8
@@ -193,7 +198,8 @@ actual class PlayerEngine actual constructor() {
         player.playWhenReady = true
     }
 
-    actual fun playFiles(videoPath: String, audioPath: String?) {
+    actual fun playFiles(videoPath: String, audioPath: String?, positionMs: Long) {
+        loadedTag = videoPath
         val video = progressive.createMediaSource(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(videoPath))))
         val source = if (audioPath.isNullOrBlank()) {
             video
@@ -203,7 +209,7 @@ actual class PlayerEngine actual constructor() {
                 progressive.createMediaSource(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(audioPath)))),
             )
         }
-        player.setMediaSource(source)
+        player.setMediaSource(source, positionMs)
         player.prepare()
         player.playWhenReady = true
     }
@@ -254,6 +260,7 @@ actual class PlayerEngine actual constructor() {
 
     private fun attach(videoUrl: String, positionMs: Long) {
         live = false
+        loadedTag = videoUrl
         applyBufferPolicy()
         val video = progressive.createMediaSource(MediaItem.fromUri(videoUrl))
         val audio = audioUrl
@@ -270,6 +277,8 @@ actual class PlayerEngine actual constructor() {
 
     private fun attachSingle(url: String, positionMs: Long) {
         live = false
+        // 听视频只是同一条视频换了流，媒体身份沿用视频 URL，进度归属不变。
+        loadedTag = videoUrl?.takeIf { it.isNotBlank() } ?: url
         applyBufferPolicy()
         player.setMediaSource(progressive.createMediaSource(MediaItem.fromUri(url)))
         player.prepare()

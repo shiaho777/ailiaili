@@ -46,10 +46,12 @@ internal object VideoFrames {
         val row = rowBuffer
         for (y in 0 until height) {
             if (src.remaining() < srcPitch) break
-            src.get(row)
+            // 行缓冲只增不缩：必须按本次 rowBytes 读写。整段 get/put 在
+            // 大分辨率换小分辨率后会逐行错位，末行还可能越界。
+            src.get(row, 0, rowBytes)
             if (srcPitch > rowBytes) src.position(src.position() + (srcPitch - rowBytes))
             if (dest.remaining() < destPitch) break
-            dest.put(row)
+            dest.put(row, 0, rowBytes)
             if (destPitch > rowBytes) dest.position(dest.position() + (destPitch - rowBytes))
         }
         dest.position(0)

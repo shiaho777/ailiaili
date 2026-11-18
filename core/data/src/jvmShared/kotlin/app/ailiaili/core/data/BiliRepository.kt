@@ -103,6 +103,7 @@ interface BiliRepository {
     suspend fun batchRemoveFav(mediaId: Long, aids: Collection<Long>): Result<Unit>
     suspend fun messages(): Result<List<MsgSession>>
     suspend fun msgHistory(talkerId: Long): Result<List<MsgItem>>
+    suspend fun ackMsg(talkerId: Long, ackSeqno: Long): Result<Unit>
     suspend fun sendMsg(receiverId: Long, text: String): Result<Unit>
     suspend fun msgEmotes(): Result<List<Pair<String, String>>>
     suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String): Result<Unit>
@@ -209,6 +210,7 @@ class BiliRepositoryImpl(
     override suspend fun batchRemoveFav(mediaId: Long, aids: Collection<Long>) = client.batchRemoveFav(mediaId, aids)
     override suspend fun messages() = client.messages()
     override suspend fun msgHistory(talkerId: Long) = client.msgHistory(talkerId)
+    override suspend fun ackMsg(talkerId: Long, ackSeqno: Long) = client.ackMsg(talkerId, ackSeqno)
     override suspend fun sendMsg(receiverId: Long, text: String) = client.sendMsg(receiverId, text)
     override suspend fun msgEmotes() = client.msgEmotes()
     override suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String) =

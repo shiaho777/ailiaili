@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.ui.graphics.Color
 import app.ailiaili.core.designsystem.BiliErrorState
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.BiliHeaderAction
 import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.biliPressScale
@@ -183,10 +184,12 @@ fun MineRoute(
                 onRefresh = { refreshTick++ },
                 modifier = Modifier.fillMaxSize(),
             ) {
+            val mineScroll = rememberScrollState()
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(mineScroll)
+                    .smoothWheelScroll(mineScroll, app.ailiaili.core.designsystem.LocalWheelSpeed.current)
                     .padding(horizontal = 20.dp),
             ) {
                 Row(
