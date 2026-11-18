@@ -69,6 +69,10 @@ internal class LiveDanmakuConnection(
             .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
             .build()
         var heartbeat: Job? = null
+        // 静默断连看门狗：B 站长连接会半开（PiliPlus #2809，官方端同样复现），
+        // ping/pong 与心跳都探不出来。直播中服务端每隔几秒必有人气/弹幕包，
+        // 150 秒没有任何消息就主动断开，交给上层 3 秒重连循环重建。
+        val lastMessageAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
         val socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 val auth = JSONObject()
@@ -84,11 +88,16 @@ internal class LiveDanmakuConnection(
                     while (isActive) {
                         delay(30_000)
                         webSocket.send(ByteString.of(*packet(2, "[object Object]".toByteArray())))
+                        if (System.currentTimeMillis() - lastMessageAt.get() > 150_000) {
+                            close(java.io.IOException("直播弹幕连接静默超时，主动重连"))
+                            break
+                        }
                     }
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                lastMessageAt.set(System.currentTimeMillis())
                 val found = ArrayList<LiveDanmaku>(4)
                 runCatching { parseFrames(bytes.toByteArray(), found) }
                 found.forEach { trySend(it) }

@@ -369,6 +369,8 @@ fun PlayerRoute(
     var cacheQn by remember { mutableIntStateOf(0) }
     var attempt by remember { mutableIntStateOf(0) }
     var liveRetries by remember { mutableIntStateOf(0) }
+    var refetchRetries by remember { mutableIntStateOf(0) }
+    var refetchRequest by remember { mutableStateOf<Triple<String, Long, Long>?>(null) }
     val form = LocalWindowForm.current
     val desktop = isDesktopHost()
     val brightnessOk = canControlBrightness()
@@ -525,6 +527,17 @@ fun PlayerRoute(
                     attempt += 1
                     return
                 }
+                // 点播：playurl 链接有效期短，长暂停/慢速播放后会过期
+                // （PiliPlus #2711 同款）。备用线路用尽后重新取流续播，
+                // 最多 2 次；换片/手动重试会复位计数。
+                val id = bvid ?: detail?.bvid
+                val cidNow = page?.cid ?: detail?.cid ?: 0L
+                if (liveRoom == null && local == null && !id.isNullOrBlank() && cidNow > 0 && refetchRetries < 2) {
+                    refetchRetries += 1
+                    toast = "播放链接可能已过期，正在重新取流（$refetchRetries/2）"
+                    refetchRequest = Triple(id, cidNow, pos)
+                    return
+                }
                 error = "播放失败，线路都不可用"
             }
 
@@ -571,6 +584,8 @@ fun PlayerRoute(
         durationSec: Int = 0,
         forceDash: Boolean = false,
     ) {
+        // 换片复位重取流额度；同片重取流（seek>0 的错误恢复）保留计数防死循环。
+        if (targetBvid != startedBvid || cid != startedCid) refetchRetries = 0
         ended = false
         skippedStarts = emptySet()
         undoAt = -1L
@@ -661,6 +676,13 @@ fun PlayerRoute(
                 if (playingCid() == cid) shot = got
             }
         }
+    }
+
+    // 取流过期的自动恢复：onError 里不能前向引用 start，用状态触发。
+    LaunchedEffect(refetchRequest) {
+        val req = refetchRequest ?: return@LaunchedEffect
+        refetchRequest = null
+        start(req.first, req.second, seek = req.third, durationSec = page?.durationSec ?: detail?.durationSec ?: 0)
     }
 
     fun loadComments(aid: Long, pageNum: Int, mode: Int, append: Boolean) {
@@ -1648,7 +1670,11 @@ fun PlayerRoute(
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(message, color = MaterialTheme.colorScheme.error)
-                        TextButton(onClick = { attempt++ }) { Text("重试") }
+                        TextButton(onClick = {
+                            refetchRetries = 0
+                            liveRetries = 0
+                            attempt++
+                        }) { Text("重试") }
                     }
                 }
             }
@@ -2798,7 +2824,7 @@ fun PlayerRoute(
                             }
                         }
                         Text(
-                            "保存到应用缓存，可在「我的 → 离线缓存」查看。",
+                            "保存到应用缓存，可在「我的 → 离线缓存」查看。高画质需要登录/大会员，权限不足时按实际可取的最高画质缓存。",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )
