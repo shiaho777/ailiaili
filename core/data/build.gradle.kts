@@ -30,6 +30,7 @@ kotlin {
             dependencies {
                 implementation(libs.coroutines.android)
                 implementation(libs.core.ktx)
+                implementation(libs.documentfile)
             }
         }
         val jvmMain by getting {

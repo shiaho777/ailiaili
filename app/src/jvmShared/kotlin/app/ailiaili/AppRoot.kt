@@ -130,6 +130,11 @@ sealed interface Dest {
         val favoriteCount: Long = 0,
         val ownerFace: String = "",
         val pubdate: Long = 0,
+        /** 番剧集 id：>0 时取流走 PGC 链路。 */
+        val epId: Long = 0,
+        /** 列表「播放全部」带入的顺序连播队列；空 = 单视频。 */
+        val queue: List<app.ailiaili.core.model.QueueItem> = emptyList(),
+        val queueIndex: Int = 0,
     ) : Dest
     data class Live(val roomId: Long, val title: String) : Dest
     data class Local(val bvid: String) : Dest
@@ -194,7 +199,7 @@ private fun encode(dest: Dest): String = when (dest) {
     Dest.Cache -> "cache"
     Dest.Login -> "login"
     is Dest.Play -> listOf(
-        "play2",
+        "play3",
         dest.bvid,
         dest.cid.toString(),
         dest.aid.toString(),
@@ -210,6 +215,9 @@ private fun encode(dest: Dest): String = when (dest) {
         dest.author.oneLine(),
         dest.cover.oneLine(),
         dest.ownerFace.oneLine(),
+        dest.epId.toString(),
+        encodeQueue(dest.queue),
+        dest.queueIndex.toString(),
     ).joinToString("\t")
     is Dest.Live -> "live\t${dest.roomId}\t${dest.title.oneLine()}"
     is Dest.Local -> "local\t${dest.bvid}"
@@ -268,6 +276,26 @@ private fun decode(line: String): Dest {
             cover = parts.getOrElse(14) { "" },
             ownerFace = parts.getOrElse(15) { "" },
         )
+        "play3" -> Dest.Play(
+            bvid = parts.getOrElse(1) { "" },
+            cid = parts.getOrNull(2)?.toLongOrNull() ?: 0L,
+            aid = parts.getOrNull(3)?.toLongOrNull() ?: 0L,
+            durationSec = parts.getOrNull(4)?.toIntOrNull() ?: 0,
+            ownerMid = parts.getOrNull(5)?.toLongOrNull() ?: 0L,
+            viewCount = parts.getOrNull(6)?.toLongOrNull() ?: 0L,
+            likeCount = parts.getOrNull(7)?.toLongOrNull() ?: 0L,
+            danmakuCount = parts.getOrNull(8)?.toLongOrNull() ?: 0L,
+            coinCount = parts.getOrNull(9)?.toLongOrNull() ?: 0L,
+            favoriteCount = parts.getOrNull(10)?.toLongOrNull() ?: 0L,
+            pubdate = parts.getOrNull(11)?.toLongOrNull() ?: 0L,
+            title = parts.getOrElse(12) { "" },
+            author = parts.getOrElse(13) { "" },
+            cover = parts.getOrElse(14) { "" },
+            ownerFace = parts.getOrElse(15) { "" },
+            epId = parts.getOrNull(16)?.toLongOrNull() ?: 0L,
+            queue = decodeQueue(parts.getOrElse(17) { "" }),
+            queueIndex = parts.getOrNull(18)?.toIntOrNull() ?: 0,
+        )
         "live" -> Dest.Live(parts.getOrNull(1)?.toLongOrNull() ?: 0L, parts.getOrElse(2) { "直播" })
         "local" -> Dest.Local(parts.getOrElse(1) { "" })
         "dynpost" -> Dest.DynamicPost(parts.getOrElse(1) { "" })
@@ -280,6 +308,33 @@ private fun decode(line: String): Dest {
 }
 
 private fun String.oneLine(): String = replace('\n', ' ').replace('\t', ' ')
+
+// 队列序列化：条目间用竖线分隔，字段间用波浪号分隔（bvid~cid~epId~title）。
+// 只存定位与展示必需字段；标题里的分隔符先清洗。空队列编码为空串。
+private fun encodeQueue(queue: List<app.ailiaili.core.model.QueueItem>): String =
+    queue.joinToString("|") { item ->
+        listOf(
+            item.bvid,
+            item.cid.toString(),
+            item.epId.toString(),
+            item.title.replace('|', ' ').replace('~', ' ').oneLine(),
+        ).joinToString("~")
+    }
+
+private fun decodeQueue(raw: String): List<app.ailiaili.core.model.QueueItem> {
+    if (raw.isBlank()) return emptyList()
+    return raw.split('|').mapNotNull { entry ->
+        val f = entry.split('~')
+        val bv = f.getOrElse(0) { "" }
+        if (bv.isBlank()) return@mapNotNull null
+        app.ailiaili.core.model.QueueItem(
+            bvid = bv,
+            cid = f.getOrNull(1)?.toLongOrNull() ?: 0L,
+            epId = f.getOrNull(2)?.toLongOrNull() ?: 0L,
+            title = f.getOrElse(3) { "" },
+        )
+    }
+}
 
 private fun Dest.isTab(): Boolean =
     this is Dest.Regions || this is Dest.Home || this is Dest.Dynamic || this is Dest.Mine || this is Dest.Settings
@@ -536,6 +591,35 @@ private fun Route(
     onRereadDisclaimer: () -> Unit,
     onOpenDynamic: () -> Unit,
 ) {
+    /** 列表「播放全部」：整列表作为连播队列，从第一条起播。 */
+    fun openPlayAll(items: List<VideoItem>) {
+        val queue = items.filter { it.bvid.isNotBlank() && !it.isLive }.map {
+            app.ailiaili.core.model.QueueItem(
+                bvid = it.bvid,
+                cid = it.cid,
+                title = it.title,
+                cover = it.cover,
+                author = it.author,
+                ownerMid = it.ownerMid,
+                durationSec = it.durationSec,
+            )
+        }
+        val first = queue.firstOrNull() ?: return
+        onPush(
+            Dest.Play(
+                bvid = first.bvid,
+                cid = first.cid,
+                title = first.title,
+                cover = first.cover,
+                author = first.author,
+                ownerMid = first.ownerMid,
+                durationSec = first.durationSec,
+                queue = queue,
+                queueIndex = 0,
+            ),
+        )
+    }
+
     fun openVideo(item: VideoItem) {
         when {
             item.isLive && item.roomId > 0 -> onPush(Dest.Live(item.roomId, item.title))
@@ -604,7 +688,17 @@ private fun Route(
             dest.title,
             onPop,
             onPlay = { ep, seasonTitle ->
-                onPush(Dest.Play(bvid = ep.bvid, cid = ep.cid, title = bangumiPlayTitle(seasonTitle, ep.title, ep.longTitle)))
+                onPush(
+                    Dest.Play(
+                        bvid = ep.bvid,
+                        cid = ep.cid,
+                        aid = ep.aid,
+                        epId = ep.epId,
+                        title = bangumiPlayTitle(seasonTitle, ep.title, ep.longTitle),
+                        cover = ep.cover,
+                        durationSec = ep.durationSec,
+                    ),
+                )
             },
         )
         Dest.Regions -> RegionPickerRoute(
@@ -617,11 +711,12 @@ private fun Route(
             onPop,
             ::openVideo,
             onOpenFolder = { onPush(Dest.FavList(it.id, it.title)) },
+            onPlayAll = ::openPlayAll,
         )
         Dest.History -> HistoryRoute(onPop, ::openVideo, ::openAuthor)
         Dest.Favorites -> FavoritesRoute(onPop) { onPush(Dest.FavList(it.id, it.title)) }
-        is Dest.FavList -> FavVideosRoute(dest.id, dest.title, onPop, ::openVideo, ::openAuthor)
-        Dest.WatchLater -> WatchLaterRoute(onPop, ::openVideo, ::openAuthor)
+        is Dest.FavList -> FavVideosRoute(dest.id, dest.title, onPop, ::openVideo, ::openAuthor, onPlayAll = ::openPlayAll)
+        Dest.WatchLater -> WatchLaterRoute(onPop, ::openVideo, ::openAuthor, onPlayAll = ::openPlayAll)
         Dest.Messages -> MessagesRoute(
             onBack = onPop,
             onOpen = { onPush(Dest.Chat(it.talkerId, it.name)) },
@@ -651,6 +746,9 @@ private fun Route(
             seedFavoriteCount = dest.favoriteCount,
             seedOwnerFace = dest.ownerFace,
             seedPubdate = dest.pubdate,
+            seedEpId = dest.epId,
+            queue = dest.queue,
+            queueIndex = dest.queueIndex,
             onOpenVideo = ::openVideo,
             onTag = { onPush(Dest.Search(it)) },
             onOpenCommentDetail = { aid, comment -> onPush(Dest.CommentDetail(aid, comment.rpid)) },

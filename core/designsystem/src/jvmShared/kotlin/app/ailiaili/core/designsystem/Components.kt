@@ -125,6 +125,8 @@ fun VideoGrid(
     onLoadMore: (() -> Unit)? = null,
     state: LazyGridState = rememberLazyGridState(),
     contentPadding: PaddingValues = PaddingValues(12.dp),
+    /** 提供后卡片菜单出现「不感兴趣」（推荐流负反馈）；其他列表不传。 */
+    onDislike: ((VideoItem) -> Unit)? = null,
 ) {
     if (onLoadMore != null) {
         LaunchedEffect(state, items.size) {
@@ -143,7 +145,7 @@ fun VideoGrid(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(items, key = { it.stableKey + it.title }) { item ->
-            VideoCard(item, onClick, onAuthor, Modifier.animateItem())
+            VideoCard(item, onClick, onAuthor, Modifier.animateItem(), onDislike)
         }
     }
 }
@@ -154,6 +156,7 @@ fun VideoCard(
     onClick: (VideoItem) -> Unit,
     onAuthor: (VideoItem) -> Unit,
     modifier: Modifier = Modifier,
+    onDislike: ((VideoItem) -> Unit)? = null,
 ) {
     var previewCover by remember(item.cover) { mutableStateOf(false) }
     var menuOpen by remember(item.stableKey) { mutableStateOf(false) }
@@ -249,6 +252,15 @@ fun VideoCard(
                 }
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                if (onDislike != null && !item.isLive && item.feedbackId.isNotBlank()) {
+                    DropdownMenuItem(
+                        text = { Text("不感兴趣") },
+                        onClick = {
+                            menuOpen = false
+                            onDislike(item)
+                        },
+                    )
+                }
                 if (!item.isLive && item.aid > 0) {
                     DropdownMenuItem(
                         text = { Text(if (QuickActions.inLater(item)) "已在稍后再看" else "稍后再看") },

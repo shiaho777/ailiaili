@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Minimize
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
@@ -284,6 +285,14 @@ fun SettingsRoute(
                         }
                     }
                     if (session.loggedIn) {
+                        BiliSwitchRow(
+                            title = "关注主播开播提醒",
+                            checked = settings.liveStartNotify,
+                            onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(liveStartNotify = on) } },
+                            supporting = "应用运行期间每分钟查一次，关注的主播开播时发系统通知；退出应用后不提醒",
+                            icon = Icons.Filled.Notifications,
+                            tone = MetricTone.Online,
+                        )
                         BiliSettingsRow(
                             title = "退出登录",
                             supporting = "清除这台设备上的登录信息",
@@ -434,6 +443,32 @@ fun SettingsRoute(
                         singleLine = true,
                     )
                     BiliSettingsNote("UA 影响取流协商，修改后重新播放生效；不确定就留空。")
+                    var proxyDraft by remember(settings.httpProxy) { mutableStateOf(settings.httpProxy) }
+                    val proxyError = remember(proxyDraft) {
+                        if (proxyDraft.isBlank()) null
+                        else runCatching { app.ailiaili.core.model.parseProxyAddress(proxyDraft) }
+                            .exceptionOrNull()?.message
+                    }
+                    LaunchedEffect(proxyDraft) {
+                        if (proxyDraft == settings.httpProxy) return@LaunchedEffect
+                        keywordSaveJob?.cancel()
+                        val draft = proxyDraft
+                        keywordSaveJob = keywordSaveScope.launch {
+                            delay(500)
+                            AppGraph.repo.updateSettings { it.copy(httpProxy = draft.trim()) }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = proxyDraft,
+                        onValueChange = { proxyDraft = it },
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        label = { Text("HTTP 代理（高级，可留空）") },
+                        placeholder = { Text("例如 127.0.0.1:7890；留空直连") },
+                        singleLine = true,
+                        isError = proxyError != null,
+                        supportingText = proxyError?.let { { Text(it) } },
+                    )
+                    BiliSettingsNote("代理作用于接口、图片、下载与直播弹幕，下一次请求即生效；视频流走系统播放器，不受此代理影响。")
                 }
                 BiliSectionTitle("缓冲", Modifier.padding(horizontal = 20.dp))
                 SettingsCard {
@@ -593,6 +628,35 @@ fun SettingsRoute(
                         valueRange = 25f..100f,
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
+                    var opacity by remember(settings.danmakuOpacityPercent) {
+                        mutableFloatStateOf(settings.danmakuOpacityPercent.toFloat())
+                    }
+                    BiliSettingsLabel("弹幕不透明度 ${opacity.toInt()}%")
+                    Slider(
+                        value = opacity,
+                        onValueChange = { opacity = it },
+                        onValueChangeFinished = {
+                            AppGraph.repo.updateSettings { it.copy(danmakuOpacityPercent = opacity.toInt()) }
+                        },
+                        valueRange = 30f..100f,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                    var maxOnScreen by remember(settings.danmakuMaxOnScreen) {
+                        mutableFloatStateOf(settings.danmakuMaxOnScreen.toFloat())
+                    }
+                    BiliSettingsLabel(
+                        "同屏弹幕上限 ${maxOnScreen.toInt()} 条",
+                        supporting = "弹幕密集时限制同屏条数，防挡画面；过滤后计数，调小立即生效",
+                    )
+                    Slider(
+                        value = maxOnScreen,
+                        onValueChange = { maxOnScreen = it },
+                        onValueChangeFinished = {
+                            AppGraph.repo.updateSettings { it.copy(danmakuMaxOnScreen = maxOnScreen.toInt()) }
+                        },
+                        valueRange = 10f..80f,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
                 }
             }
             2 -> {
@@ -680,26 +744,24 @@ fun SettingsRoute(
                     )
                     BiliSettingsRow(
                         title = "下载保存位置",
-                        supporting = if (isDesktopHost()) {
-                            settings.downloadDir.ifBlank { "应用缓存（默认）" }
-                        } else {
-                            "Android 固定保存到应用缓存"
+                        supporting = when {
+                            settings.downloadDir.startsWith("content://") ->
+                                "已选导出目录：下载完成后自动复制视频文件过去，应用内仍保留缓存"
+                            settings.downloadDir.isNotBlank() -> settings.downloadDir
+                            isDesktopHost() -> "应用缓存（默认）"
+                            else -> "应用缓存（默认）；可选一个目录，下载完成后自动复制过去"
                         },
                         icon = Icons.Filled.Folder,
                         tone = MetricTone.Favorite,
-                        onClick = if (isDesktopHost()) {
-                            {
-                                scope.launch {
-                                    val dir = chooseDirectory() ?: return@launch
-                                    AppGraph.repo.updateSettings { it.copy(downloadDir = dir) }
-                                    AppGraph.cache.setExtraRoot(dir)
-                                    cacheCount = withContext(ioDispatcher) { AppGraph.cache.list().size }
-                                }
+                        onClick = {
+                            scope.launch {
+                                val dir = chooseDirectory() ?: return@launch
+                                AppGraph.repo.updateSettings { it.copy(downloadDir = dir) }
+                                AppGraph.cache.setExtraRoot(dir)
+                                cacheCount = withContext(ioDispatcher) { AppGraph.cache.list().size }
                             }
-                        } else {
-                            null
                         },
-                        trailing = if (isDesktopHost() && settings.downloadDir.isNotBlank()) {
+                        trailing = if (settings.downloadDir.isNotBlank()) {
                             {
                                 Text(
                                     "重置",

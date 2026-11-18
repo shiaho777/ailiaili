@@ -6,7 +6,7 @@ import kotlin.test.assertTrue
 
 class FollowingLiveDecodeTest {
     @Test
-    fun keepsOnlyLiveRoomsAndUsesFace() {
+    fun keepsAllStatusesLivingFirstAndUsesFace() {
         val data = JSONObject(
             """
             {"rooms":[
@@ -21,13 +21,17 @@ class FollowingLiveDecodeTest {
             """.trimIndent(),
         )
         val items = parseFollowingLive(data)
-        assertEquals(2, items.size)
+        // 去重后 3 条：直播中在前（101、103），未开播垫后（102）。
+        assertEquals(3, items.size)
         assertEquals(101L, items[0].roomId)
         assertEquals("主播A", items[0].author)
         assertEquals("标题", items[0].title)
         assertTrue(items[0].cover.startsWith("https://"))
         assertEquals(103L, items[1].roomId)
         assertEquals("主播C", items[1].author)
+        assertEquals(102L, items[2].roomId)
+        assertEquals(0, items[2].liveStatus)
+        assertEquals("未开播", items[2].durationText)
     }
 
     @Test

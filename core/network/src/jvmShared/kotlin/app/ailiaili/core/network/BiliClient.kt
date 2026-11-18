@@ -459,6 +459,49 @@ class BiliClient(
         parseDurl(bvid, cid, qn) ?: error(resp.message ?: "没有可播放的地址，可能是大会员或付费专属")
     }
 
+    /**
+     * 番剧/影视 PGC 取流（pgc/player/web/playurl，ep_id 链路）。
+     * 与 UGC 同一套 DASH 解析/CDN 选择/不可播档过滤；PGC 的 durl 常为多段切片，
+     * 单段限制会拒绝，因此只走 DASH（fnval=4048），失败交给上层回退 UGC bvid。
+     * 大会员/付费专属的错误文案由 friendly 与接口 message 透传。
+     */
+    suspend fun pgcPlayUrl(
+        epId: Long,
+        aid: Long,
+        cid: Long,
+        settings: AppSettings,
+        qnOverride: Int? = null,
+    ): Result<PlayInfo> = api {
+        ensureBuvid()
+        if (epId <= 0) error("没有番剧集号")
+        val qn = qnOverride?.coerceAtLeast(0)?.takeIf { it > 0 } ?: settings.defaultQn
+        val ps = mutableMapOf(
+            "ep_id" to epId.toString(),
+            "cid" to cid.toString(),
+            "qn" to qn.toString(),
+            "fnval" to "4048",
+            "fnver" to "0",
+            "fourk" to "1",
+            "module" to "bangumi",
+        )
+        if (aid > 0) ps["avid"] = aid.toString()
+        val resp = get(
+            "https://api.bilibili.com/pgc/player/web/playurl",
+            ps,
+            referer = "https://www.bilibili.com/bangumi/play/ep$epId",
+            bodyKey = "result",
+            transportRetry = false,
+        )
+        if (resp.code != 0) error(friendly(resp.code, resp.message ?: "获取番剧播放地址失败"))
+        val data = resp.data ?: error("没有可播放的地址，可能是大会员或付费专属")
+        val dash = data.obj("dash")
+        if (dash != null) {
+            parseDash(dash, data.lng("timelength"), qn, settings)?.let { return@api it }
+        }
+        // PGC 低清晰度可能只给 durl；单段才可用，多段切片拒绝后由上层回退。
+        decodeDurl(data) ?: error(resp.message ?: "没有可播放的地址，可能是大会员或付费专属")
+    }
+
     /** 弹幕按 6 分钟一段。segmentIndex 从 1 开始。304 表示这一段是空的。 */
     suspend fun danmakuSegment(cid: Long, segmentIndex: Int): Result<List<Danmaku>> = withContext(ioDispatcher) {
         runCatching {
@@ -691,6 +734,45 @@ class BiliClient(
                 if (code != 0) error(commentFriendly(code, msg))
             }
         }
+
+    /** 发送弹幕。写操作不重试；表单校验在模型层纯函数里，可单测。 */
+    suspend fun sendDanmaku(aid: Long, cid: Long, text: String, progressMs: Long, mode: Int, color: Int): Result<Unit> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val form = app.ailiaili.core.model.danmakuSendForm(aid, cid, text, progressMs, mode, color).getOrThrow()
+                val (code, msg) = postRaw("https://api.bilibili.com/x/v2/dm/post", form, REFERER)
+                if (code != 0) error(danmakuFriendly(code, msg))
+            }
+        }
+
+    /**
+     * 推荐流「不感兴趣」负反馈。需要登录；未登录时 UI 只做本地移除。
+     * 接口按 app 协议带 mobi_app/platform/build 参数，网页与 App 推荐源都可用。
+     */
+    suspend fun feedDislike(goto: String, id: String): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val form = app.ailiaili.core.model.feedDislikeForm(goto, id).getOrThrow().toMutableMap()
+            form["mobi_app"] = "android"
+            form["platform"] = "android"
+            form["build"] = "74800100"
+            val (code, msg) = postRaw("https://api.bilibili.com/x/feed/dislike", form, REFERER)
+            if (code != 0) error(friendly(code, msg ?: "反馈失败"))
+        }
+    }
+
+    /** 直播间发言。写操作不重试；接口同时认 csrf 与 csrf_token，两个都带上。 */
+    suspend fun sendLiveMsg(roomId: Long, text: String): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val form = app.ailiaili.core.model.liveMsgSendForm(roomId, text).getOrThrow().toMutableMap()
+            form["csrf_token"] = session().biliJct.orEmpty()
+            val (code, msg) = postRaw(
+                "https://api.live.bilibili.com/msg/send",
+                form,
+                "https://live.bilibili.com/$roomId",
+            )
+            if (code != 0) error(liveMsgFriendly(code, msg))
+        }
+    }
 
     suspend fun dynamics(offset: String?): Result<DynamicPage> = api {
         ensureBuvid()
@@ -2107,6 +2189,39 @@ class BiliClient(
         12011 -> "服务端不认这个操作"
         12066 -> "评论内容不能为空"
         else -> msg?.takeIf { it.isNotBlank() } ?: friendly(code, "操作失败")
+    }
+
+    private fun liveMsgFriendly(code: Int, msg: String?): String = when (code) {
+        -101 -> "请先登录后再发言"
+        -111 -> "登录状态已失效，请重新登录"
+        -400 -> "发言内容不合规，换个说法试试"
+        -403 -> "当前账号在这个直播间被禁言"
+        -412, -509 -> "发言太频繁，请稍后再试"
+        11000 -> "发言失败，请稍后再试"
+        else -> msg?.takeIf { it.isNotBlank() } ?: friendly(code, "发言失败")
+    }
+
+    private fun danmakuFriendly(code: Int, msg: String?): String = when (code) {
+        -101 -> "请先登录后再发弹幕"
+        -111 -> "登录状态已失效，请重新登录"
+        -400 -> "弹幕内容不合规，换个说法试试"
+        -403 -> "当前账号没有发弹幕的权限（可能需要答题转正）"
+        -412, -509 -> "发送太频繁，请稍后再试"
+        36701 -> "弹幕包含被屏蔽的内容"
+        36702 -> "弹幕最长 100 个字"
+        36703 -> "发送太频繁，请稍后再试"
+        36704 -> "禁止向未过审的视频发送弹幕"
+        36705 -> "您的等级不足，暂时不能发弹幕"
+        36706 -> "发送太频繁，请稍后再试"
+        36707 -> "该视频禁止发送弹幕"
+        36708 -> "该视频弹幕已满"
+        36709 -> "弹幕不能为空"
+        36710 -> "当前账号没有发弹幕的权限"
+        36711 -> "该视频不允许发送这种类型的弹幕"
+        36712 -> "当前等级不能发送彩色弹幕"
+        36713 -> "当前等级不能发送这种模式的弹幕"
+        36714 -> "弹幕发送时间不合法"
+        else -> msg?.takeIf { it.isNotBlank() } ?: friendly(code, "弹幕发送失败")
     }
 
     private fun friendly(code: Int, fallback: String): String = when (code) {

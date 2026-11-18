@@ -110,6 +110,9 @@ actual class PlayerEngine actual constructor() {
         mediaArtist = artist
     }
 
+    /** Android 的媒体键由 MediaSessionService 统一处理，无需额外登记。 */
+    actual fun setMediaKeyNav(nav: ((Int) -> Unit)?) = Unit
+
     private fun startMediaSession() {
         AndroidMediaIntegration.onPlayStarted(AndroidHost.context, player, mediaTitle, mediaArtist)
     }

@@ -61,6 +61,7 @@ kotlin {
             dependencies {
                 implementation(libs.coroutines.swing)
                 implementation(libs.vlcj)
+                implementation(libs.jna.platform)
             }
         }
         val jvmTest by getting {

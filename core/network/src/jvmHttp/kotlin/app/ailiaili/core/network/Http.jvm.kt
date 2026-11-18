@@ -14,7 +14,7 @@ actual class HttpEngine actual constructor(
     connectTimeoutMs: Long,
     readTimeoutMs: Long,
 ) {
-    private val client = OkHttpClient.Builder()
+    private val baseClient = OkHttpClient.Builder()
         .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
         .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
         .callTimeout(readTimeoutMs + connectTimeoutMs, TimeUnit.MILLISECONDS)
@@ -25,6 +25,38 @@ actual class HttpEngine actual constructor(
         .dispatcher(sharedDispatcher)
         .build()
 
+    /**
+     * HTTP 代理热切换：设置变化后下一次请求即用新代理，无需重启。
+     * 解析失败（用户填了非法地址）按直连兜底，不让整个网络层瘫痪。
+     * newBuilder 复用连接池与调度器；代理不同的连接在池里按地址区分。
+     */
+    @Volatile private var proxyKey: String = app.ailiaili.core.model.effectiveProxy()
+    @Volatile private var activeClient: OkHttpClient = buildProxied(baseClient, proxyKey)
+    @Volatile private var activeDownload: OkHttpClient =
+        activeClient.newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).build()
+
+    private fun buildProxied(base: OkHttpClient, raw: String): OkHttpClient {
+        val addr = runCatching { app.ailiaili.core.model.parseProxyAddress(raw) }.getOrNull()
+            ?: return base
+        return base.newBuilder()
+            .proxy(java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress(addr.host, addr.port)))
+            .build()
+    }
+
+    private fun client(): OkHttpClient {
+        val key = app.ailiaili.core.model.effectiveProxy()
+        if (key != proxyKey) {
+            synchronized(this) {
+                if (key != proxyKey) {
+                    proxyKey = key
+                    activeClient = buildProxied(baseClient, key)
+                    activeDownload = activeClient.newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).build()
+                }
+            }
+        }
+        return activeClient
+    }
+
     private companion object {
         val sharedPool = okhttp3.ConnectionPool(12, 5, TimeUnit.MINUTES)
         val sharedDispatcher = okhttp3.Dispatcher().apply {
@@ -34,10 +66,9 @@ actual class HttpEngine actual constructor(
     }
 
     /** 大文件下载不能受 API 的 callTimeout 限制。 */
-    private val downloadClient by lazy {
-        client.newBuilder()
-            .callTimeout(0, TimeUnit.MILLISECONDS)
-            .build()
+    private fun downloadClient(): OkHttpClient {
+        client()
+        return activeDownload
     }
 
 
@@ -59,7 +90,7 @@ actual class HttpEngine actual constructor(
         } else {
             builder.method(method, null)
         }
-        client.newCall(builder.build()).execute().use { resp ->
+        client().newCall(builder.build()).execute().use { resp ->
             return readResponse(resp, maxBytes)
         }
     }
@@ -73,7 +104,7 @@ actual class HttpEngine actual constructor(
             .url(url)
             .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
         headers.forEach { (key, value) -> builder.header(key, value) }
-        client.newCall(builder.build()).execute().use { resp ->
+        client().newCall(builder.build()).execute().use { resp ->
             return readResponse(resp, null)
         }
     }
@@ -100,7 +131,7 @@ actual class HttpEngine actual constructor(
             .build()
         val builder = Request.Builder().url(url).post(body)
         headers.forEach { (key, value) -> builder.header(key, value) }
-        client.newCall(builder.build()).execute().use { resp ->
+        client().newCall(builder.build()).execute().use { resp ->
             return readResponse(resp, null)
         }
     }
@@ -141,7 +172,7 @@ actual class HttpEngine actual constructor(
             if (resumeFrom > 0) builder.header("Range", "bytes=$resumeFrom-")
             var knownTotal = 0L
             try {
-                downloadClient.newCall(builder.build()).execute().use { resp ->
+                downloadClient().newCall(builder.build()).execute().use { resp ->
                     when {
                         resp.code == 416 -> {
                             // 断点超出文件长度：本地残留不可信，整段重下。
@@ -149,7 +180,7 @@ actual class HttpEngine actual constructor(
                             resumeFrom = 0
                             val retry = Request.Builder().url(url).get()
                             headers.forEach { (key, value) -> retry.header(key, value) }
-                            downloadClient.newCall(retry.build()).execute().use { again ->
+                            downloadClient().newCall(retry.build()).execute().use { again ->
                                 if (!again.isSuccessful) error("下载失败 ${again.code}")
                                 knownTotal = again.body?.contentLength() ?: 0L
                                 writeBody(again, temp, 0, onProgress)
@@ -238,7 +269,7 @@ actual class HttpEngine actual constructor(
     actual fun openStream(url: String, headers: Map<String, String>): InputStream {
         val builder = Request.Builder().url(url).get()
         headers.forEach { (key, value) -> builder.header(key, value) }
-        val resp = client.newCall(builder.build()).execute()
+        val resp = client().newCall(builder.build()).execute()
         if (!resp.isSuccessful) {
             resp.close()
             error("请求失败 ${resp.code}")

@@ -43,9 +43,16 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Close
+import kotlinx.coroutines.launch
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -97,7 +104,11 @@ fun MineRoute(
     onOpenDynamic: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val session by AppGraph.repo.session.collectAsState()
+    val savedAccounts by AppGraph.repo.accounts.collectAsState()
+    var accountMenuOpen by remember { mutableStateOf(false) }
+    var switchingAccount by remember { mutableStateOf(false) }
     var user by remember { mutableStateOf<UserState?>(null) }
     var counts by remember { mutableStateOf(MineCounts()) }
     var folders by remember { mutableStateOf<List<FavFolder>>(emptyList()) }
@@ -123,6 +134,11 @@ fun MineRoute(
         val state = AppGraph.repo.userState().getOrNull()?.takeIf { it.loggedIn }
         user = state
         awaitingProfile = false
+        if (state != null) {
+            // 归档当前账号并补齐昵称/头像（老版本升级上来的会话也进列表）。
+            AppGraph.repo.rememberCurrentAccount()
+            AppGraph.accounts.updateProfile(state.mid.toString(), state.name, state.face)
+        }
         if (state == null) {
             counts = MineCounts()
             folders = emptyList()
@@ -194,7 +210,13 @@ fun MineRoute(
             ) {
                 Row(
                     Modifier
-                        .padding(top = 12.dp)
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                Row(
+                    Modifier
+                        .weight(1f)
                         .clickable {
                             if (profile.mid > 0) {
                                 haptic.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -286,6 +308,96 @@ fun MineRoute(
                             }
                         }
                     }
+                }
+                Box {
+                    IconButton(
+                        enabled = !switchingAccount,
+                        onClick = { accountMenuOpen = true },
+                    ) {
+                        if (switchingAccount) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.Filled.SwapHoriz,
+                                contentDescription = "切换账号",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    DropdownMenu(expanded = accountMenuOpen, onDismissRequest = { accountMenuOpen = false }) {
+                        savedAccounts.forEach { account ->
+                            val isCurrent = account.uid == session.dedeUserId
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (account.face.isNotBlank()) {
+                                            AsyncImage(
+                                                app.ailiaili.core.model.cdnThumb(account.face, 48),
+                                                contentDescription = null,
+                                                modifier = Modifier.size(22.dp).clip(CircleShape),
+                                                contentScale = ContentScale.Crop,
+                                            )
+                                            Box(Modifier.width(8.dp))
+                                        }
+                                        Text(
+                                            account.name.ifBlank { "账号 ${account.uid}" },
+                                            modifier = Modifier.weight(1f, fill = false),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (isCurrent) {
+                                            Text(
+                                                " ✓",
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    }
+                                },
+                                trailingIcon = {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "删除这个账号",
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable {
+                                                accountMenuOpen = false
+                                                scope.launch { AppGraph.repo.removeAccount(account.uid) }
+                                            },
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                onClick = {
+                                    accountMenuOpen = false
+                                    if (!isCurrent && !switchingAccount) {
+                                        switchingAccount = true
+                                        scope.launch {
+                                            AppGraph.repo.switchAccount(account.uid)
+                                                .onSuccess {
+                                                    app.ailiaili.core.designsystem.QuickActions.showToast(
+                                                        "已切换到 ${account.name.ifBlank { account.uid }}",
+                                                    )
+                                                }
+                                                .onFailure {
+                                                    app.ailiaili.core.designsystem.QuickActions.showToast(
+                                                        it.message ?: "切换失败",
+                                                    )
+                                                }
+                                            switchingAccount = false
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("登录新账号") },
+                            onClick = {
+                                accountMenuOpen = false
+                                onLogin()
+                            },
+                        )
+                    }
+                }
                 }
 
                 BiliSurfaceCard(

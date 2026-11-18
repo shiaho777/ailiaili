@@ -2,6 +2,7 @@ package app.ailiaili.feature.player
 
 import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -235,6 +236,11 @@ fun PlayerRoute(
     seedFavoriteCount: Long = 0,
     seedOwnerFace: String = "",
     seedPubdate: Long = 0,
+    /** 番剧集 id：>0 时取流优先走 PGC 链路，失败回退 UGC。 */
+    seedEpId: Long = 0,
+    /** 列表「播放全部」带入的顺序连播队列。 */
+    queue: List<app.ailiaili.core.model.QueueItem> = emptyList(),
+    queueIndex: Int = 0,
     onOpenVideo: (VideoItem) -> Unit = {},
     onTag: (String) -> Unit = {},
     onOpenCommentDetail: (aid: Long, comment: Comment) -> Unit = { _, _ -> },
@@ -270,6 +276,8 @@ fun PlayerRoute(
     var commentsMore by remember { mutableStateOf(false) }
     var commentTotal by remember { mutableIntStateOf(0) }
     var commentMode by remember { mutableIntStateOf(3) }
+    // 只看 UP 主：本地过滤已加载评论（接口 up 标记），不改变排序与分页。
+    var onlyUpComments by remember { mutableStateOf(false) }
     var commentLoading by remember { mutableStateOf(false) }
     var commentError by remember { mutableStateOf<String?>(null) }
     var commentCooldownUntil by remember { mutableLongStateOf(0L) }
@@ -363,6 +371,39 @@ fun PlayerRoute(
     var scrubbing by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var composerExpanded by remember { mutableStateOf(false) }
+    // 弹幕发送：输入条开合、草稿、类型/颜色、在途标记。
+    var dmBarOpen by remember { mutableStateOf(false) }
+    var dmDraft by remember { mutableStateOf("") }
+    var dmMode by remember { mutableIntStateOf(1) }
+    var dmColor by remember { mutableIntStateOf(0xFFFFFF) }
+    var dmSending by remember { mutableStateOf(false) }
+    // 本地发送成功的弹幕单独维护：分段轮询重建列表时并回去，不被网络数据冲掉。
+    var localDanmaku by remember { mutableStateOf<List<Danmaku>>(emptyList()) }
+    // 直播间发言：草稿、在途标记、本人昵称（回显用，懒取一次）。
+    var liveMsgDraft by remember { mutableStateOf("") }
+    var liveMsgSending by remember { mutableStateOf(false) }
+    var myLiveName by remember { mutableStateOf("") }
+    // 睡眠定时器：-1 关闭；0 播完当前；>0 分钟后暂停。页面级状态，离开播放页即失效。
+    var sleepOpen by remember { mutableStateOf(false) }
+    var sleepMinutes by remember { mutableIntStateOf(-1) }
+    var sleepDeadline by remember { mutableLongStateOf(0L) }
+    var sleepRemainText by remember { mutableStateOf("") }
+    LaunchedEffect(sleepMinutes, sleepDeadline, ended) {
+        if (sleepMinutes < 0) return@LaunchedEffect
+        while (true) {
+            val now = epochMs()
+            if (app.ailiaili.core.model.sleepTimerDue(sleepMinutes, true, sleepDeadline, now, ended, liveRoom != null)) {
+                engine.pause()
+                sleepMinutes = -1
+                sleepDeadline = 0L
+                sleepRemainText = ""
+                toast = "定时时间到，已暂停播放"
+                return@LaunchedEffect
+            }
+            sleepRemainText = if (sleepMinutes == 0) "播完当前" else app.ailiaili.core.model.sleepTimerClock(sleepDeadline - now)
+            delay(1_000)
+        }
+    }
     var downloading by remember { mutableStateOf(false) }
     var downloadCancelled by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableFloatStateOf(-1f) }
@@ -373,6 +414,20 @@ fun PlayerRoute(
     var refetchRetries by remember { mutableIntStateOf(0) }
     var refetchRequest by remember { mutableStateOf<Triple<String, Long, Long>?>(null) }
     var autoNextCid by remember { mutableStateOf<Long?>(null) }
+    // 当前媒体的番剧集号（PGC 取流用）；换片时随 start 更新。
+    var currentEpId by remember { mutableLongStateOf(seedEpId) }
+    // 顺序连播队列：列表页带入；curQueueIndex 指向正在播的条目。
+    val playQueue = remember { queue }
+    var curQueueIndex by remember { mutableIntStateOf(queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))) }
+    var queuePanelOpen by remember { mutableStateOf(false) }
+    var autoNextQueue by remember { mutableStateOf(false) }
+    var autoNextEpisode by remember { mutableStateOf<app.ailiaili.core.model.Episode?>(null) }
+    // A-B 循环：-1 未设置；两点齐备后播放到 B 自动回 A。换片清除。
+    var abA by remember { mutableLongStateOf(-1L) }
+    var abB by remember { mutableLongStateOf(-1L) }
+    var abOpen by remember { mutableStateOf(false) }
+    val abAState = rememberUpdatedState(abA)
+    val abBState = rememberUpdatedState(abB)
     val form = LocalWindowForm.current
     val desktop = isDesktopHost()
     val brightnessOk = canControlBrightness()
@@ -554,14 +609,25 @@ fun PlayerRoute(
                 ended = endedNow
                 if (endedNow) {
                     fireHistory(now = true)
-                    // 自动连播下一 P（番剧/课程/多P教程）。用状态触发，
-                    // 监听器里不能前向引用 start。
+                    // 自动连播优先级：列表队列 > 同稿件分P > UGC 合集下一集。
+                    // 用状态触发，监听器里不能前向引用 start/openEpisode。
+                    if (!settings.autoPlayNext || liveRoom != null || local != null) return
+                    if (playQueue.isNotEmpty() && curQueueIndex < playQueue.size - 1) {
+                        autoNextQueue = true
+                        return
+                    }
                     val pages = detail?.pages.orEmpty()
                     val curCid = page?.cid ?: detail?.cid ?: 0L
                     val idx = pages.indexOfFirst { it.cid == curCid }
                     val next = if (idx >= 0) pages.getOrNull(idx + 1) else null
-                    if (settings.autoPlayNext && liveRoom == null && local == null && next != null) {
+                    if (next != null) {
                         autoNextCid = next.cid
+                        return
+                    }
+                    val eps = detail?.episodes.orEmpty()
+                    val epIdx = eps.indexOfFirst { it.bvid == detail?.bvid }
+                    if (epIdx >= 0 && eps.getOrNull(epIdx + 1) != null) {
+                        autoNextEpisode = eps[epIdx + 1]
                     }
                 }
             }
@@ -591,11 +657,90 @@ fun PlayerRoute(
         onDispose { setFullscreen(false) }
     }
 
+    // 画中画：登记「正在播放」查询，Home 键由 Activity 自动进小窗；
+    // 小窗期间返回键不弹页（引擎保持存活），退出小窗回到全屏播放页。
+    val pipOk = app.ailiaili.core.data.pipSupported()
+    DisposableEffect(engine, pipOk) {
+        if (pipOk) app.ailiaili.core.data.registerPipPlayback { engine.isPlaying }
+        onDispose { if (pipOk) app.ailiaili.core.data.registerPipPlayback(null) }
+    }
+
     BackHandler {
-        if (fullscreen) fullscreen = false else leavePlayer()
+        when {
+            app.ailiaili.core.data.inPip() -> Unit
+            fullscreen -> fullscreen = false
+            else -> leavePlayer()
+        }
     }
 
     fun playingCid(): Long = page?.cid?.takeIf { it > 0 } ?: detail?.cid ?: 0L
+
+    fun sendDanmakuNow() {
+        if (dmSending) return
+        val text = dmDraft.trim()
+        if (text.isEmpty()) return
+        if (!AppGraph.repo.session.value.loggedIn) {
+            toast = "请先登录后再发弹幕"
+            return
+        }
+        val aid = detail?.aid ?: seedAid
+        val cid = playingCid()
+        if (aid <= 0 || cid <= 0) {
+            toast = "视频信息还没就绪，稍后再发"
+            return
+        }
+        val posMs = runCatching { engine.currentPosition }.getOrDefault(0L)
+        val mode = dmMode
+        val color = dmColor
+        dmSending = true
+        scope.launch {
+            AppGraph.repo.sendDanmaku(aid, cid, text, posMs, mode, color)
+                .onSuccess {
+                    dmDraft = ""
+                    // 本地回显：时间取当前播放位置；若早于列表末尾则贴到末尾，
+                    // 保证 Runtime 走追加路径不清屏（暂停时发送也能立刻看到）。
+                    val sec = posMs / 1000.0
+                    val tail = danmaku.lastOrNull()?.timeSec ?: 0.0
+                    val echo = Danmaku(maxOf(sec, tail), text, mode, color)
+                    localDanmaku = localDanmaku + echo
+                    danmaku = (danmaku + echo).sortedBy { it.timeSec }
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                    toast = "弹幕已发送"
+                }
+                .onFailure { toast = it.message ?: "弹幕发送失败" }
+            dmSending = false
+        }
+    }
+
+    fun sendLiveMsgNow() {
+        val room = liveRoom ?: return
+        if (liveMsgSending) return
+        val text = liveMsgDraft.trim()
+        if (text.isEmpty()) return
+        if (!AppGraph.repo.session.value.loggedIn) {
+            toast = "请先登录后再发言"
+            return
+        }
+        liveMsgSending = true
+        scope.launch {
+            if (myLiveName.isBlank()) {
+                myLiveName = AppGraph.repo.userState().getOrNull()?.name.orEmpty()
+            }
+            AppGraph.repo.sendLiveMsg(room, text)
+                .onSuccess {
+                    liveMsgDraft = ""
+                    // 本地回显：WS 也会推回自己这条，按 uid+文本去重由列表上限自然收敛。
+                    val uid = AppGraph.repo.session.value.dedeUserId?.toLongOrNull() ?: 0L
+                    val echo = LiveDanmaku(text = text, user = myLiveName.ifBlank { "我" }, uid = uid)
+                    liveChat = (liveChat + echo).takeLast(120)
+                    val sec = runCatching { engine.currentPosition / 1000.0 }.getOrDefault(0.0)
+                    danmaku = (danmaku + Danmaku(sec, text, 1, 0xFFFFFF)).takeLast(400)
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                }
+                .onFailure { toast = it.message ?: "发言失败" }
+            liveMsgSending = false
+        }
+    }
 
     fun start(
         targetBvid: String,
@@ -603,12 +748,16 @@ fun PlayerRoute(
         seek: Long = 0,
         durationSec: Int = 0,
         forceDash: Boolean = false,
+        epId: Long = currentEpId,
     ) {
         // 换片复位重取流额度；同片重取流（seek>0 的错误恢复）保留计数防死循环。
         if (targetBvid != startedBvid || cid != startedCid) refetchRetries = 0
+        currentEpId = epId
         ended = false
         skippedStarts = emptySet()
         undoAt = -1L
+        abA = -1L
+        abB = -1L
         danmaku = emptyList()
         rawSegments = emptyList()
         chapters = emptyList()
@@ -633,7 +782,14 @@ fun PlayerRoute(
         }
         scope.launch {
             error = null
-            val play = AppGraph.repo.play(targetBvid, cid, forceDash)
+            // 番剧集优先 PGC 取流（大会员/付费内容只有这条链路给源）；
+            // 失败回退 UGC bvid——限免集两边都能播，回退保证不因 PGC 风控断播。
+            val play = if (epId > 0) {
+                AppGraph.repo.pgcPlay(epId, detail?.aid ?: seedAid, cid)
+                    .recoverCatching { AppGraph.repo.play(targetBvid, cid, forceDash).getOrThrow() }
+            } else {
+                AppGraph.repo.play(targetBvid, cid, forceDash)
+            }
             play.onSuccess { got ->
                 info = got
                 val audioOnly = listening && !got.audioUrl.isNullOrBlank()
@@ -919,6 +1075,91 @@ fun PlayerRoute(
         }
     }
 
+    /** 队列条目换片：带番剧集号的走 PGC，普通条目走 UGC；详情失败用种子兜底。 */
+    fun openQueueItem(item: app.ailiaili.core.model.QueueItem) {
+        scope.launch {
+            currentEpId = item.epId
+            val next = AppGraph.repo.video(item.bvid).getOrNull()
+            if (next != null) {
+                applyDetail(next.copy(cid = item.cid.takeIf { it > 0 } ?: next.cid))
+            } else {
+                val cid = item.cid.takeIf { it > 0 }
+                    ?: AppGraph.repo.pages(item.bvid).getOrNull()?.firstOrNull()?.cid
+                    ?: 0L
+                if (cid <= 0) {
+                    error = "这一条暂时打不开"
+                } else {
+                    applyDetail(
+                        fallbackDetail(
+                            bvid = item.bvid,
+                            cid = cid,
+                            aid = 0,
+                            title = item.title,
+                            cover = item.cover,
+                            author = item.author,
+                            ownerMid = item.ownerMid,
+                            durationSec = item.durationSec,
+                            pages = emptyList(),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    // 列表队列连播：播完切下一条，走 openQueueItem 换片（详情照常拉取）。
+    LaunchedEffect(autoNextQueue) {
+        if (!autoNextQueue) return@LaunchedEffect
+        autoNextQueue = false
+        val nextIdx = curQueueIndex + 1
+        val item = playQueue.getOrNull(nextIdx) ?: return@LaunchedEffect
+        curQueueIndex = nextIdx
+        toast = "自动连播：${item.title.ifBlank { item.bvid }}"
+        openQueueItem(item)
+    }
+
+    // UGC 合集连播：同稿件分P播完后跨稿件切下一集。
+    LaunchedEffect(autoNextEpisode) {
+        val ep = autoNextEpisode ?: return@LaunchedEffect
+        autoNextEpisode = null
+        toast = "自动连播：${ep.title.ifBlank { ep.bvid }}"
+        openEpisode(ep)
+    }
+
+    // 桌面全局媒体键的上一曲/下一曲：队列 > 分P > 合集；离开播放页注销。
+    DisposableEffect(engine) {
+        engine.setMediaKeyNav { action ->
+            val delta = if (action == 1) 1 else -1
+            if (playQueue.isNotEmpty()) {
+                val idx = (curQueueIndex + delta).coerceIn(0, playQueue.size - 1)
+                if (idx != curQueueIndex) {
+                    curQueueIndex = idx
+                    openQueueItem(playQueue[idx])
+                }
+                return@setMediaKeyNav
+            }
+            val d = detail ?: return@setMediaKeyNav
+            val pages = d.pages
+            if (pages.size > 1) {
+                val curCid = page?.cid ?: d.cid
+                val idx = pages.indexOfFirst { it.cid == curCid }
+                val next = pages.getOrNull(idx + delta)
+                if (next != null) {
+                    page = next
+                    detail = d.copy(cid = next.cid)
+                    start(d.bvid, next.cid, durationSec = next.durationSec.takeIf { it > 0 } ?: d.durationSec)
+                }
+                return@setMediaKeyNav
+            }
+            val eps = d.episodes
+            if (eps.size > 1) {
+                val idx = eps.indexOfFirst { it.bvid == d.bvid }
+                eps.getOrNull(idx + delta)?.let { openEpisode(it) }
+            }
+        }
+        onDispose { engine.setMediaKeyNav(null) }
+    }
+
     LaunchedEffect(liveRoom, settings.danmakuEnabled) {
         val room = liveRoom ?: return@LaunchedEffect
         if (!settings.danmakuEnabled) return@LaunchedEffect
@@ -1089,8 +1330,8 @@ fun PlayerRoute(
         }
     }
 
-    LaunchedEffect(chrome, playing, scrubbing, qualityOpen, speedOpen, audioOpen, volumeOpen, areaOpen) {
-        if (chrome && playing && !scrubbing && !qualityOpen && !speedOpen && !volumeOpen && !areaOpen) {
+    LaunchedEffect(chrome, playing, scrubbing, qualityOpen, speedOpen, audioOpen, volumeOpen, areaOpen, dmBarOpen, sleepOpen, abOpen) {
+        if (chrome && playing && !scrubbing && !qualityOpen && !speedOpen && !volumeOpen && !areaOpen && !dmBarOpen && !sleepOpen && !abOpen) {
             delay(3500)
             chrome = false
             volumeOpen = false
@@ -1132,6 +1373,12 @@ fun PlayerRoute(
                         hint = "已跳过${SponsorCategories.label(hit.category)}"
                     }
                 }
+                // A-B 循环：到 B 回 A。seek 宽限期内不判，避免落点确认时重复触发。
+                if (epochMs() > seekGraceUntil &&
+                    app.ailiaili.core.model.abLoopShouldRewind(abAState.value, abBState.value, pos)
+                ) {
+                    seekTo(abAState.value)
+                }
             }
             delay(400)
         }
@@ -1161,6 +1408,7 @@ fun PlayerRoute(
         var merged = emptyList<Danmaku>()
         var activeSeg = -1
         var generation = 0
+        localDanmaku = emptyList()
         danmaku = emptyList()
         while (isActive) {
             if (playingCid() != cid) return@LaunchedEffect
@@ -1193,7 +1441,9 @@ fun PlayerRoute(
                             return@onSuccess
                         }
                         merged = mergeDanmaku(merged, items)
-                        danmaku = merged
+                        // 本地发送的弹幕并回网络列表；服务端段里已有同文同秒的就不再重复。
+                        val local = localDanmaku.filter { l -> merged.none { it.text == l.text && kotlin.math.abs(it.timeSec - l.timeSec) < 1.0 } }
+                        danmaku = if (local.isEmpty()) merged else (merged + local).sortedBy { it.timeSec }
                     }
                     .onFailure { loaded.remove(index) }
             }
@@ -1211,7 +1461,8 @@ fun PlayerRoute(
         val h = info?.height ?: 0
         if (w > 0 && h > 0) w.toFloat() / h else 16f / 9f
     }
-    val showChrome = chrome || !playing
+    // 小窗里只留画面：控制栏/浮层全部收起，点按小窗由系统接管。
+    val showChrome = (chrome || !playing) && !app.ailiaili.core.data.inPip()
     LaunchedEffect(listening) {
         while (listening) {
             val sec = (engine.currentPosition.coerceAtLeast(0L) / 1000)
@@ -1974,6 +2225,22 @@ fun PlayerRoute(
                         tint = Color.White,
                     )
                 }
+                if (liveRoom == null && local == null && bvid != null) {
+                    TextButton(onClick = {
+                        dmBarOpen = !dmBarOpen
+                        if (dmBarOpen) chrome = true
+                    }) {
+                        Text(
+                            "发弹幕",
+                            color = if (dmBarOpen) MaterialTheme.colorScheme.primary else Color.White,
+                        )
+                    }
+                }
+                if (playQueue.size > 1) {
+                    TextButton(onClick = { queuePanelOpen = true }) {
+                        Text("队列 ${curQueueIndex + 1}/${playQueue.size}", color = Color.White)
+                    }
+                }
                 if (bvid != null && !compactChrome) {
                     TextButton(onClick = {
                         AppGraph.repo.updateSettings {
@@ -2069,6 +2336,96 @@ fun PlayerRoute(
                         }
                     }
                 }
+                if (liveRoom == null && !compactChrome) {
+                    Box {
+                        TextButton(onClick = { abOpen = true }) {
+                            Text(
+                                when {
+                                    abA >= 0 && abB > abA -> "A-B"
+                                    abA >= 0 -> "设B点"
+                                    else -> "循环"
+                                },
+                                color = if (abA >= 0) Color(0xFFF59E0B) else Color.White,
+                            )
+                        }
+                        DropdownMenu(expanded = abOpen, onDismissRequest = { abOpen = false }) {
+                            DropdownMenuItem(
+                                text = { Text(if (abA >= 0) "重设 A 点（${clock(abA)}）" else "设为 A 点") },
+                                onClick = {
+                                    abOpen = false
+                                    abA = engine.currentPosition
+                                    if (abB >= 0 && abB <= abA + 1_000) abB = -1L
+                                    toast = "A 点已设在 ${clock(abA)}"
+                                },
+                            )
+                            DropdownMenuItem(
+                                enabled = abA >= 0,
+                                text = { Text(if (abB > abA) "重设 B 点（${clock(abB)}）" else "设为 B 点") },
+                                onClick = {
+                                    abOpen = false
+                                    val pos = engine.currentPosition
+                                    if (pos <= abA + 1_000) {
+                                        toast = "B 点要在 A 点之后至少 1 秒"
+                                    } else {
+                                        abB = pos
+                                        toast = "A-B 循环已开启"
+                                    }
+                                },
+                            )
+                            if (abA >= 0 || abB >= 0) {
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("清除循环") },
+                                    onClick = {
+                                        abOpen = false
+                                        abA = -1L
+                                        abB = -1L
+                                        toast = "已清除 A-B 循环"
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+                if (!compactChrome) {
+                    Box {
+                        TextButton(onClick = { sleepOpen = true }) {
+                            Text(
+                                if (sleepMinutes < 0) "定时" else sleepRemainText.ifBlank { "定时" },
+                                color = if (sleepMinutes >= 0) Color(0xFFF59E0B) else Color.White,
+                            )
+                        }
+                        DropdownMenu(expanded = sleepOpen, onDismissRequest = { sleepOpen = false }) {
+                            app.ailiaili.core.model.SLEEP_TIMER_OPTIONS.forEach { minutes ->
+                                if (minutes == 0 && (liveRoom != null || local != null)) return@forEach
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(app.ailiaili.core.model.sleepTimerLabel(minutes) + if (sleepMinutes == minutes) " ✓" else "")
+                                    },
+                                    onClick = {
+                                        sleepOpen = false
+                                        sleepMinutes = minutes
+                                        sleepDeadline = if (minutes > 0) epochMs() + minutes * 60_000L else 0L
+                                        toast = if (minutes == 0) "将在播完当前视频后暂停" else "将在 $minutes 分钟后暂停播放"
+                                    },
+                                )
+                            }
+                            if (sleepMinutes >= 0) {
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("取消定时") },
+                                    onClick = {
+                                        sleepOpen = false
+                                        sleepMinutes = -1
+                                        sleepDeadline = 0L
+                                        sleepRemainText = ""
+                                        toast = "已取消定时关闭"
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
                 IconButton(onClick = {
                     fullscreen = !fullscreen
                     haptic.performHapticFeedback(HapticFeedbackType.Confirm)
@@ -2109,6 +2466,7 @@ fun PlayerRoute(
                     marks = if (settings.sponsorBlock) activeMarks else emptyList(),
                     chapters = chapters,
                     shot = shot,
+                    abRange = if (abA >= 0 && abB > abA + 1_000) abA to abB else null,
                     onSnapshot = if (liveRoom == null) {
                         {
                             scope.launch {
@@ -2138,6 +2496,99 @@ fun PlayerRoute(
                         inactiveTrackColor = Color.White.copy(alpha = 0.35f),
                     ),
                 )
+            }
+            // 弹幕发送条：浮在控制栏上方，与音量滑条同一套浮层约定。
+            if (showChrome && dmBarOpen && liveRoom == null && local == null) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 12.dp, end = 12.dp, bottom = 64.dp)
+                        .fillMaxWidth()
+                        .imePadding(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.Black.copy(alpha = 0.62f),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Box {
+                            var dmStyleOpen by remember { mutableStateOf(false) }
+                            TextButton(onClick = { dmStyleOpen = true }) {
+                                Text(
+                                    when (dmMode) {
+                                        4 -> "底部"
+                                        5 -> "顶部"
+                                        else -> "滚动"
+                                    },
+                                    color = Color(dmColor or 0xFF000000.toInt()),
+                                    fontSize = 13.sp,
+                                )
+                            }
+                            DropdownMenu(expanded = dmStyleOpen, onDismissRequest = { dmStyleOpen = false }) {
+                                listOf(1 to "滚动", 5 to "顶部", 4 to "底部").forEach { (mode, label) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label + if (dmMode == mode) " ✓" else "") },
+                                        onClick = { dmMode = mode; dmStyleOpen = false },
+                                    )
+                                }
+                                HorizontalDivider()
+                                Row(
+                                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    listOf(
+                                        0xFFFFFF to "白", 0xFE0302 to "红", 0xFF7204 to "橙",
+                                        0xFFAA02 to "黄", 0x00CD00 to "绿", 0x00A0EA to "蓝",
+                                        0xCC0273 to "紫",
+                                    ).forEach { (c, name) ->
+                                        Box(
+                                            Modifier
+                                                .size(24.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(c or 0xFF000000.toInt()))
+                                                .then(
+                                                    if (dmColor == c) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                                    else Modifier.border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape),
+                                                )
+                                                .clickable { dmColor = c },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = dmDraft,
+                            onValueChange = { if (it.length <= 100) dmDraft = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .onFocusChanged { composing = it.isFocused },
+                            placeholder = { Text("发个友善的弹幕吧（最长 100 字）", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp) },
+                            singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 14.sp),
+                            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.35f),
+                                cursorColor = Color.White,
+                            ),
+                        )
+                        if (dmSending) {
+                            CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                        } else {
+                            IconButton(onClick = { sendDanmakuNow() }, enabled = dmDraft.isNotBlank()) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "发送弹幕",
+                                    tint = if (dmDraft.isNotBlank()) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.4f),
+                                )
+                            }
+                        }
+                        IconButton(onClick = { dmBarOpen = false }) {
+                            Icon(Icons.Filled.Close, contentDescription = "收起", tint = Color.White.copy(alpha = 0.7f))
+                        }
+                    }
+                }
             }
             }
         }
@@ -2438,6 +2889,43 @@ fun PlayerRoute(
                     liveRoom != null -> {
                         BiliSectionTitle("直播弹幕")
                         LiveChatList(liveChat)
+                        if (AppGraph.repo.session.collectAsState().value.loggedIn) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = liveMsgDraft,
+                                    onValueChange = { if (it.length <= 30) liveMsgDraft = it },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .onFocusChanged { composing = it.isFocused },
+                                    placeholder = { Text("发个友善的弹幕吧（最长 30 字）", fontSize = 13.sp) },
+                                    singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
+                                )
+                                if (liveMsgSending) {
+                                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                } else {
+                                    IconButton(onClick = { sendLiveMsgNow() }, enabled = liveMsgDraft.isNotBlank()) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = "发送",
+                                            tint = if (liveMsgDraft.isNotBlank()) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(
+                                "登录后可以在直播间发言",
+                                modifier = Modifier.padding(top = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp,
+                            )
+                        }
                     }
                     shown == "intro" -> {
                         val ink = MaterialTheme.colorScheme.onSurface
@@ -2591,6 +3079,11 @@ fun PlayerRoute(
                                 onClick = { switchSort(2) },
                                 label = { Text("最新") },
                             )
+                            BiliFilterChip(
+                                selected = onlyUpComments,
+                                onClick = { onlyUpComments = !onlyUpComments },
+                                label = { Text("只看UP") },
+                            )
                         }
                         if (AppGraph.repo.session.value.loggedIn && (detail?.aid ?: 0) > 0) {
                             val replying = replyTarget
@@ -2689,7 +3182,18 @@ fun PlayerRoute(
                                 }) { Text("重试") }
                             }
                         }
-                        comments.forEachIndexed { index, c ->
+                        // 只看 UP：本地过滤已加载页（接口 up 标记）；整页没有 UP 评论时
+                        // 给提示，「更多评论」仍可继续翻页找。
+                        val visibleComments = if (onlyUpComments) comments.filter { it.up } else comments
+                        if (onlyUpComments && comments.isNotEmpty() && visibleComments.isEmpty()) {
+                            Text(
+                                "这一页还没有 UP 主的评论，点「更多评论」继续找",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        }
+                        visibleComments.forEachIndexed { index, c ->
                             if (index > 0) {
                                 HorizontalDivider(
                                     modifier = Modifier.padding(vertical = 2.dp),
@@ -2849,6 +3353,64 @@ fun PlayerRoute(
                 else Spacer(Modifier.weight(1f))
             }
         }
+        if (queuePanelOpen && playQueue.size > 1) {
+            AlertDialog(
+                onDismissRequest = { queuePanelOpen = false },
+                title = { Text("播放队列 · ${playQueue.size} 条") },
+                text = {
+                    Column(
+                        Modifier.height(360.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        playQueue.forEachIndexed { index, item ->
+                            val current = index == curQueueIndex
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (current) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                        else Color.Transparent,
+                                    )
+                                    .clickable {
+                                        queuePanelOpen = false
+                                        if (!current) {
+                                            curQueueIndex = index
+                                            openQueueItem(item)
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "${index + 1}",
+                                    color = if (current) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.width(24.dp),
+                                )
+                                Text(
+                                    item.title.ifBlank { item.bvid },
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 13.sp,
+                                    color = if (current) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                )
+                                if (current) {
+                                    Text("播放中", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { queuePanelOpen = false }) { Text("关闭") }
+                },
+            )
+        }
         if (cacheOpen) {
             val play = info
             val d = detail
@@ -2875,7 +3437,11 @@ fun PlayerRoute(
                             }
                         }
                         Text(
-                            "保存到应用缓存，可在「我的 → 离线缓存」查看。高画质需要登录/大会员，权限不足时按实际可取的最高画质缓存。",
+                            if (settings.downloadDir.startsWith("content://")) {
+                                "保存到应用缓存并自动复制到所选导出目录，可在「我的 → 离线缓存」查看。高画质需要登录/大会员，权限不足时按实际可取的最高画质缓存。"
+                            } else {
+                                "保存到应用缓存，可在「我的 → 离线缓存」查看。高画质需要登录/大会员，权限不足时按实际可取的最高画质缓存。"
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall,
                         )

@@ -60,6 +60,8 @@ fun LoginRoute(onBack: () -> Unit, onSuccess: () -> Unit) {
                 QrStatus.Scanned -> message = "已扫码，请在手机上确认"
                 QrStatus.Success -> {
                     message = "登录成功"
+                    // 归档到多账号列表（昵称/头像由我的页加载后补齐）。
+                    AppGraph.repo.rememberCurrentAccount()
                     onSuccess()
                     return@LaunchedEffect
                 }
