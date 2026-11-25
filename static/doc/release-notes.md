@@ -1,4 +1,6 @@
-# Changelog
+# Release notes draft
+
+Use these notes to prepare [GitHub Releases](https://github.com/shiaho777/ailiaili/releases). The version headings below are retained from the previous changelog. The notes are drafts and do not confirm that a version has been published.
 
 ## 1.4.1（未发布）
 
@@ -74,11 +76,10 @@
 - 弹幕关键词正则按原文缓存：长视频每 6 分钟追加弹幕段不再重复编译全部正则。
 - 字幕轮询暂停降频：位置未变不做二分查找，暂停时 100ms→500ms，长暂停几乎零开销。
 - 播放器巨型文件按职责拆分：评论区组件独立成 PlayerComments.kt（纯移动零逻辑改动，逐行比对校验）。
-- 新增 `docs/architecture.md`：模块分层、依赖方向、源集约定与关键机制决策。
+- 记录模块分层、依赖方向、源集约定与关键机制决策。
 
 ### 工程
 
-- 新增 `docs/upstream-parity.md`：逐项记录对 BiliDesk v1.7.4 的对齐、超越与平台差异。
 - 新增单测：画质可播性收敛、滚轮滤波收敛/无过冲/反向、链接扫描、图文动态解析、字幕定位、接口重试/单飞/缓存策略。
 
 ## 1.3.0
@@ -117,5 +118,4 @@
 ### 工程
 
 - 版本号 1.3.0。
-- 新增上游对齐记录 `docs/upstream-parity.md`。
 - 新增评论、durl、关注直播、缓冲策略、seek 看门狗、@ 提及等单元测试。
