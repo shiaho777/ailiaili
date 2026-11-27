@@ -1,11 +1,24 @@
 package app.ailiaili.feature.player
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.ui.Alignment
+import app.ailiaili.core.designsystem.AliStageBody
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStagePageHeader
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.AliStageTabs
+import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.BiliPaginationFooter
+import app.ailiaili.core.designsystem.QuickActions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -13,7 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -27,16 +39,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
 import app.ailiaili.core.designsystem.smoothWheelScroll
-import app.ailiaili.core.designsystem.BiliBackHeader
-import app.ailiaili.core.designsystem.BiliFilterChip
-import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.RegisterPageRefresh
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.model.Comment
@@ -199,7 +207,7 @@ fun CommentDetailRoute(
     var preview by remember { mutableStateOf<Triple<List<String>, Int, String>?>(null) }
     LaunchedEffect(vm.toast) {
         val message = vm.toast ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(1800)
+        QuickActions.showToast(message)
         if (vm.toast == message) vm.toast = null
     }
     preview?.let { (urls, index, name) ->
@@ -214,19 +222,67 @@ fun CommentDetailRoute(
     val openLink: (String, String?) -> Unit = { url, bvid ->
         if (bvid != null) onVideo(VideoItem(bvid = bvid)) else openUrl(url)
     }
-    Scaffold(topBar = { BiliBackHeader("评论详情", onBack) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+    Scaffold(topBar = {
+        AliStagePageHeader("评论详情", onBack = onBack) {
+            AliStageIconButton(
+                Icons.Filled.Refresh, "刷新回复", { vm.loadPage(reset = true) }, enabled = !vm.loading,
+            )
+        }
+    }) { padding ->
+        AliStageBody(Modifier.padding(padding).imePadding(), maxWidth = 820.dp) {
             val detailState = androidx.compose.foundation.lazy.rememberLazyListState()
             LazyColumn(
                 Modifier.weight(1f).fillMaxWidth()
                     .smoothWheelScroll(detailState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
                 state = detailState,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 vm.root?.let { rootComment ->
                     item(key = "root") {
+                        AliStagePanel(Modifier.fillMaxWidth(), contentPadding = PaddingValues(12.dp)) {
+                            CommentBlock(
+                                comment = rootComment,
+                                replies = emptyList(),
+                                rootRpid = rootRpid,
+                                onSpace = onSpace,
+                                onLike = vm::like,
+                                onDislike = vm::dislike,
+                                onReply = { _, target -> vm.replyTarget = target },
+                                onExpand = null,
+                                onPreviewImage = { urls, index, name -> preview = Triple(urls, index, name) },
+                                onOpenLink = openLink,
+                            )
+                        }
+                    }
+                }
+                stickyHeader(key = "sort") {
+                    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AliStageTabs(
+                                labels = listOf("热门", "最新"),
+                                selected = if (vm.sortMode == 3) 0 else 1,
+                                onSelect = { vm.switchSort(if (it == 0) 3 else 2) },
+                                modifier = Modifier.widthIn(max = 220.dp).weight(1f, fill = false),
+                            )
+                            Text(
+                                "${vm.replies.size} 条回复",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+                items(vm.replies, key = { it.rpid }) { reply ->
+                    AliStagePanel(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                         CommentBlock(
-                            comment = rootComment,
+                            comment = reply,
                             replies = emptyList(),
                             rootRpid = rootRpid,
                             onSpace = onSpace,
@@ -235,62 +291,21 @@ fun CommentDetailRoute(
                             onReply = { _, target -> vm.replyTarget = target },
                             onExpand = null,
                             onPreviewImage = { urls, index, name -> preview = Triple(urls, index, name) },
+                            nested = true,
                             onOpenLink = openLink,
                         )
-                        HorizontalDivider(Modifier.padding(vertical = 6.dp))
                     }
                 }
-                item(key = "sort") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        BiliFilterChip(
-                            selected = vm.sortMode == 3,
-                            onClick = { vm.switchSort(3) },
-                            label = { Text("热门") },
-                        )
-                        BiliFilterChip(
-                            selected = vm.sortMode == 2,
-                            onClick = { vm.switchSort(2) },
-                            label = { Text("时间") },
-                        )
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "${vm.replies.size} 条回复",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 10.dp),
+                when {
+                    vm.loading || vm.hasMore || vm.error != null -> item(key = "more") {
+                        BiliPaginationFooter(
+                            loading = vm.loading,
+                            error = vm.error,
+                            onLoadMore = { vm.loadPage(reset = vm.replies.isEmpty()) },
                         )
                     }
-                }
-                items(vm.replies, key = { it.rpid }) { reply ->
-                    CommentBlock(
-                        comment = reply,
-                        replies = emptyList(),
-                        rootRpid = rootRpid,
-                        onSpace = onSpace,
-                        onLike = vm::like,
-                        onDislike = vm::dislike,
-                        onReply = { _, target -> vm.replyTarget = target },
-                        onExpand = null,
-                        onPreviewImage = { urls, index, name -> preview = Triple(urls, index, name) },
-                        nested = true,
-                        onOpenLink = openLink,
-                    )
-                }
-                if (vm.hasMore) {
-                    item(key = "more") {
-                        FilledTonalButton(
-                            onClick = { vm.loadPage(reset = false) },
-                            enabled = !vm.loading,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                        ) { Text(if (vm.loading) "加载中…" else "加载更多回复") }
-                    }
-                }
-                vm.error?.let { message ->
-                    item(key = "error") {
-                        Text(message, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                    vm.replies.isEmpty() -> item(key = "empty") {
+                        BiliEmptyState("暂无回复", icon = Icons.AutoMirrored.Filled.Comment)
                     }
                 }
                 item(key = "bottom") { Spacer(Modifier.height(8.dp)) }
@@ -307,12 +322,5 @@ fun CommentDetailRoute(
                 onSend = vm::send,
             )
         }
-    }
-    vm.toast?.let { message ->
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { vm.toast = null },
-            confirmButton = {},
-            text = { Text(message) },
-        )
     }
 }

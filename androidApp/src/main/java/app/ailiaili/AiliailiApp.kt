@@ -9,5 +9,6 @@ class AiliailiApp : Application() {
         super.onCreate()
         AndroidHost.install(this)
         AppGraph.init()
+        monitorDownloadNetwork(this)
     }
 }

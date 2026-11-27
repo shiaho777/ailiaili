@@ -1,12 +1,13 @@
 package app.ailiaili.core.designsystem
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -15,23 +16,29 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,15 +52,15 @@ fun BiliSearchEntry(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val foreground = MaterialTheme.colorScheme.onSurfaceVariant
     val interaction = remember { MutableInteractionSource() }
     Row(
         modifier
-            .height(44.dp)
+            .heightIn(min = BiliToolbarControlHeight)
             .biliPressScale(interaction)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(interactionSource = interaction, indication = null, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp),
+            .aliMaterial(AliMaterial.Inset, MaterialTheme.shapes.medium)
+            .clickable(interaction, LocalIndication.current, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -61,13 +68,13 @@ fun BiliSearchEntry(
             Icons.Filled.Search,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = foreground,
         )
         Text(
             placeholder,
             modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 14.sp,
+            color = foreground,
+            style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -83,32 +90,39 @@ fun BiliSearchField(
     placeholder: String,
     modifier: Modifier = Modifier,
     autoFocus: Boolean = false,
+    accessibilityLabel: String = "搜索关键词或链接",
+    submitLabel: String = "搜索",
+    onPaste: (() -> Unit)? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     val focus = remember { FocusRequester() }
+    val canSubmit = value.isNotBlank()
+    var focused by remember { mutableStateOf(false) }
     if (autoFocus) {
         LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     }
     val submit = {
-        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-        onSearch()
+        if (canSubmit) {
+            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            onSearch()
+        }
     }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.focusRequester(focus),
+        modifier = modifier.focusRequester(focus).onFocusChanged { focused = it.isFocused }
+            .semantics { contentDescription = accessibilityLabel },
         singleLine = true,
-        textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp),
-        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { submit() }),
         decorationBox = { inner ->
             Row(
                 Modifier
-                    .height(44.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                    .padding(start = 16.dp, end = 4.dp),
+                    .heightIn(min = BiliToolbarControlHeight)
+                    .aliMaterial(AliMaterial.Inset, MaterialTheme.shapes.medium, tinted = focused)
+                    .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -123,7 +137,7 @@ fun BiliSearchField(
                         Text(
                             placeholder,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 14.sp,
+                            style = MaterialTheme.typography.bodyMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -146,21 +160,27 @@ fun BiliSearchField(
                         )
                     }
                 }
-                Box(
-                    Modifier
-                        .height(36.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .clickable(role = Role.Button) { submit() }
-                        .padding(horizontal = 16.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "搜索",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                if (value.isEmpty() && onPaste != null) {
+                    AliStageIconButton(Icons.Filled.ContentPaste, "粘贴", onClick = {
+                        focus.requestFocus()
+                        onPaste()
+                    })
+                } else {
+                    Box(
+                        Modifier
+                            .height(36.dp)
+                            .aliMaterial(if (canSubmit) AliMaterial.Accent else AliMaterial.Floating, CircleShape)
+                            .clickable(enabled = canSubmit, role = Role.Button) { submit() }
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            submitLabel,
+                            color = if (canSubmit) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
                 }
             }
         },

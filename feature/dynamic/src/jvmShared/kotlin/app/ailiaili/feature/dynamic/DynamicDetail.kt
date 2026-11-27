@@ -1,5 +1,20 @@
 package app.ailiaili.feature.dynamic
 
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.runtime.rememberCoroutineScope
+import app.ailiaili.core.designsystem.AliStageBody
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStagePageHeader
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.AliStageTabs
+import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.BiliPaginationFooter
+import app.ailiaili.core.designsystem.LocalAliReducedMotion
+import app.ailiaili.core.designsystem.QuickActions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +37,6 @@ import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -45,7 +59,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
@@ -54,9 +70,10 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
 import app.ailiaili.core.designsystem.smoothWheelScroll
-import app.ailiaili.core.designsystem.BiliBackHeader
 import app.ailiaili.core.designsystem.BiliFilterChip
 import app.ailiaili.core.designsystem.BiliSectionTitle
+import app.ailiaili.core.designsystem.CommentEmoteButton
+import app.ailiaili.core.designsystem.insertAtSelection
 import app.ailiaili.core.designsystem.LinkifiedText
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.MetaRow
@@ -70,6 +87,8 @@ import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.formatCount
 import app.ailiaili.core.model.formatRelativeTime
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 
 class DynamicDetailViewModel(
@@ -87,6 +106,8 @@ class DynamicDetailViewModel(
     var commentError by mutableStateOf<String?>(null)
     var commentsMore by mutableStateOf(false)
     private var commentPage = 1
+    private var commentRequest: Job? = null
+    private var retryCommentReset = false
     var replyExtra by mutableStateOf<Map<Long, List<Comment>>>(emptyMap())
     var replyDone by mutableStateOf(setOf<Long>())
     private var replyPage = emptyMap<Long, Int>()
@@ -121,27 +142,36 @@ class DynamicDetailViewModel(
     fun loadComments(reset: Boolean) {
         val post = entry?.post ?: return
         if (post.oid <= 0) return
-        if (commentLoading) return
+        if (commentLoading && !reset) return
+        commentRequest?.cancel()
         commentLoading = true
         commentError = null
         val page = if (reset) 1 else commentPage + 1
-        viewModelScope.launch {
-            AppGraph.repo.comments(post.oid, page, commentMode, post.commentType)
+        val mode = commentMode
+        commentRequest = viewModelScope.launch {
+            val result = AppGraph.repo.comments(post.oid, page, mode, post.commentType)
+            ensureActive()
+            result
                 .onSuccess { got ->
                     comments = if (reset) got.items else (comments + got.items).distinctBy { it.rpid }
                     commentPage = page
                     commentsMore = got.hasMore
-                    if (got.total > 0) commentTotal = got.total
+                    commentTotal = got.total
                     if (reset) {
                         replyExtra = emptyMap()
                         replyDone = emptySet()
                         replyPage = emptyMap()
                     }
                 }
-                .onFailure { commentError = it.message ?: "评论加载失败" }
+                .onFailure {
+                    retryCommentReset = reset
+                    commentError = it.message ?: "评论加载失败"
+                }
             commentLoading = false
         }
     }
+
+    fun loadMoreComments() = loadComments(reset = commentError != null && retryCommentReset)
 
     fun expandReplies(root: Comment) {
         val post = entry?.post ?: return
@@ -153,7 +183,7 @@ class DynamicDetailViewModel(
                 replyExtra = replyExtra + (root.rpid to merged)
                 replyPage = replyPage + (root.rpid to next)
                 if (got.isEmpty() || merged.size >= root.replyCount) replyDone = replyDone + root.rpid
-            }.onFailure { commentError = it.message ?: "回复加载失败" }
+            }.onFailure { toast = it.message ?: "回复加载失败" }
         }
     }
 
@@ -257,7 +287,7 @@ fun DynamicDetailRoute(
     var preview by remember { mutableStateOf<Triple<List<String>, Int, String>?>(null) }
     LaunchedEffect(vm.toast) {
         val message = vm.toast ?: return@LaunchedEffect
-        kotlinx.coroutines.delay(1800)
+        QuickActions.showToast(message)
         if (vm.toast == message) vm.toast = null
     }
     preview?.let { (urls, index, name) ->
@@ -269,211 +299,215 @@ fun DynamicDetailRoute(
             urls = urls,
         )
     }
-    Scaffold(topBar = { BiliBackHeader("动态详情", onBack) }) { padding ->
-        LoadBox(
-            loading = vm.loading,
-            error = vm.error,
-            empty = vm.entry == null,
-            emptyText = "动态不存在",
-            onRetry = vm::reload,
-            modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
-            val entry = vm.entry ?: return@LoadBox
-            val post = entry.post
-            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-            val uiScope = androidx.compose.runtime.rememberCoroutineScope()
-            LazyColumn(
-                Modifier.fillMaxSize().smoothWheelScroll(listState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
-                state = listState,
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+    Scaffold(topBar = {
+        AliStagePageHeader("动态详情", onBack = onBack) {
+            AliStageIconButton(Icons.Filled.Refresh, "刷新动态", vm::reload, enabled = !vm.loading)
+        }
+    }) { padding ->
+        AliStageBody(Modifier.padding(padding).imePadding(), maxWidth = 820.dp) {
+            LoadBox(
+                loading = vm.loading,
+                error = vm.error,
+                empty = vm.entry == null,
+                emptyText = "动态不存在",
+                onRetry = vm::reload,
             ) {
-                item(key = "author") {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (entry.authorFace.isNotBlank()) {
-                            AsyncImage(
-                                model = app.ailiaili.core.model.cdnThumb(entry.authorFace, 96),
-                                contentDescription = entry.authorName,
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .clickable(enabled = entry.authorMid > 0) { onAuthor(entry.authorMid) },
-                                contentScale = ContentScale.Crop,
+                val entry = vm.entry ?: return@LoadBox
+                val post = entry.post
+                val canComment = post != null && post.oid > 0
+                val showPost = entry.video == null || post != null || entry.desc.isNotBlank()
+                val listState = rememberLazyListState()
+                val uiScope = rememberCoroutineScope()
+                val reducedMotion = LocalAliReducedMotion.current
+                val commentsIndex = if (entry.video == null) 1 else 2
+                fun showComments() {
+                    uiScope.launch {
+                        if (reducedMotion) listState.scrollToItem(commentsIndex)
+                        else listState.animateScrollToItem(commentsIndex)
+                    }
+                }
+                val openLink: (String, String?) -> Unit = { url, bvid ->
+                    if (bvid != null) onVideo(VideoItem(bvid = bvid)) else openUrl(url)
+                }
+                LazyColumn(
+                    Modifier.fillMaxSize().smoothWheelScroll(listState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (showPost) {
+                        item(key = "post") {
+                            AliStagePanel(Modifier.fillMaxWidth()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.clip(MaterialTheme.shapes.medium)
+                                            .clickable(enabled = entry.authorMid > 0) { onAuthor(entry.authorMid) },
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        Box(
+                                            Modifier.size(44.dp).background(MaterialTheme.colorScheme.surfaceContainerHigh, CircleShape),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            if (entry.authorFace.isBlank()) {
+                                                Icon(Icons.Filled.Person, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            } else {
+                                                AsyncImage(
+                                                    model = app.ailiaili.core.model.cdnThumb(entry.authorFace, 96),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                    contentScale = ContentScale.Crop,
+                                                )
+                                            }
+                                        }
+                                        Column {
+                                            Text(entry.authorName, style = MaterialTheme.typography.titleMedium)
+                                            if (entry.pubTs > 0) {
+                                                Text(
+                                                    formatRelativeTime(entry.pubTs),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (post != null && post.title.isNotBlank()) {
+                                        Text(post.title, style = MaterialTheme.typography.titleLarge)
+                                    }
+                                    if (entry.desc.isNotBlank()) {
+                                        LinkifiedText(entry.desc, onOpenLink = openLink, fontSize = 15.sp, lineHeight = 23.sp)
+                                    }
+                                    if (post != null) {
+                                        if (post.text.isNotBlank() && post.text != entry.desc) {
+                                            LinkifiedText(post.text, onOpenLink = openLink, fontSize = 15.sp, lineHeight = 23.sp)
+                                        }
+                                        if (post.pics.isNotEmpty()) {
+                                            PostPicGrid(post.pics, onPreview = { index ->
+                                                preview = Triple(post.pics, index, entry.authorName)
+                                            })
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            BiliFilterChip(
+                                                selected = post.liked,
+                                                onClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                                                    vm.togglePostLike()
+                                                },
+                                                leadingIcon = { Icon(Icons.Filled.ThumbUp, null, Modifier.size(15.dp)) },
+                                                label = { Text("点赞 ${formatCount(post.likeCount)}".trim()) },
+                                            )
+                                            if (canComment) {
+                                                BiliFilterChip(
+                                                    selected = false,
+                                                    onClick = ::showComments,
+                                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Comment, null, Modifier.size(15.dp)) },
+                                                    label = { Text("评论 ${formatCount(post.commentCount)}".trim()) },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    entry.video?.let {
+                        item(key = "video") {
+                            DynamicEntryCard(
+                                entry = entry.copy(desc = "", post = null),
+                                onVideo = onVideo,
+                                onAuthor = { onAuthor(it.ownerMid) },
+                                onPost = {},
+                                showAuthor = !showPost,
                             )
                         }
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                entry.authorName,
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.clickable(enabled = entry.authorMid > 0) { onAuthor(entry.authorMid) },
-                            )
-                            if (entry.pubTs > 0) {
-                                Text(
-                                    formatRelativeTime(entry.pubTs),
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    }
+                    if (canComment) {
+                        stickyHeader(key = "comment-head") {
+                            Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.background)) {
+                                BiliSectionTitle(if (vm.commentTotal > 0) "评论 ${formatCount(vm.commentTotal.toLong())}" else "评论")
+                                AliStageTabs(
+                                    labels = listOf("热门", "最新"),
+                                    selected = if (vm.commentMode == 3) 0 else 1,
+                                    onSelect = { vm.switchSort(if (it == 0) 3 else 2) },
+                                    modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(),
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                        }
+                        item(key = "composer") {
+                            AliStagePanel(Modifier.fillMaxWidth(), contentPadding = PaddingValues(12.dp)) {
+                                var input by remember(vm) { mutableStateOf(TextFieldValue(vm.draft, TextRange(vm.draft.length))) }
+                                val field = if (input.text == vm.draft) input else TextFieldValue(vm.draft, TextRange(vm.draft.length))
+                                fun edit(value: TextFieldValue) {
+                                    input = value
+                                    vm.draft = value.text
+                                }
+                                OutlinedTextField(
+                                    value = field,
+                                    onValueChange = ::edit,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    placeholder = {
+                                        Text(if (vm.replyTarget != null) "回复 @${vm.replyTarget?.name}" else "写下你的评论…")
+                                    },
+                                    minLines = 2,
+                                    maxLines = 6,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    CommentEmoteButton(onInsert = { edit(field.insertAtSelection(it)) })
+                                    if (vm.replyTarget != null) {
+                                        TextButton(onClick = {
+                                            vm.replyTarget = null
+                                            vm.replyRoot = 0
+                                        }) { Text("取消回复") }
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                    FilledTonalButton(
+                                        onClick = vm::send,
+                                        enabled = !vm.sending && vm.draft.isNotBlank(),
+                                    ) { Text(if (vm.sending) "发送中…" else "发送") }
+                                }
+                            }
+                        }
+                        items(vm.comments, key = { it.rpid }) { c ->
+                            AliStagePanel(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)) {
+                                PostCommentBlock(
+                                    comment = c,
+                                    replies = vm.replyExtra[c.rpid] ?: c.replies,
+                                    canExpand = c.replyCount > (vm.replyExtra[c.rpid] ?: c.replies).size && c.rpid !in vm.replyDone,
+                                    onExpand = { vm.expandReplies(c) },
+                                    onLike = { vm.react(it, like = true) },
+                                    onDislike = { vm.react(it, like = false) },
+                                    onReply = { target ->
+                                        vm.replyRoot = c.rpid
+                                        vm.replyTarget = target
+                                        showComments()
+                                    },
+                                    onAuthor = onAuthor,
+                                    onVideo = onVideo,
+                                    onPreview = { urls, index -> preview = Triple(urls, index, c.name) },
                                 )
                             }
                         }
-                    }
-                }
-                if (entry.desc.isNotBlank()) {
-                    item(key = "desc") {
-                        LinkifiedText(
-                            text = entry.desc,
-                            onOpenLink = { url, bvid ->
-                                if (bvid != null) onVideo(VideoItem(bvid = bvid)) else openUrl(url)
-                            },
-                            fontSize = 15.sp,
-                            lineHeight = 22.sp,
-                        )
-                    }
-                }
-                if (post != null) {
-                    if (post.title.isNotBlank()) {
-                        item(key = "title") {
-                            Text(post.title, style = MaterialTheme.typography.titleLarge)
-                        }
-                    }
-                    if (post.text.isNotBlank() && post.text != entry.desc) {
-                        item(key = "text") {
-                            LinkifiedText(
-                                text = post.text,
-                                onOpenLink = { url, bvid ->
-                                    if (bvid != null) onVideo(VideoItem(bvid = bvid)) else openUrl(url)
-                                },
-                                fontSize = 15.sp,
-                                lineHeight = 23.sp,
-                            )
-                        }
-                    }
-                    if (post.pics.isNotEmpty()) {
-                        item(key = "pics") {
-                            PostPicGrid(post.pics, onPreview = { index ->
-                                preview = Triple(post.pics, index, entry.authorName)
-                            })
-                        }
-                    }
-                    item(key = "actions") {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            BiliFilterChip(
-                                selected = post.liked,
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                    vm.togglePostLike()
-                                },
-                                leadingIcon = { Icon(Icons.Filled.ThumbUp, null, Modifier.size(15.dp)) },
-                                label = { Text("点赞 ${formatCount(post.likeCount)}".trim()) },
-                            )
-                            BiliFilterChip(
-                                selected = false,
-                                onClick = {
-                                    // 评论区就在下方：滚到 comment-head；不在屏内时
-                                    // 先跳到底部附近让它进组合，再精确定位。
-                                    uiScope.launch {
-                                        val idx = listState.layoutInfo.visibleItemsInfo
-                                            .firstOrNull { it.key == "comment-head" }?.index
-                                        if (idx != null) {
-                                            listState.animateScrollToItem(idx)
-                                        } else {
-                                            listState.scrollToItem(listState.layoutInfo.totalItemsCount.coerceAtLeast(1) - 1)
-                                            val near = listState.layoutInfo.visibleItemsInfo
-                                                .firstOrNull { it.key == "comment-head" }?.index
-                                            if (near != null) listState.animateScrollToItem(near)
-                                        }
-                                    }
-                                },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.Comment, null, Modifier.size(15.dp)) },
-                                label = { Text("评论 ${formatCount(post.commentCount)}".trim()) },
-                            )
-                        }
-                    }
-                }
-                entry.video?.let { video ->
-                    item(key = "video") {
-                        DynamicEntryCard(
-                            entry = entry.copy(desc = ""),
-                            onVideo = onVideo,
-                            onAuthor = { onAuthor(it.ownerMid) },
-                            onPost = {},
-                        )
-                    }
-                }
-                item(key = "comment-head") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        BiliSectionTitle("评论 ${if (vm.commentTotal > 0) formatCount(vm.commentTotal.toLong()) else ""}".trim())
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            BiliFilterChip(
-                                selected = vm.commentMode == 3,
-                                onClick = { vm.switchSort(3) },
-                                label = { Text("热门") },
-                            )
-                            BiliFilterChip(
-                                selected = vm.commentMode == 2,
-                                onClick = { vm.switchSort(2) },
-                                label = { Text("时间") },
-                            )
-                        }
-                        OutlinedTextField(
-                            value = vm.draft,
-                            onValueChange = { vm.draft = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = {
-                                Text(if (vm.replyTarget != null) "回复 @${vm.replyTarget?.name}" else "写下你的评论…")
-                            },
-                            minLines = 2,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (vm.replyTarget != null) {
-                                TextButton(onClick = { vm.replyTarget = null; vm.replyRoot = 0 }) { Text("取消回复") }
+                        when {
+                            vm.commentLoading || vm.commentsMore || vm.commentError != null -> item(key = "more") {
+                                BiliPaginationFooter(
+                                    loading = vm.commentLoading,
+                                    error = vm.commentError,
+                                    onLoadMore = vm::loadMoreComments,
+                                )
                             }
-                            Spacer(Modifier.weight(1f))
-                            FilledTonalButton(
-                                onClick = vm::send,
-                                enabled = !vm.sending && vm.draft.isNotBlank(),
-                            ) { Text(if (vm.sending) "发送中…" else "发送") }
-                        }
-                        vm.commentError?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                            vm.comments.isEmpty() -> item(key = "empty") {
+                                BiliEmptyState("暂无评论", icon = Icons.AutoMirrored.Filled.Comment)
+                            }
                         }
                     }
+                    item(key = "bottom") { Spacer(Modifier.height(24.dp)) }
                 }
-                items(vm.comments, key = { it.rpid }) { c ->
-                    PostCommentBlock(
-                        comment = c,
-                        replies = vm.replyExtra[c.rpid] ?: c.replies,
-                        canExpand = c.replyCount > (vm.replyExtra[c.rpid] ?: c.replies).size && c.rpid !in vm.replyDone,
-                        onExpand = { vm.expandReplies(c) },
-                        onLike = { vm.react(it, like = true) },
-                        onDislike = { vm.react(it, like = false) },
-                        onReply = { target ->
-                            vm.replyRoot = c.rpid
-                            vm.replyTarget = target
-                        },
-                        onAuthor = onAuthor,
-                        onVideo = onVideo,
-                        onPreview = { urls, index -> preview = Triple(urls, index, c.name) },
-                    )
-                }
-                if (vm.commentsMore) {
-                    item(key = "more") {
-                        FilledTonalButton(
-                            onClick = { vm.loadComments(reset = false) },
-                            enabled = !vm.commentLoading,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text(if (vm.commentLoading) "加载中…" else "加载更多评论") }
-                    }
-                }
-                item(key = "bottom") { Spacer(Modifier.height(24.dp)) }
             }
         }
-    }
-    vm.toast?.let { message ->
-        AlertDialog(
-            onDismissRequest = { vm.toast = null },
-            confirmButton = {},
-            text = { Text(message) },
-        )
     }
 }
 

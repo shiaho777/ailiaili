@@ -1,0 +1,34 @@
+name: Bug report
+description: Report behavior that can be reproduced in ailiaili.
+title: "[Bug]: "
+body:
+  - type: input
+    id: version
+    attributes:
+      label: App version and source
+      description: Give the installed version and say whether it came from CI, a release, or a local build.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Android
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: What happened?
+      description: Include reproduction steps, what you expected, and what actually happened.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Environment and diagnostics
+      description: Include helpful OS, device, VLC version, or app diagnostics. Remove cookies, tokens, private paths, and personal information before posting.

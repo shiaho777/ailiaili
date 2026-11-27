@@ -2,7 +2,6 @@ package app.ailiaili.core.designsystem
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.FilterChip
@@ -24,27 +23,27 @@ fun BiliFilterChip(
     modifier: Modifier = Modifier,
     leadingIcon: (@Composable () -> Unit)? = null,
 ) {
-    val accent = MaterialTheme.colorScheme.primary
+    val colors = MaterialTheme.colorScheme
     FilterChip(
         selected = selected,
         onClick = onClick,
         label = label,
         modifier = modifier,
         leadingIcon = leadingIcon,
-        shape = RoundedCornerShape(999.dp),
+        shape = MaterialTheme.shapes.small,
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            containerColor = colors.surfaceContainerLow,
             labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
             iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            selectedContainerColor = accent.copy(alpha = 0.16f),
-            selectedLabelColor = accent,
-            selectedLeadingIconColor = accent,
+            selectedContainerColor = colors.primaryContainer,
+            selectedLabelColor = colors.onPrimaryContainer,
+            selectedLeadingIconColor = colors.onPrimaryContainer,
         ),
         border = FilterChipDefaults.filterChipBorder(
             enabled = true,
             selected = selected,
-            borderColor = MaterialTheme.colorScheme.outlineVariant,
-            selectedBorderColor = accent.copy(alpha = 0.35f),
+            borderColor = colors.outlineVariant.copy(alpha = .62f),
+            selectedBorderColor = colors.primary.copy(alpha = 0.36f),
             borderWidth = 1.dp,
             selectedBorderWidth = 1.dp,
         ),
@@ -69,7 +68,7 @@ fun BiliAssistChip(
         },
         modifier = modifier,
         leadingIcon = leadingIcon,
-        shape = RoundedCornerShape(999.dp),
+        shape = MaterialTheme.shapes.small,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     )
 }
@@ -91,7 +90,7 @@ fun BiliRuleChip(
         selected = false,
         onClick = onRemove,
         modifier = modifier,
-        shape = RoundedCornerShape(999.dp),
+        shape = MaterialTheme.shapes.small,
         label = {
             androidx.compose.material3.Text(
                 label,
@@ -102,7 +101,7 @@ fun BiliRuleChip(
         },
         trailingIcon = {
             androidx.compose.material3.Icon(
-                androidx.compose.material.icons.Icons.Filled.Close,
+                Icons.Filled.Close,
                 contentDescription = "移除屏蔽",
                 modifier = Modifier.size(16.dp),
             )

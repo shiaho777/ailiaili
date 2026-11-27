@@ -7,7 +7,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Tray
@@ -17,10 +16,13 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberTrayState
 import androidx.compose.ui.window.rememberWindowState
+import app.ailiaili.core.data.APP_ISSUES_URL
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.DesktopHost
+import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.designsystem.BiliTheme
 import app.ailiaili.core.designsystem.InstallBiliImages
+import app.ailiaili.core.designsystem.appIconPainter
 import kotlin.math.roundToInt
 import java.awt.Dimension
 import java.awt.Frame
@@ -32,6 +34,7 @@ import java.util.prefs.Preferences
 
 fun main() {
     if (!SingleInstance.tryAcquire()) return
+    UiWatchdog.start()
     application {
         AppGraph.init()
         DesktopHost.exit = ::exitApplication
@@ -64,7 +67,7 @@ fun main() {
                 }
             }
         }
-        val icon = painterResource("icon.png")
+        val icon = appIconPainter()
         val trayOk = remember { SystemTray.isSupported() }
         val trayState = rememberTrayState()
         var visible by remember { mutableStateOf(true) }
@@ -77,6 +80,14 @@ fun main() {
         }
         DesktopHost.showWindow = { showMain() }
         DesktopHost.hideWindow = { hideMain() }
+        // 开播提醒走托盘气泡；无托盘的环境（部分 Linux）静默跳过。
+        if (trayOk) {
+            app.ailiaili.core.data.DesktopNotify.send = { title, message ->
+                trayState.sendNotification(
+                    androidx.compose.ui.window.Notification(title, message, androidx.compose.ui.window.Notification.Type.Info),
+                )
+            }
+        }
         if (trayOk) {
             Tray(
                 icon = icon,
@@ -87,6 +98,7 @@ fun main() {
                 Item("显示主界面", onClick = { showMain() })
                 Item("最小化到托盘", onClick = { hideMain() })
                 Separator()
+                Item("反馈问题", onClick = { openUrl(APP_ISSUES_URL) })
                 Item("退出", onClick = {
                     saveWindowSize()
                     exitApplication()
@@ -138,7 +150,7 @@ fun main() {
             DisposableEffect(Unit) { onDispose { saveWindowSize() } }
             InstallBiliImages()
             val settings by AppGraph.repo.settings.collectAsState()
-            BiliTheme(settings.theme, settings.accentHex, settings.accentFollowSystem, settings.fontPath) {
+            BiliTheme(settings.theme, settings.accentHex, settings.accentFollowSystem, settings.fontPath, settings.reduceMotion) {
                 AppRoot()
                 UpdatePrompt(settings.autoCheckUpdate, settings.skippedVersion)
             }

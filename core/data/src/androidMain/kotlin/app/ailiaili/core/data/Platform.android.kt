@@ -19,10 +19,35 @@ object AndroidHost {
     var imagePicker: (suspend () -> PickedImage?)? = null
     /** 系统文件选择器选字体文件；由 MainActivity 安装。 */
     var fontPicker: (suspend () -> PickedImage?)? = null
+    /** SAF 目录选择（下载导出目录）；由 MainActivity 安装，返回 tree Uri 字符串。 */
+    var directoryPicker: (suspend () -> String?)? = null
+    /** 画中画模式标记；由 MainActivity 的模式回调维护。 */
+    @Volatile
+    var pipActive: Boolean = false
+    /** 播放页登记「当前是否正在播放」；Home 键自动进 PiP 前查询。 */
+    var pipShouldEnter: (() -> Boolean)? = null
 
     fun install(app: Application) {
         context = app
     }
+}
+
+actual fun pipSupported(): Boolean =
+    Build.VERSION.SDK_INT >= 26 &&
+        AndroidHost.context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
+
+actual fun inPip(): Boolean = AndroidHost.pipActive
+
+actual fun enterPip(): Boolean {
+    if (!pipSupported()) return false
+    val activity = AndroidHost.activity ?: return false
+    return runCatching {
+        activity.enterPictureInPictureMode(android.app.PictureInPictureParams.Builder().build())
+    }.getOrDefault(false)
+}
+
+actual fun registerPipPlayback(check: (() -> Boolean)?) {
+    AndroidHost.pipShouldEnter = check
 }
 
 actual fun hostKind(): HostKind = HostKind.Android
@@ -59,7 +84,33 @@ actual fun shareText(title: String, text: String): String {
     return ""
 }
 
-actual suspend fun chooseDirectory(): String? = null
+actual suspend fun chooseDirectory(): String? = AndroidHost.directoryPicker?.invoke()
+
+actual suspend fun exportCacheFiles(files: List<CacheExportFile>, dest: String): Int {
+    if (files.isEmpty() || !dest.startsWith("content://")) return 0
+    return kotlinx.coroutines.withContext(app.ailiaili.core.model.ioDispatcher) {
+        runCatching {
+            val resolver = AndroidHost.context.contentResolver
+            val tree = androidx.documentfile.provider.DocumentFile.fromTreeUri(
+                AndroidHost.context,
+                Uri.parse(dest),
+            ) ?: return@runCatching 0
+            var copied = 0
+            for (file in files) {
+                val src = File(file.path)
+                if (!src.isFile || src.length() <= 0) continue
+                val target = tree.createFile(file.mimeType, file.name) ?: continue
+                val ok = runCatching {
+                    resolver.openOutputStream(target.uri)?.use { out ->
+                        src.inputStream().use { it.copyTo(out, 1 shl 20) }
+                    } != null
+                }.getOrDefault(false)
+                if (ok) copied++ else target.delete()
+            }
+            copied
+        }.getOrDefault(0)
+    }
+}
 
 actual suspend fun pickImage(): PickedImage? = AndroidHost.imagePicker?.invoke()
 
@@ -154,6 +205,39 @@ actual fun setFullscreen(on: Boolean) {
         ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 }
+
+actual fun notifyUser(title: String, message: String): Boolean = runCatching {
+    val context = AndroidHost.context
+    val manager = context.getSystemService(android.content.Context.NOTIFICATION_SERVICE)
+        as android.app.NotificationManager
+    val channelId = "ailiaili-live"
+    if (Build.VERSION.SDK_INT >= 26) {
+        val channel = android.app.NotificationChannel(
+            channelId,
+            "开播提醒",
+            android.app.NotificationManager.IMPORTANCE_DEFAULT,
+        )
+        manager.createNotificationChannel(channel)
+    }
+    // Android 13+ 未授权时 notify 静默无效；权限申请在 MainActivity 已做。
+    val intent = android.content.Intent(context, Class.forName("app.ailiaili.MainActivity"))
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    val pending = android.app.PendingIntent.getActivity(
+        context,
+        0,
+        intent,
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+    )
+    val notification = android.app.Notification.Builder(context, channelId)
+        .setSmallIcon(android.R.drawable.ic_dialog_info)
+        .setContentTitle(title)
+        .setContentText(message)
+        .setAutoCancel(true)
+        .setContentIntent(pending)
+        .build()
+    manager.notify((System.currentTimeMillis() % Int.MAX_VALUE).toInt(), notification)
+    true
+}.getOrDefault(false)
 
 actual fun traySupported(): Boolean = false
 

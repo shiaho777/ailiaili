@@ -51,6 +51,11 @@ private fun badgePalette(tone: BiliBadgeTone, style: BiliBadgeStyle): BadgePalet
                 MaterialTheme.colorScheme.surface,
                 null,
             )
+            BiliBadgeTone.Accent -> BadgePalette(
+                MaterialTheme.colorScheme.primaryContainer,
+                MaterialTheme.colorScheme.onPrimaryContainer,
+                null,
+            )
             else -> BadgePalette(accent, Color.White, null)
         }
         BiliBadgeStyle.Soft -> when (tone) {

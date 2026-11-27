@@ -4,7 +4,7 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
 sealed class UrlHit {
-    data class Video(val bvid: String) : UrlHit()
+    data class Video(val bvid: String, val page: Int? = null, val positionMs: Long? = null) : UrlHit()
     data class Space(val mid: Long) : UrlHit()
     data class Live(val roomId: Long) : UrlHit()
     data class Keyword(val word: String) : UrlHit()
@@ -28,6 +28,7 @@ object UrlParser {
     private val spaceFind = Regex("""(?:space\.bilibili\.com/|/space/)(\d+)""")
     private val liveFind = Regex("""live\.bilibili\.com/(\d+)""")
     private val keywordFind = Regex("""[?&]keyword=([^&]+)""")
+    private val timestamp = Regex("""\d{1,10}(?:\.\d+)?""")
 
     fun avToBv(aid: Long): String {
         if (aid <= 0) return ""
@@ -65,12 +66,12 @@ object UrlParser {
             text.contains("bilibili.com", ignoreCase = true) ||
             text.contains("b23.tv", ignoreCase = true)
         if (!looksUrl) return UrlHit.Keyword(text)
-        bvidFind.find(text)?.let { return UrlHit.Video(normalizeBvid(it.value)) }
+        bvidFind.find(text)?.let { return video(normalizeBvid(it.value), text.substring(it.range.last + 1)) }
         liveFind.find(text)?.let { return UrlHit.Live(it.groupValues[1].toLong()) }
         spaceFind.find(text)?.let { return UrlHit.Space(it.groupValues[1].toLong()) }
         avFind.find(text)?.let { m ->
             val bv = avToBv(m.groupValues[1].toLongOrNull() ?: 0)
-            if (bv.isNotEmpty()) return UrlHit.Video(bv)
+            if (bv.isNotEmpty()) return video(bv, text.substring(m.range.last + 1))
         }
         keywordFind.find(text)?.let { m ->
             val word = runCatching {
@@ -83,4 +84,17 @@ object UrlParser {
 
     private fun normalizeBvid(bvid: String): String =
         if (bvid.length >= 2) "BV" + bvid.substring(2) else bvid
+
+    private fun video(bvid: String, suffix: String): UrlHit.Video {
+        val query = suffix.takeWhile { !it.isWhitespace() && it !in "<>)]】）" }
+            .substringBefore('#').substringAfter('?', "").split('&')
+        val page = query.firstOrNull { it.startsWith("p=") }?.substring(2)
+            ?.toIntOrNull()?.takeIf { it > 0 }
+        val position = query.firstOrNull { it.startsWith("t=") }?.substring(2)
+            ?.takeIf(timestamp::matches)?.toBigDecimalOrNull()?.movePointRight(3)?.toLong()
+        return UrlHit.Video(bvid, page, position)
+    }
 }
+
+fun videoMomentUrl(bvid: String, page: Int, positionMs: Long): String =
+    "https://www.bilibili.com/video/$bvid/?p=${page.coerceAtLeast(1)}&t=${positionMs.coerceAtLeast(0) / 1_000}"

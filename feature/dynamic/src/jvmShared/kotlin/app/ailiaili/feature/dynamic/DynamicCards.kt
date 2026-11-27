@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.ailiaili.core.designsystem.AliMaterial
+import app.ailiaili.core.designsystem.aliMaterial
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
@@ -63,13 +66,16 @@ internal fun DynamicEntryCard(
     onAuthor: (VideoItem) -> Unit,
     onPost: (DynamicEntry) -> Unit,
     modifier: Modifier = Modifier,
+    showAuthor: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
     var preview by remember { mutableStateOf<Triple<List<String>, Int, String>?>(null) }
     Surface(
-        modifier = modifier.fillMaxWidth().biliPressScale(interaction, pressedScale = 0.98f),
+        modifier = modifier.fillMaxWidth().biliPressScale(interaction, pressedScale = 0.98f)
+            .aliMaterial(AliMaterial.Panel, MaterialTheme.shapes.large),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Column(
             Modifier
@@ -93,38 +99,40 @@ internal fun DynamicEntryCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (entry.authorFace.isNotBlank()) {
-                    AsyncImage(
-                        model = app.ailiaili.core.model.cdnThumb(entry.authorFace, 80),
-                        contentDescription = entry.authorName,
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .clickable(enabled = entry.authorMid > 0) {
-                                onAuthor(VideoItem(ownerMid = entry.authorMid, author = entry.authorName))
-                            },
-                        contentScale = ContentScale.Crop,
-                    )
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        entry.authorName,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (entry.pubTs > 0) {
-                        Text(
-                            formatRelativeTime(entry.pubTs),
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (showAuthor) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (entry.authorFace.isNotBlank()) {
+                        AsyncImage(
+                            model = app.ailiaili.core.model.cdnThumb(entry.authorFace, 80),
+                            contentDescription = entry.authorName,
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .clickable(enabled = entry.authorMid > 0) {
+                                    onAuthor(VideoItem(ownerMid = entry.authorMid, author = entry.authorName))
+                                },
+                            contentScale = ContentScale.Crop,
                         )
                     }
-                }
-                if (!entry.isVideo) {
-                    BiliBadge("图文", tone = BiliBadgeTone.Neutral, style = BiliBadgeStyle.Outline)
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            entry.authorName,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (entry.pubTs > 0) {
+                            Text(
+                                formatRelativeTime(entry.pubTs),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (!entry.isVideo) {
+                        BiliBadge("图文", tone = BiliBadgeTone.Neutral, style = BiliBadgeStyle.Outline)
+                    }
                 }
             }
             if (entry.desc.isNotBlank()) {
@@ -141,15 +149,15 @@ internal fun DynamicEntryCard(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .aspectRatio(16f / 10f)
-                        .clip(RoundedCornerShape(10.dp))
+                        .aspectRatio(if (entry.forwarded) 16f / 9f else 16f / 10f)
+                        .clip(MaterialTheme.shapes.medium)
                         .background(MaterialTheme.colorScheme.surfaceContainerHighest),
                 ) {
                     AsyncImage(
-                        model = video.cover,
+                        model = app.ailiaili.core.model.cdnThumb(video.cover, 640),
                         contentDescription = video.title,
                         modifier = Modifier.matchParentSize(),
-                        contentScale = ContentScale.Crop,
+                        contentScale = if (entry.forwarded) ContentScale.Fit else ContentScale.Crop,
                     )
                     if (video.durationText.isNotBlank()) {
                         BiliBadge(

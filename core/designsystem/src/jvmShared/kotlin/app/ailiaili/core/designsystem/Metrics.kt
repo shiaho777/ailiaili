@@ -6,10 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -20,14 +18,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -67,13 +63,9 @@ enum class MetricChipSize { Compact, Regular }
 
 @Composable
 fun metricToneColor(tone: MetricTone): Color = when (tone) {
-    MetricTone.Neutral, MetricTone.Date -> MaterialTheme.colorScheme.onSurfaceVariant
-    MetricTone.Accent, MetricTone.Play -> MaterialTheme.colorScheme.primary
-    MetricTone.Danmaku -> Color(0xFF4FC3F7)
-    MetricTone.Like -> Color(0xFFFF6B81)
-    MetricTone.Coin -> Color(0xFFFFB74D)
-    MetricTone.Favorite -> Color(0xFF4DD0E1)
-    MetricTone.Online -> Color(0xFF81C784)
+    MetricTone.Accent -> MaterialTheme.colorScheme.primary
+    MetricTone.Online -> MaterialTheme.colorScheme.tertiary
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable
@@ -100,13 +92,13 @@ fun MetricChip(
     Surface(
         modifier = modifier.then(clickable),
         shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = if (onClick == null) Color.Transparent else MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        border = if (onClick == null) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             Modifier.padding(
-                horizontal = if (compact) 8.dp else 10.dp,
+                horizontal = if (onClick == null) 1.dp else if (compact) 8.dp else 10.dp,
                 vertical = if (compact) 4.dp else 6.dp,
             ),
             verticalAlignment = Alignment.CenterVertically,
@@ -239,26 +231,6 @@ fun MetaRow(
                 )
             }
         }
-    }
-}
-
-@Composable
-fun BiliSurfaceCard(
-    modifier: Modifier = Modifier,
-    shape: Shape = RoundedCornerShape(16.dp),
-    color: Color = MaterialTheme.colorScheme.surfaceContainerLow,
-    border: BorderStroke? = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    contentPadding: PaddingValues = PaddingValues(14.dp),
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Surface(
-        modifier = modifier,
-        shape = shape,
-        color = color,
-        contentColor = contentColorFor(color),
-        border = border,
-    ) {
-        Column(Modifier.padding(contentPadding), content = content)
     }
 }
 

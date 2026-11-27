@@ -1,7 +1,11 @@
 package app.ailiaili.feature.player
 
 import androidx.compose.ui.backhandler.BackHandler
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -40,9 +44,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
 import androidx.compose.material.icons.filled.Download
@@ -50,11 +56,11 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -67,24 +73,31 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.AlertDialog
+import app.ailiaili.core.designsystem.AliStageDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
+import app.ailiaili.core.designsystem.AliStageMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import app.ailiaili.core.designsystem.AliColors
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.AliStageSeekBar
+import app.ailiaili.core.designsystem.AliMaterial
 import app.ailiaili.core.designsystem.BiliFilterChip
+import app.ailiaili.core.designsystem.LocalAliReducedMotion
+import app.ailiaili.core.designsystem.aliMaterial
+import app.ailiaili.core.designsystem.aliPlaybackAccent
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -105,10 +118,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerType
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -122,7 +139,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.data.CachedPlayback
+import app.ailiaili.core.data.readCachedPlayback
+import androidx.compose.runtime.produceState
 import app.ailiaili.core.data.HistorySync
+import app.ailiaili.core.data.ResumePlayback
 import app.ailiaili.core.data.canControlBrightness
 import app.ailiaili.core.data.isDesktopHost
 import app.ailiaili.core.data.openUrl
@@ -146,7 +167,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
-import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.LocalWheelSpeed
 import app.ailiaili.core.designsystem.MetaRow
@@ -179,6 +199,7 @@ import app.ailiaili.core.model.VideoDetail
 import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.VideoPage
 import app.ailiaili.core.model.VideoShot
+import app.ailiaili.core.model.videoMomentUrl
 import app.ailiaili.core.model.ViewChapter
 import app.ailiaili.core.model.epochMs
 import app.ailiaili.core.model.ioDispatcher
@@ -190,6 +211,8 @@ import app.ailiaili.core.network.LiveDanmaku
 import app.ailiaili.core.model.LiveRoomInfo
 import app.ailiaili.core.player.PlaybackListener
 import app.ailiaili.core.player.PlayerEngine
+import app.ailiaili.core.model.PlayerScale
+import androidx.compose.material.icons.filled.Lock
 import app.ailiaili.core.player.VideoSurface
 import coil3.compose.AsyncImage
 import androidx.compose.ui.input.key.Key
@@ -209,7 +232,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import kotlin.time.TimeSource
 
+private const val ChromeHideDelayMs = 3500L
 private val speeds = listOf(0.25f, 0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f, 4f)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -235,13 +260,27 @@ fun PlayerRoute(
     seedFavoriteCount: Long = 0,
     seedOwnerFace: String = "",
     seedPubdate: Long = 0,
+    /** 番剧集 id：>0 时取流优先走 PGC 链路，失败回退 UGC。 */
+    seedEpId: Long = 0,
+    /** 列表「播放全部」带入的顺序连播队列。 */
+    queue: List<app.ailiaili.core.model.QueueItem> = emptyList(),
+    queueIndex: Int = 0,
+    startAtMs: Long? = null,
+    startPage: Int? = null,
     onOpenVideo: (VideoItem) -> Unit = {},
     onTag: (String) -> Unit = {},
     onOpenCommentDetail: (aid: Long, comment: Comment) -> Unit = { _, _ -> },
+    onOpenDownloads: () -> Unit = {},
+    onOpenOriginal: ((Long) -> Unit)? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val engine = remember { PlayerEngine() }
+    val engine = remember {
+        val settings = AppGraph.repo.settings.value
+        PlayerEngine().apply {
+            configureCompatibility(settings.desktopHardwareDecoding, settings.desktopHighQualityAudio)
+        }
+    }
     fun leavePlayer() {
         engine.freeze()
         onBack()
@@ -256,6 +295,7 @@ fun PlayerRoute(
     var startedBvid by remember { mutableStateOf<String?>(null) }
     var startedCid by remember { mutableLongStateOf(0L) }
     var startedTag by remember { mutableStateOf("") }
+    var startedResume by remember { mutableStateOf<ResumePlayback?>(null) }
     var livePlayInfo by remember { mutableStateOf<LivePlayInfo?>(null) }
     var liveRoomInfo by remember { mutableStateOf<LiveRoomInfo?>(null) }
     var liveChat by remember { mutableStateOf<List<LiveDanmaku>>(emptyList()) }
@@ -270,6 +310,8 @@ fun PlayerRoute(
     var commentsMore by remember { mutableStateOf(false) }
     var commentTotal by remember { mutableIntStateOf(0) }
     var commentMode by remember { mutableIntStateOf(3) }
+    // 只看 UP 主：本地过滤已加载评论（接口 up 标记），不改变排序与分页。
+    var onlyUpComments by remember { mutableStateOf(false) }
     var commentLoading by remember { mutableStateOf(false) }
     var commentError by remember { mutableStateOf<String?>(null) }
     var commentCooldownUntil by remember { mutableLongStateOf(0L) }
@@ -283,16 +325,29 @@ fun PlayerRoute(
     var descOpen by remember { mutableStateOf(false) }
     var descReady by remember { mutableStateOf(false) }
     var chrome by remember { mutableStateOf(true) }
+    var pointerOverChrome by remember { mutableStateOf(false) }
+    val pointerClock = remember { TimeSource.Monotonic.markNow() }
+    var lastPointerMotion by remember { mutableLongStateOf(-ChromeHideDelayMs) }
     var hint by remember { mutableStateOf<String?>(null) }
     var ended by remember { mutableStateOf(false) }
     val settings by AppGraph.repo.settings.collectAsState()
+    val keyboardSeekMs = (settings.seekStepSeconds.takeIf { it > 0 } ?: 5) * 1000L
+    val gestureSeekSeconds = settings.seekStepSeconds.takeIf { it > 0 } ?: 10
+    val reducedMotion = LocalAliReducedMotion.current
     val clipboard = LocalClipboardManager.current
     var volume by remember { mutableFloatStateOf(settings.playerVolume.coerceIn(0f, 1f)) }
     fun setVolume(next: Float) {
         val v = next.coerceIn(0f, 1f)
         volume = v
         engine.volume = v
-        AppGraph.repo.updateSettings { it.copy(playerVolume = v) }
+        AppGraph.repo.updateSettings {
+            it.copy(playerVolume = v, lastAudiblePlayerVolume = if (v > 0f) v else it.lastAudiblePlayerVolume)
+        }
+    }
+    fun toggleMute() {
+        val muted = volume > 0f
+        setVolume(if (muted) 0f else AppGraph.repo.settings.value.lastAudiblePlayerVolume)
+        hint = if (muted) "已静音" else "音量 ${(volume * 100).roundToInt()}%"
     }
     LaunchedEffect(Unit) { engine.volume = volume }
     var volumeOpen by remember { mutableStateOf(false) }
@@ -304,16 +359,30 @@ fun PlayerRoute(
     var baseSpeed by remember { mutableFloatStateOf(settings.playbackSpeed.coerceIn(0.25f, 4f)) }
     var rawSegments by remember { mutableStateOf<List<SponsorSegment>>(emptyList()) }
     var chapters by remember { mutableStateOf<List<ViewChapter>>(emptyList()) }
+    var chaptersOpen by remember { mutableStateOf(false) }
     var shot by remember { mutableStateOf<VideoShot?>(null) }
     // 播放/暂停的中央图标浮现：淡入放大后自动淡出，纯视觉反馈不打断手势。
     var playFlash by remember { mutableStateOf<FlashKind?>(null) }
     var playFlashTick by remember { mutableIntStateOf(0) }
     // 双击左右区的 ±10 秒反馈：-1 左 / 1 右，与中央浮现共用一套动画。
     var seekFlashSide by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reducedMotion, playFlashTick) {
+        if (reducedMotion) {
+            playFlash = null
+            seekFlashSide = 0
+        }
+    }
     var subtitleTracks by remember { mutableStateOf<List<app.ailiaili.core.model.SubtitleTrack>>(emptyList()) }
     var subtitleCues by remember { mutableStateOf<List<app.ailiaili.core.model.SubtitleCue>>(emptyList()) }
     var subtitleLan by remember { mutableStateOf("") }
     var subtitleOpen by remember { mutableStateOf(false) }
+    val cachedPlayback by produceState(CachedPlayback(), local?.videoPath) {
+        value = if (local == null) CachedPlayback() else withContext(ioDispatcher) { readCachedPlayback(local) }
+    }
+    val subtitleChoices = if (local == null) subtitleTracks else cachedPlayback.subtitles.map { it.track }
+    val selectedCachedSubtitle = cachedPlayback.subtitles.firstOrNull { it.track.lan == settings.subtitleLan }
+        ?: cachedPlayback.subtitles.firstOrNull { it.track.lan.startsWith("zh") }
+        ?: cachedPlayback.subtitles.firstOrNull()
     var followed by remember { mutableStateOf(false) }
     var liked by remember { mutableStateOf(false) }
     var coined by remember { mutableStateOf(false) }
@@ -322,6 +391,7 @@ fun PlayerRoute(
     var favored by remember { mutableStateOf(false) }
     var inLater by remember { mutableStateOf(false) }
     var favOpen by remember { mutableStateOf(false) }
+    var createFolderOpen by remember { mutableStateOf(false) }
     var favDraft by remember { mutableStateOf<List<FavFolder>>(emptyList()) }
     var favSaved by remember { mutableStateOf(setOf<Long>()) }
     var replyRoot by remember { mutableLongStateOf(0L) }
@@ -340,9 +410,15 @@ fun PlayerRoute(
     var audioOpen by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(settings.playbackSpeed.coerceIn(0.25f, 4f)) }
     var speedDraft by remember { mutableFloatStateOf(settings.playbackSpeed.coerceIn(0.25f, 4f)) }
-    // 长按 →：超过阈值进入 3 倍速，松开恢复；短按仍是快进 5 秒。
     var rightHeld by remember { mutableStateOf(false) }
     var rightBoost by remember { mutableStateOf(false) }
+    var temporarySpeedIndex by remember { mutableIntStateOf(2) }
+    val temporarySpeeds = remember { listOf(1.5f, 2f, 3f) }
+    fun adjustTemporarySpeed(direction: Int) {
+        temporarySpeedIndex = (temporarySpeedIndex + direction + temporarySpeeds.size) % temporarySpeeds.size
+        speed = temporarySpeeds[temporarySpeedIndex]
+        hint = "${speedLabel(speed)} 快进中"
+    }
     LaunchedEffect(rightHeld) {
         if (!rightHeld) {
             if (rightBoost) {
@@ -355,24 +431,97 @@ fun PlayerRoute(
         delay(450)
         if (rightHeld && liveRoom == null) {
             rightBoost = true
-            speed = maxOf(3f, baseSpeed)
+            speed = temporarySpeeds[temporarySpeedIndex]
             hint = "3x 快进中，松开恢复"
         }
     }
     var fullscreen by remember { mutableStateOf(false) }
+    var controlsLocked by remember { mutableStateOf(false) }
+    var scaleOpen by remember { mutableStateOf(false) }
+    fun unlockControls() {
+        controlsLocked = false
+        chrome = true
+    }
+    LaunchedEffect(fullscreen) {
+        if (!fullscreen && controlsLocked) unlockControls()
+    }
+    var commentsFullscreen by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
+    var playbackOptionsOpen by remember { mutableStateOf(false) }
+    var playbackInfoOpen by remember { mutableStateOf(false) }
+    var danmakuTimingOpen by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf("") }
     var composerExpanded by remember { mutableStateOf(false) }
-    var downloading by remember { mutableStateOf(false) }
-    var downloadCancelled by remember { mutableStateOf(false) }
-    var downloadProgress by remember { mutableFloatStateOf(-1f) }
+    // 弹幕发送：输入条开合、草稿、类型/颜色、在途标记。
+    var dmBarOpen by remember { mutableStateOf(false) }
+    var clearScreen by remember { mutableStateOf(false) }
+    fun toggleClearScreen() {
+        clearScreen = !clearScreen
+        if (clearScreen) {
+            dmBarOpen = false
+            areaOpen = false
+        }
+        toast = if (clearScreen) "清屏已开启 · 保留字幕" else "已退出清屏"
+    }
+    fun toggleDanmaku() {
+        if (clearScreen) toggleClearScreen()
+        else AppGraph.repo.updateSettings { it.copy(danmakuEnabled = !it.danmakuEnabled) }
+    }
+    var dmDraft by remember { mutableStateOf("") }
+    var dmMode by remember { mutableIntStateOf(1) }
+    var dmColor by remember { mutableIntStateOf(0xFFFFFF) }
+    var dmSending by remember { mutableStateOf(false) }
+    // 本地发送成功的弹幕单独维护：分段轮询重建列表时并回去，不被网络数据冲掉。
+    var localDanmaku by remember { mutableStateOf<List<Danmaku>>(emptyList()) }
+    // 直播间发言：草稿、在途标记、本人昵称（回显用，懒取一次）。
+    var liveMsgDraft by remember { mutableStateOf("") }
+    var liveMsgSending by remember { mutableStateOf(false) }
+    var myLiveName by remember { mutableStateOf("") }
+    // 睡眠定时器：-1 关闭；0 播完当前；>0 分钟后暂停。页面级状态，离开播放页即失效。
+    var sleepOpen by remember { mutableStateOf(false) }
+    var sleepMinutes by remember { mutableIntStateOf(-1) }
+    var sleepDeadline by remember { mutableLongStateOf(0L) }
+    var sleepRemainText by remember { mutableStateOf("") }
+    LaunchedEffect(sleepMinutes, sleepDeadline, ended) {
+        if (sleepMinutes < 0) return@LaunchedEffect
+        while (true) {
+            val now = epochMs()
+            if (app.ailiaili.core.model.sleepTimerDue(sleepMinutes, true, sleepDeadline, now, ended, liveRoom != null)) {
+                engine.pause()
+                sleepMinutes = -1
+                sleepDeadline = 0L
+                sleepRemainText = ""
+                toast = "定时时间到，已暂停播放"
+                return@LaunchedEffect
+            }
+            sleepRemainText = if (sleepMinutes == 0) "播完当前" else app.ailiaili.core.model.sleepTimerClock(sleepDeadline - now)
+            delay(1_000)
+        }
+    }
     var cacheOpen by remember { mutableStateOf(false) }
-    var cacheQn by remember { mutableIntStateOf(0) }
     var attempt by remember { mutableIntStateOf(0) }
     var liveRetries by remember { mutableIntStateOf(0) }
     var refetchRetries by remember { mutableIntStateOf(0) }
     var refetchRequest by remember { mutableStateOf<Triple<String, Long, Long>?>(null) }
-    var autoNextCid by remember { mutableStateOf<Long?>(null) }
+    // 当前媒体的番剧集号（PGC 取流用）；换片时随 start 更新。
+    var currentEpId by remember { mutableLongStateOf(seedEpId) }
+    // 顺序连播队列：列表页带入；curQueueIndex 指向正在播的条目。
+    val playQueue = remember { queue }
+    var curQueueIndex by remember { mutableIntStateOf(queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))) }
+    var queuePanelOpen by remember { mutableStateOf(false) }
+    var nextPlayback by remember { mutableStateOf<NextPlayback?>(null) }
+    var nextSeconds by remember { mutableIntStateOf(5) }
+    var advanceNow by remember { mutableStateOf(false) }
+    var relatedQueue by remember { mutableStateOf<List<VideoItem>?>(null) }
+    var relatedIndex by remember { mutableIntStateOf(-1) }
+    var visitedVideos by remember { mutableStateOf(setOf<String>()) }
+    val seasonQueue = remember(playQueue) { playQueue.isNotEmpty() && playQueue.all { it.epId > 0 } }
+    // A-B 循环：-1 未设置；两点齐备后播放到 B 自动回 A。换片清除。
+    var abA by remember { mutableLongStateOf(-1L) }
+    var abB by remember { mutableLongStateOf(-1L) }
+    var abOpen by remember { mutableStateOf(false) }
+    val abAState = rememberUpdatedState(abA)
+    val abBState = rememberUpdatedState(abB)
     val form = LocalWindowForm.current
     val desktop = isDesktopHost()
     val brightnessOk = canControlBrightness()
@@ -392,59 +541,30 @@ fun PlayerRoute(
     val reportCid = rememberUpdatedState(page?.cid ?: detail?.cid ?: seedCid)
     val reportBvid = rememberUpdatedState(detail?.bvid ?: bvid)
     fun fireHistory(now: Boolean) {
+        if (engine.isSeekPending) return
         val aid = reportAid.value
         val cid = reportCid.value
         val id = reportBvid.value
+        if (cid != startedCid || id != startedBvid || engine.mediaTag != startedTag) return
         val sec = runCatching { engine.currentPosition / 1000 }.getOrDefault(0L)
         scope.launch(ioDispatcher) {
             if (now) HistorySync.reportNow(aid, cid, sec, id)
             else HistorySync.report(aid, cid, sec, id)
         }
     }
-    fun cacheToDisk(play: PlayInfo) {
-        val d = detail ?: return
-        downloading = true
-        downloadCancelled = false
-        downloadProgress = -1f
-        var lastProgressAt = 0L
-        scope.launch {
-            runCatching {
-                val entry = withContext(ioDispatcher) {
-                    AppGraph.cache.download(
-                        d.bvid,
-                        d.title,
-                        d.pic,
-                        play,
-                        AppGraph.http,
-                        cid = page?.cid?.takeIf { it > 0 } ?: d.cid,
-                    ) { done, total ->
-                        // 取消检查点：下载器在写循环里调本回调，抛出即中断。
-                        // .part 与 meta 保留，下次同 URL 从断点续传。
-                        if (downloadCancelled) throw DownloadCancelledException()
-                        if (done - lastProgressAt >= 512 * 1024 || done == total) {
-                            lastProgressAt = done
-                            val ratio = if (total > 0) {
-                                (done.toFloat() / total).coerceIn(0f, 1f)
-                            } else {
-                                -1f
-                            }
-                            scope.launch { downloadProgress = ratio }
-                        }
-                    }
-                }
-                toast = if (entry.audioPath == null && entry.videoPath.endsWith(".mp4")) {
-                    "已缓存为单个 MP4，可导出到任意播放器"
-                } else {
-                    "已缓存到离线缓存"
-                }
-                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-            }.onFailure {
-                toast = if (it is DownloadCancelledException) "已取消缓存，进度已保留可续传" else it.message ?: "缓存失败"
-            }
-            downloading = false
-            downloadCancelled = false
-            downloadProgress = -1f
+    fun rememberProgress(position: Long, finished: Boolean = false) {
+        val id = startedBvid ?: return
+        val cid = startedCid
+        if (cid <= 0 || engine.isSeekPending || engine.mediaTag != startedTag) return
+        val recent = startedResume?.let { playback ->
+            val duration = playback.durationMs.takeIf { it > 0 } ?: engine.duration
+            playback.copy(
+                positionMs = if (finished) duration else position / 1_000 * 1_000,
+                durationMs = duration,
+            )
         }
+        val savedPosition = if (finished && recent != null) maxOf(position, recent.durationMs) else position
+        AppGraph.playbackMemory.write(id, cid, savedPosition, recent)
     }
     fun toggleLike() {
         val id = detail?.bvid ?: bvid
@@ -526,8 +646,9 @@ fun PlayerRoute(
     DisposableEffect(engine) {
         val listener = object : PlaybackListener {
             override fun onError() {
+                playing = false
                 val pos = engine.currentPosition
-                if (engine.failOver(pos)) return
+                if (runCatching { engine.failOver(pos) }.getOrDefault(false)) return
                 // 直播没有备用线路：断流后重新取流地址（CDN 可能已切换），
                 // 最多自动重连 3 次，仍失败才交给错误页的手动重试。
                 if (liveRoom != null && liveRetries < 3) {
@@ -539,7 +660,7 @@ fun PlayerRoute(
                 // 点播：playurl 链接有效期短，长暂停/慢速播放后会过期
                 // （PiliPlus #2711 同款）。备用线路用尽后重新取流续播，
                 // 最多 2 次；换片/手动重试会复位计数。
-                val id = bvid ?: detail?.bvid
+                val id = detail?.bvid ?: bvid
                 val cidNow = page?.cid ?: detail?.cid ?: 0L
                 if (liveRoom == null && local == null && !id.isNullOrBlank() && cidNow > 0 && refetchRetries < 2) {
                     refetchRetries += 1
@@ -551,29 +672,58 @@ fun PlayerRoute(
             }
 
             override fun onEnded(endedNow: Boolean) {
+                if (endedNow && ended) return
                 ended = endedNow
-                if (endedNow) {
-                    fireHistory(now = true)
-                    // 自动连播下一 P（番剧/课程/多P教程）。用状态触发，
-                    // 监听器里不能前向引用 start。
-                    val pages = detail?.pages.orEmpty()
-                    val curCid = page?.cid ?: detail?.cid ?: 0L
-                    val idx = pages.indexOfFirst { it.cid == curCid }
-                    val next = if (idx >= 0) pages.getOrNull(idx + 1) else null
-                    if (settings.autoPlayNext && liveRoom == null && local == null && next != null) {
-                        autoNextCid = next.cid
+                if (!endedNow) {
+                    nextPlayback = null
+                    return
+                }
+                playing = false
+                rememberProgress(engine.currentPosition, finished = true)
+                fireHistory(now = true)
+                val currentSettings = AppGraph.repo.settings.value
+                if (!currentSettings.autoPlayNext || sleepMinutes == 0 || liveRoom != null || local != null) return
+                val current = detail ?: return
+                val partIndex = current.pages.indexOfFirst { it.cid == (page?.cid ?: current.cid) }
+                val nextPart = if (partIndex >= 0) current.pages.getOrNull(partIndex + 1) else null
+                val queueItem = playQueue.getOrNull(curQueueIndex + 1)
+                val episodeIndex = current.episodes.indexOfFirst { it.bvid == current.bvid }
+                val nextEpisode = if (episodeIndex >= 0) current.episodes.getOrNull(episodeIndex + 1) else null
+                val relatedItems = relatedQueue.orEmpty()
+                val recommendedIndex = if (currentSettings.autoPlayRelated) {
+                    relatedItems.indices.firstOrNull { index ->
+                        val video = relatedItems[index]
+                        index > relatedIndex && video.bvid !in visitedVideos &&
+                            app.ailiaili.core.designsystem.ContentFilter.allows(video)
                     }
+                } else {
+                    null
+                }
+                nextSeconds = 5
+                advanceNow = false
+                nextPlayback = when {
+                    nextPart != null -> NextPlayback.Part(nextPart)
+                    queueItem != null -> NextPlayback.Queue(curQueueIndex + 1, queueItem)
+                    nextEpisode != null -> NextPlayback.Collection(nextEpisode)
+                    recommendedIndex != null -> NextPlayback.Related(recommendedIndex, relatedItems[recommendedIndex])
+                    else -> null
                 }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
-                if (isPlaying) ended = false else fireHistory(now = true)
+                if (isPlaying) {
+                    ended = false
+                    nextPlayback = null
+                } else {
+                    fireHistory(now = true)
+                }
             }
         }
         engine.addListener(listener)
         onDispose {
-            PlayMemory.flush()
+            runCatching { engine.currentPosition }.getOrNull()?.let { rememberProgress(it, finished = ended) }
+            AppGraph.playbackMemory.flush()
             fireHistory(now = true)
             engine.removeListener(listener)
             engine.freeze()
@@ -587,31 +737,132 @@ fun PlayerRoute(
     }
 
     DisposableEffect(fullscreen) {
+        if (!fullscreen) commentsFullscreen = false
         setFullscreen(fullscreen)
         onDispose { setFullscreen(false) }
     }
 
+    // 画中画：登记「正在播放」查询，Home 键由 Activity 自动进小窗；
+    // 小窗期间返回键不弹页（引擎保持存活），退出小窗回到全屏播放页。
+    val pipOk = app.ailiaili.core.data.pipSupported()
+    DisposableEffect(engine, pipOk) {
+        if (pipOk) app.ailiaili.core.data.registerPipPlayback { engine.isPlaying }
+        onDispose { if (pipOk) app.ailiaili.core.data.registerPipPlayback(null) }
+    }
+
     BackHandler {
-        if (fullscreen) fullscreen = false else leavePlayer()
+        when {
+            app.ailiaili.core.data.inPip() -> Unit
+            controlsLocked -> unlockControls()
+            commentsFullscreen -> commentsFullscreen = false
+            fullscreen -> fullscreen = false
+            else -> leavePlayer()
+        }
     }
 
     fun playingCid(): Long = page?.cid?.takeIf { it > 0 } ?: detail?.cid ?: 0L
 
+    fun sendDanmakuNow() {
+        if (dmSending) return
+        val text = dmDraft.trim()
+        if (text.isEmpty()) return
+        if (!AppGraph.repo.session.value.loggedIn) {
+            toast = "请先登录后再发弹幕"
+            return
+        }
+        val aid = detail?.aid ?: seedAid
+        val cid = playingCid()
+        if (aid <= 0 || cid <= 0) {
+            toast = "视频信息还没就绪，稍后再发"
+            return
+        }
+        val posMs = runCatching { engine.currentPosition }.getOrDefault(0L)
+        val mode = dmMode
+        val color = dmColor
+        dmSending = true
+        scope.launch {
+            AppGraph.repo.sendDanmaku(aid, cid, text, posMs, mode, color)
+                .onSuccess {
+                    dmDraft = ""
+                    // 本地回显：时间取当前播放位置；若早于列表末尾则贴到末尾，
+                    // 保证 Runtime 走追加路径不清屏（暂停时发送也能立刻看到）。
+                    val sec = posMs / 1000.0
+                    val tail = danmaku.lastOrNull()?.timeSec ?: 0.0
+                    val echo = Danmaku(maxOf(sec, tail), text, mode, color)
+                    localDanmaku = localDanmaku + echo
+                    danmaku = (danmaku + echo).sortedBy { it.timeSec }
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                    toast = "弹幕已发送"
+                }
+                .onFailure { toast = it.message ?: "弹幕发送失败" }
+            dmSending = false
+        }
+    }
+
+    fun sendLiveMsgNow() {
+        val room = liveRoom ?: return
+        if (liveMsgSending) return
+        val text = liveMsgDraft.trim()
+        if (text.isEmpty()) return
+        if (!AppGraph.repo.session.value.loggedIn) {
+            toast = "请先登录后再发言"
+            return
+        }
+        liveMsgSending = true
+        scope.launch {
+            if (myLiveName.isBlank()) {
+                myLiveName = AppGraph.repo.userState().getOrNull()?.name.orEmpty()
+            }
+            AppGraph.repo.sendLiveMsg(room, text)
+                .onSuccess {
+                    liveMsgDraft = ""
+                    // 本地回显：WS 也会推回自己这条，按 uid+文本去重由列表上限自然收敛。
+                    val uid = AppGraph.repo.session.value.dedeUserId?.toLongOrNull() ?: 0L
+                    val echo = LiveDanmaku(text = text, user = myLiveName.ifBlank { "我" }, uid = uid)
+                    liveChat = (liveChat + echo).takeLast(120)
+                    val sec = runCatching { engine.currentPosition / 1000.0 }.getOrDefault(0.0)
+                    danmaku = (danmaku + Danmaku(sec, text, 1, 0xFFFFFF)).takeLast(400)
+                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                }
+                .onFailure { toast = it.message ?: "发言失败" }
+            liveMsgSending = false
+        }
+    }
+
+    var qualityMedia by remember { mutableStateOf<Triple<String, Long, Long>?>(null) }
+    var fetchedQualityCatalog by remember { mutableStateOf(false) }
+    var catalogQualities by remember { mutableStateOf<List<app.ailiaili.core.model.Quality>>(emptyList()) }
+    var loadMedia by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     fun start(
         targetBvid: String,
         cid: Long,
-        seek: Long = 0,
+        seek: Long? = null,
         durationSec: Int = 0,
         forceDash: Boolean = false,
+        epId: Long = currentEpId,
     ) {
         // 换片复位重取流额度；同片重取流（seek>0 的错误恢复）保留计数防死循环。
         if (targetBvid != startedBvid || cid != startedCid) refetchRetries = 0
+        currentEpId = epId
+        val mediaKey = Triple(targetBvid, cid, epId)
+        if (qualityMedia != mediaKey) {
+            qualityMedia = mediaKey
+            catalogQualities = emptyList()
+            fetchedQualityCatalog = false
+        }
+        val requestedQuality = AppGraph.repo.settings.value.defaultQn
+        loadMedia?.cancel()
+        nextPlayback = null
         ended = false
         skippedStarts = emptySet()
         undoAt = -1L
+        abA = -1L
+        abB = -1L
         danmaku = emptyList()
         rawSegments = emptyList()
         chapters = emptyList()
+        chaptersOpen = false
         shot = null
         subtitleTracks = emptyList()
         subtitleCues = emptyList()
@@ -631,21 +882,43 @@ fun PlayerRoute(
                 }
             }
         }
-        scope.launch {
+        loadMedia = scope.launch {
             error = null
-            val play = AppGraph.repo.play(targetBvid, cid, forceDash)
+            // 番剧集优先 PGC 取流（大会员/付费内容只有这条链路给源）；
+            // 失败回退 UGC bvid——限免集两边都能播，回退保证不因 PGC 风控断播。
+            val play = if (epId > 0) {
+                AppGraph.repo.pgcPlay(epId, detail?.aid ?: seedAid, cid, requestedQuality)
+                    .recoverCatching { AppGraph.repo.play(targetBvid, cid, forceDash).getOrThrow() }
+            } else {
+                AppGraph.repo.play(targetBvid, cid, forceDash)
+            }
+            if (!kotlinx.coroutines.currentCoroutineContext().isActive) return@launch
             play.onSuccess { got ->
-                info = got
+                catalogQualities = mergeQualityCatalog(catalogQualities, got.qualities)
+                info = got.copy(qualities = catalogQualities)
+                if (got.audioUrl.isNullOrBlank() && epId <= 0 && !forceDash && !fetchedQualityCatalog) {
+                    fetchedQualityCatalog = true
+                    scope.launch {
+                        val catalog = kotlinx.coroutines.withTimeoutOrNull(3_000) {
+                            AppGraph.repo.playAt(targetBvid, cid, requestedQuality, forceDash = true).getOrNull()
+                        }
+                        if (qualityMedia == mediaKey && catalog?.audioUrl != null) {
+                            catalogQualities = mergeQualityCatalog(catalogQualities, catalog.qualities)
+                            info = info?.copy(qualities = catalogQualities)
+                        }
+                    }
+                }
                 val audioOnly = listening && !got.audioUrl.isNullOrBlank()
                 if (listening && !audioOnly) {
                     listening = false
                     toast = "这条视频没有可用的音轨"
                 }
                 val durationMs = durationSec * 1000L
-                val remembered = if (seek <= 0) PlayMemory.read(targetBvid, cid) else 0L
+                val remembered = if (seek == null) AppGraph.playbackMemory.read(targetBvid, cid) else 0L
                 val resume = remembered in 5_000 until (durationMs - 15_000).coerceAtLeast(5_000)
-                val startAt = if (seek > 0) seek else if (resume) remembered else 0L
-                if (resume && seek <= 0) {
+                val startAt = seek?.let { if (durationMs > 0) it.coerceAtMost(durationMs - 1_000) else it }
+                    ?: if (resume) remembered else 0L
+                if (resume && seek == null) {
                     undoAt = 0L
                     hint = "已回到上次看到的位置"
                 }
@@ -670,9 +943,23 @@ fun PlayerRoute(
                         "起播=${startAt}ms 听视频=$audioOnly"
                 runCatching { engine.play(got, startAt, audioOnly = audioOnly) }
                     .onSuccess {
+                        if (targetBvid != startedBvid || cid != startedCid) AppGraph.playbackMemory.begin(targetBvid, cid)
                         startedBvid = targetBvid
+                        visitedVideos = visitedVideos + targetBvid
                         startedCid = cid
                         startedTag = engine.mediaTag
+                        startedResume = detail?.takeIf { it.bvid == targetBvid && it.title.isNotBlank() }?.let { video ->
+                            ResumePlayback(
+                                video = VideoItem(
+                                    bvid = targetBvid, cid = cid, title = video.title, cover = video.pic,
+                                    author = video.owner, ownerMid = video.ownerMid,
+                                ),
+                                partLabel = video.pages.firstOrNull { it.cid == cid && video.pages.size > 1 }?.part.orEmpty(),
+                                episodeId = epId,
+                                positionMs = 0,
+                                durationMs = durationMs,
+                            )
+                        }
                         listenSwitching = false
                     }
                     .onFailure {
@@ -709,16 +996,11 @@ fun PlayerRoute(
         start(req.first, req.second, seek = req.third, durationSec = page?.durationSec ?: detail?.durationSec ?: 0)
     }
 
-    // 自动连播：切到下一 P，同步分P选中态与简介 cid，倍速/画质偏好自然沿用。
-    LaunchedEffect(autoNextCid) {
-        val nextCid = autoNextCid ?: return@LaunchedEffect
-        autoNextCid = null
-        val d = detail ?: return@LaunchedEffect
-        val next = d.pages.firstOrNull { it.cid == nextCid } ?: return@LaunchedEffect
+    fun openPart(next: VideoPage) {
+        val current = detail ?: return
         page = next
-        detail = d.copy(cid = nextCid)
-        toast = "自动连播：${next.part.ifBlank { "P${next.page}" }}"
-        start(d.bvid, nextCid, durationSec = next.durationSec.takeIf { it > 0 } ?: d.durationSec)
+        detail = current.copy(cid = next.cid)
+        start(current.bvid, next.cid, durationSec = next.durationSec.takeIf { it > 0 } ?: current.durationSec)
     }
 
     fun loadComments(aid: Long, pageNum: Int, mode: Int, append: Boolean) {
@@ -757,8 +1039,10 @@ fun PlayerRoute(
         }
     }
 
-    fun applyDetail(d: VideoDetail) {
+    fun applyDetail(d: VideoDetail, epId: Long = seedEpId, seek: Long? = null) {
+        nextPlayback = null
         detail = d
+        commentsFullscreen = false
         panel = "intro"
         descOpen = false
         descReady = d.desc.isNotBlank()
@@ -772,13 +1056,14 @@ fun PlayerRoute(
         favored = false
         inLater = false
         favOpen = false
+        createFolderOpen = false
         onlineText = null
         comments = emptyList()
-        commentTotal = 0
+        commentTotal = d.replyCount.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         commentError = null
         page = d.pages.firstOrNull { it.cid == d.cid } ?: d.pages.firstOrNull()
         val cid = page?.cid ?: d.cid
-        if (cid > 0) start(d.bvid, cid, durationSec = page?.durationSec?.takeIf { it > 0 } ?: d.durationSec)
+        if (cid > 0) start(d.bvid, cid, seek = seek, durationSec = page?.durationSec?.takeIf { it > 0 } ?: d.durationSec, epId = epId)
         else error = "没有可播放的分P"
         if (d.aid > 0) loadComments(d.aid, 1, commentMode, append = false)
         scope.launch {
@@ -790,11 +1075,7 @@ fun PlayerRoute(
                 }
                 .onFailure { if (detail?.bvid == d.bvid) descReady = true }
         }
-        if (settings.showRelated) {
-            scope.launch { AppGraph.repo.related(d.bvid).onSuccess { if (detail?.bvid == d.bvid) related = it } }
-        } else {
-            related = emptyList()
-        }
+        related = emptyList()
         scope.launch { AppGraph.repo.tags(d.bvid).onSuccess { if (detail?.bvid == d.bvid) tags = it } }
         if (cid > 0) {
             scope.launch {
@@ -887,12 +1168,16 @@ fun PlayerRoute(
         }
     }
 
+    var selectionJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     fun openEpisode(ep: app.ailiaili.core.model.Episode) {
-        scope.launch {
+        nextPlayback = null
+        selectionJob?.cancel()
+        selectionJob = scope.launch {
             val next = AppGraph.repo.video(ep.bvid).getOrNull()
             if (next != null) {
                 toast = null
-                applyDetail(next.copy(cid = ep.cid.takeIf { it > 0 } ?: next.cid))
+                applyDetail(next.copy(cid = ep.cid.takeIf { it > 0 } ?: next.cid), epId = 0)
             } else {
                 val cid = ep.cid.takeIf { it > 0 }
                     ?: AppGraph.repo.pages(ep.bvid).getOrNull()?.firstOrNull()?.cid
@@ -913,10 +1198,130 @@ fun PlayerRoute(
                             durationSec = 0,
                             pages = emptyList(),
                         ),
+                        epId = 0,
                     )
                 }
             }
         }
+    }
+
+    /** 队列条目换片：带番剧集号的走 PGC，普通条目走 UGC；详情失败用种子兜底。 */
+    fun openQueueItem(item: app.ailiaili.core.model.QueueItem) {
+        nextPlayback = null
+        selectionJob?.cancel()
+        selectionJob = scope.launch {
+            val next = AppGraph.repo.video(item.bvid).getOrNull()
+            if (next != null) {
+                applyDetail(next.copy(cid = item.cid.takeIf { it > 0 } ?: next.cid), epId = item.epId)
+            } else {
+                val cid = item.cid.takeIf { it > 0 }
+                    ?: AppGraph.repo.pages(item.bvid).getOrNull()?.firstOrNull()?.cid
+                    ?: 0L
+                if (cid <= 0) {
+                    error = "这一条暂时打不开"
+                } else {
+                    applyDetail(
+                        fallbackDetail(
+                            bvid = item.bvid,
+                            cid = cid,
+                            aid = 0,
+                            title = item.title,
+                            cover = item.cover,
+                            author = item.author,
+                            ownerMid = item.ownerMid,
+                            durationSec = item.durationSec,
+                            pages = emptyList(),
+                        ),
+                        epId = item.epId,
+                    )
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(detail?.bvid, settings.showRelated, settings.autoPlayNext, settings.autoPlayRelated) {
+        val current = detail?.bvid ?: return@LaunchedEffect
+        if (!settings.showRelated && !(settings.autoPlayNext && settings.autoPlayRelated && relatedQueue == null)) return@LaunchedEffect
+        AppGraph.repo.related(current).onSuccess { videos ->
+            if (detail?.bvid != current) return@onSuccess
+            related = videos
+            if (relatedQueue == null) {
+                relatedQueue = videos.filter { it.bvid.isNotBlank() && it.bvid != current && !it.isLive }
+                    .distinctBy { it.bvid }
+            }
+        }
+    }
+
+    LaunchedEffect(nextPlayback, advanceNow, settings.autoPlayNext, settings.autoPlayRelated) {
+        val next = nextPlayback ?: return@LaunchedEffect
+        if (!settings.autoPlayNext || next is NextPlayback.Related && !settings.autoPlayRelated) {
+            nextPlayback = null
+            return@LaunchedEffect
+        }
+        if (!advanceNow) {
+            for (seconds in 5 downTo 1) {
+                nextSeconds = seconds
+                delay(1_000)
+            }
+        }
+        nextPlayback = null
+        when (next) {
+            is NextPlayback.Part -> openPart(next.part)
+            is NextPlayback.Queue -> {
+                curQueueIndex = next.index
+                openQueueItem(next.item)
+            }
+            is NextPlayback.Collection -> openEpisode(next.episode)
+            is NextPlayback.Related -> {
+                relatedIndex = next.index
+                val video = next.video
+                openQueueItem(
+                    app.ailiaili.core.model.QueueItem(
+                        bvid = video.bvid,
+                        cid = video.cid,
+                        title = video.title,
+                        cover = video.cover,
+                        author = video.author,
+                        ownerMid = video.ownerMid,
+                        durationSec = video.durationSec,
+                    ),
+                )
+            }
+        }
+    }
+
+    // 桌面全局媒体键的上一曲/下一曲：队列 > 分P > 合集；离开播放页注销。
+    DisposableEffect(engine) {
+        engine.setMediaKeyNav { action ->
+            val delta = if (action == 1) 1 else -1
+            if (playQueue.isNotEmpty()) {
+                val idx = (curQueueIndex + delta).coerceIn(0, playQueue.size - 1)
+                if (idx != curQueueIndex) {
+                    curQueueIndex = idx
+                    openQueueItem(playQueue[idx])
+                }
+                return@setMediaKeyNav
+            }
+            val d = detail ?: return@setMediaKeyNav
+            val pages = d.pages
+            if (pages.size > 1) {
+                val curCid = page?.cid ?: d.cid
+                val idx = pages.indexOfFirst { it.cid == curCid }
+                val next = pages.getOrNull(idx + delta)
+                if (next != null) {
+                    page = next
+                    detail = d.copy(cid = next.cid)
+                    start(d.bvid, next.cid, durationSec = next.durationSec.takeIf { it > 0 } ?: d.durationSec)
+                }
+                return@setMediaKeyNav
+            }
+            val eps = d.episodes
+            if (eps.size > 1) {
+                val idx = eps.indexOfFirst { it.bvid == d.bvid }
+                eps.getOrNull(idx + delta)?.let { openEpisode(it) }
+            }
+        }
+        onDispose { engine.setMediaKeyNav(null) }
     }
 
     LaunchedEffect(liveRoom, settings.danmakuEnabled) {
@@ -954,7 +1359,7 @@ fun PlayerRoute(
                 local != null -> {
                     ready.join()
                     // 离线续播：按 bvid+cid 读在线时记下的进度（下载时已存 cid）。
-                    val remembered = if (local.cid > 0) PlayMemory.read(local.bvid, local.cid) else 0L
+                    val remembered = if (local.cid > 0) AppGraph.playbackMemory.read(local.bvid, local.cid) else 0L
                     val startAt = remembered.takeIf { it >= 5_000 } ?: 0L
                     engine.setMediaInfo(local.title, "")
                     engine.playFiles(local.videoPath, local.audioPath, startAt)
@@ -964,10 +1369,13 @@ fun PlayerRoute(
                     if (startAt > 0) hint = "已回到上次看到的位置"
                     // 播的是合流 MP4：正常播了 5 秒才清原始双流，坏了还能回退。
                     if (local.videoPath.endsWith(".mp4") && local.audioPath == null) {
-                        launch(ioDispatcher) {
+                        val mediaTag = engine.mediaTag
+                        launch {
                             delay(5_000)
-                            if (engine.isPlaying && engine.currentPosition > 1_000) {
-                                runCatching { AppGraph.cache.pruneSources(local.bvid) }
+                            if (engine.mediaTag == mediaTag && engine.isPlaying && engine.currentPosition > 1_000) {
+                                withContext(ioDispatcher) {
+                                    runCatching { AppGraph.cache.pruneSources(local) }
+                                }
                             }
                         }
                     }
@@ -1011,7 +1419,8 @@ fun PlayerRoute(
                     val loaded = AppGraph.repo.video(bvid)
                     val resolved = loaded.getOrElse {
                         val pages = AppGraph.repo.pages(bvid).getOrNull().orEmpty()
-                        val cid = seedCid.takeIf { it > 0 } ?: pages.firstOrNull()?.cid ?: 0L
+                        val cid = pages.firstOrNull { it.page == startPage }?.cid
+                            ?: seedCid.takeIf { it > 0 } ?: pages.firstOrNull()?.cid ?: 0L
                         if (cid <= 0) {
                             error = it.message
                             return@coroutineScope
@@ -1037,7 +1446,10 @@ fun PlayerRoute(
                         )
                     }
                     ready.join()
-                    applyDetail(resolved)
+                    val chosen = resolved.pages.firstOrNull { it.page == startPage }
+                        ?: resolved.pages.firstOrNull { it.cid == seedCid && startAtMs != null }
+                    val initial = if (chosen != null) resolved.copy(cid = chosen.cid) else resolved
+                    applyDetail(initial, seek = startAtMs)
                 }
                 else -> ready.join()
             }
@@ -1089,11 +1501,18 @@ fun PlayerRoute(
         }
     }
 
-    LaunchedEffect(chrome, playing, scrubbing, qualityOpen, speedOpen, audioOpen, volumeOpen, areaOpen) {
-        if (chrome && playing && !scrubbing && !qualityOpen && !speedOpen && !volumeOpen && !areaOpen) {
-            delay(3500)
+    val usingControls = scrubbing || qualityOpen || speedOpen || audioOpen || volumeOpen || areaOpen ||
+        dmBarOpen || subtitleOpen || sleepOpen || abOpen || chaptersOpen || playbackOptionsOpen ||
+        playbackInfoOpen || scaleOpen || danmakuTimingOpen || cacheOpen || queuePanelOpen
+    LaunchedEffect(chrome, playing, controlsLocked, usingControls, pointerOverChrome) {
+        if (chrome && playing && !controlsLocked && !usingControls && !pointerOverChrome) {
+            var wait = ChromeHideDelayMs
+            do {
+                delay(wait)
+                val elapsed = pointerClock.elapsedNow().inWholeMilliseconds - lastPointerMotion
+                wait = (ChromeHideDelayMs - elapsed).coerceAtLeast(0L)
+            } while (wait > 0L)
             chrome = false
-            volumeOpen = false
         }
     }
 
@@ -1113,11 +1532,7 @@ fun PlayerRoute(
                 // 进度记录与 SponsorBlock 无关，任何时候都要写。身份取引擎实际在播的
                 // 媒体（started*），不是 detail/page：换片瞬间 detail 已切到新片而引擎
                 // 还在播旧片，用 detail 会把旧片进度写到新片名下。
-                val bvidNow = startedBvid
-                val cidNow = startedCid
-                if (!bvidNow.isNullOrBlank() && cidNow > 0 && engine.mediaTag == startedTag) {
-                    PlayMemory.write(bvidNow, cidNow, pos)
-                }
+                rememberProgress(pos, finished = ended)
                 if (sponsorOn.value) {
                     val sec = pos / 1000.0
                     val seen = skippedState.value
@@ -1131,6 +1546,12 @@ fun PlayerRoute(
                         seekTo((hit.endSec * 1000).toLong())
                         hint = "已跳过${SponsorCategories.label(hit.category)}"
                     }
+                }
+                // A-B 循环：到 B 回 A。seek 宽限期内不判，避免落点确认时重复触发。
+                if (epochMs() > seekGraceUntil &&
+                    app.ailiaili.core.model.abLoopShouldRewind(abAState.value, abBState.value, pos)
+                ) {
+                    seekTo(abAState.value)
                 }
             }
             delay(400)
@@ -1150,7 +1571,7 @@ fun PlayerRoute(
         if (aid <= 0 || !AppGraph.repo.session.value.loggedIn) return@LaunchedEffect
         while (true) {
             delay(1_000)
-            if (!engine.isPlaying) continue
+            if (!engine.isPlaying || engine.isSeekPending || engine.mediaTag != startedTag || cid != startedCid) continue
             HistorySync.report(aid, cid, engine.currentPosition / 1000, detail?.bvid)
         }
     }
@@ -1161,6 +1582,7 @@ fun PlayerRoute(
         var merged = emptyList<Danmaku>()
         var activeSeg = -1
         var generation = 0
+        localDanmaku = emptyList()
         danmaku = emptyList()
         while (isActive) {
             if (playingCid() != cid) return@LaunchedEffect
@@ -1193,7 +1615,9 @@ fun PlayerRoute(
                             return@onSuccess
                         }
                         merged = mergeDanmaku(merged, items)
-                        danmaku = merged
+                        // 本地发送的弹幕并回网络列表；服务端段里已有同文同秒的就不再重复。
+                        val local = localDanmaku.filter { l -> merged.none { it.text == l.text && kotlin.math.abs(it.timeSec - l.timeSec) < 1.0 } }
+                        danmaku = if (local.isEmpty()) merged else (merged + local).sortedBy { it.timeSec }
                     }
                     .onFailure { loaded.remove(index) }
             }
@@ -1211,7 +1635,9 @@ fun PlayerRoute(
         val h = info?.height ?: 0
         if (w > 0 && h > 0) w.toFloat() / h else 16f / 9f
     }
-    val showChrome = chrome || !playing
+    // 小窗里只留画面：控制栏/浮层全部收起，点按小窗由系统接管。
+    val inPip = app.ailiaili.core.data.inPip()
+    val showChrome = !controlsLocked && (chrome || !playing) && !inPip
     LaunchedEffect(listening) {
         while (listening) {
             val sec = (engine.currentPosition.coerceAtLeast(0L) / 1000)
@@ -1241,13 +1667,19 @@ fun PlayerRoute(
         Modifier
             .fillMaxSize()
             .focusRequester(focus)
-            .focusable()
             .onFocusChanged { state ->
                 // 长按 → 期间 Alt-Tab/点走会丢 KeyUp，rightHeld 不复位就永远
                 // 卡在 3 倍速。焦点一丢立即按「松开」处理。
                 if (!state.hasFocus && rightHeld) rightHeld = false
             }
             .onPreviewKeyEvent { event ->
+                if (controlsLocked) {
+                    if (event.key == Key.Escape && event.type == KeyEventType.KeyDown) {
+                        unlockControls()
+                        return@onPreviewKeyEvent true
+                    }
+                    return@onPreviewKeyEvent false
+                }
                 // 裸字母快捷键不吞 Ctrl/Alt/Meta 组合键：Ctrl+C 复制、Ctrl+F 查找等
                 // 必须原样放行给文本框/系统，否则复制失效还会误触字幕/全屏。
                 if (event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) {
@@ -1256,7 +1688,7 @@ fun PlayerRoute(
                 if (event.type == KeyEventType.KeyUp && event.key == Key.DirectionRight) {
                     if (rightHeld) {
                         rightHeld = false
-                        if (!rightBoost) seekTo(engine.currentPosition + 5_000)
+                        if (!rightBoost) seekTo(engine.currentPosition + keyboardSeekMs)
                         return@onPreviewKeyEvent true
                     }
                     return@onPreviewKeyEvent false
@@ -1265,6 +1697,7 @@ fun PlayerRoute(
                 if (composing) return@onPreviewKeyEvent false
                 when (event.key) {
                     Key.Spacebar, Key.MediaPlayPause -> {
+                        if (liveRoom != null && event.key == Key.Spacebar) return@onPreviewKeyEvent true
                         val willPlay = !engine.isPlaying
                         if (willPlay) engine.play() else engine.pause()
                         playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
@@ -1272,7 +1705,7 @@ fun PlayerRoute(
                         true
                     }
                     Key.DirectionLeft -> {
-                        seekTo((engine.currentPosition - 5_000).coerceAtLeast(0))
+                        seekTo((engine.currentPosition - keyboardSeekMs).coerceAtLeast(0))
                         true
                     }
                     Key.DirectionRight -> {
@@ -1281,15 +1714,15 @@ fun PlayerRoute(
                         true
                     }
                     Key.DirectionUp -> {
-                        setVolume(volume + 0.1f)
+                        if (rightBoost) adjustTemporarySpeed(1) else setVolume(volume + 0.1f)
                         true
                     }
                     Key.DirectionDown -> {
-                        setVolume(volume - 0.1f)
+                        if (rightBoost) adjustTemporarySpeed(-1) else setVolume(volume - 0.1f)
                         true
                     }
                     Key.M -> {
-                        setVolume(if (volume == 0f) 0.8f else 0f)
+                        toggleMute()
                         true
                     }
                     Key.F -> {
@@ -1297,11 +1730,15 @@ fun PlayerRoute(
                         true
                     }
                     Key.D -> {
-                        AppGraph.repo.updateSettings { it.copy(danmakuEnabled = !it.danmakuEnabled) }
+                        toggleDanmaku()
+                        true
+                    }
+                    Key.G -> {
+                        toggleClearScreen()
                         true
                     }
                     Key.C -> {
-                        if (subtitleTracks.isEmpty()) {
+                        if (subtitleChoices.isEmpty()) {
                             toast = "这条视频没有字幕"
                         } else {
                             AppGraph.repo.updateSettings { it.copy(subtitleEnabled = !it.subtitleEnabled) }
@@ -1331,12 +1768,15 @@ fun PlayerRoute(
                         true
                     }
                     Key.Escape -> {
-                        if (fullscreen) fullscreen = false else leavePlayer()
+                        if (commentsFullscreen) {
+                            commentsFullscreen = false
+                        } else if (fullscreen) fullscreen = false else leavePlayer()
                         true
                     }
                     else -> false
                 }
             }
+            .focusable()
             .background(if (fullscreen) Color.Black else MaterialTheme.colorScheme.background)
             .then(
                 if (fullscreen) Modifier
@@ -1353,192 +1793,274 @@ fun PlayerRoute(
             val stageHeight = if (fillStage) {
                 if (maxHeight == androidx.compose.ui.unit.Dp.Infinity) 300.dp else maxHeight
             } else {
-                minOf(maxWidth / stageRatio, 300.dp)
+                minOf(maxWidth / stageRatio, (form.height * .56f).coerceIn(172.dp, 450.dp))
             }
+            val inlineTimeline = !compactChrome && liveRoom == null
+            val transportClearance = if (inlineTimeline || liveRoom != null) InlineTransportClearance else StackedTransportClearance
+            val expandedControls = dmBarOpen || volumeOpen
+            val chromeInset = minOf(transportClearance + (if (expandedControls) 52.dp else 0.dp), stageHeight / 2)
+            val transportInsets = if (fullscreen) Modifier.navigationBarsPadding() else Modifier
+            val topShade = minOf(92.dp, stageHeight * .43f)
+            val bottomShade = minOf(
+                transportClearance + (if (expandedControls) 76.dp else 26.dp),
+                stageHeight * (if (expandedControls) .70f else .57f),
+            )
             Box(
                 Modifier
                     .fillMaxWidth()
                     .height(stageHeight)
-                    .background(Color.Black),
+                    .clipToBounds()
+                    .background(AliColors.StageMedia)
+                    .then(
+                        if (!desktop || controlsLocked || inPip) Modifier
+                        else Modifier.pointerInput(transportClearance) {
+                            try {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                        when (event.type) {
+                                            PointerEventType.Exit -> pointerOverChrome = false
+                                            PointerEventType.Enter, PointerEventType.Move, PointerEventType.Release -> {
+                                                val mouse = event.changes.firstOrNull { it.type == PointerType.Mouse && !it.pressed }
+                                                if (mouse != null) {
+                                                    val y = mouse.position.y
+                                                    pointerOverChrome = y < 58.dp.toPx() || y >= size.height - transportClearance.toPx()
+                                                    lastPointerMotion = pointerClock.elapsedNow().inWholeMilliseconds
+                                                    chrome = true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } finally {
+                                pointerOverChrome = false
+                            }
+                        },
+                    ),
             ) {
-            VideoSurface(engine, Modifier.fillMaxSize())
+            VideoSurface(engine, Modifier.fillMaxSize(), scale = settings.playerScale)
             if (showPoster) {
                 AsyncImage(
                     model = cover,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
+                    contentScale = ContentScale.Fit,
                 )
             }
-            if ((bvid != null && info != null || liveRoom != null) && settings.danmakuEnabled) {
+            if (!clearScreen && (bvid != null && info != null || liveRoom != null || cachedPlayback.danmaku.isNotEmpty()) && settings.danmakuEnabled) {
                 if (!listening) {
                     DanmakuOverlay(
                         engine,
-                        danmaku,
+                        if (local == null) danmaku else cachedPlayback.danmaku,
                         settings,
                         frozen = buffering || scrubbing,
                         live = liveRoom != null,
                     )
                 }
             }
-            if (bvid != null && !listening && liveRoom == null) {
+            if ((bvid != null || local != null) && !listening && liveRoom == null) {
                 SubtitleOverlay(
                     engine = engine,
-                    cues = subtitleCues,
+                    cues = if (local == null) subtitleCues else selectedCachedSubtitle?.cues.orEmpty(),
                     delaySec = settings.subtitleDelaySec,
                     visible = settings.subtitleEnabled,
                     fontSp = settings.subtitleFontSp,
                     bottomPercent = settings.subtitleBottomPercent,
                     // 控制栏显示时字幕上移一点，不被工具条压住。
-                    modifier = Modifier.padding(bottom = if (showChrome) 44.dp else 0.dp),
+                    modifier = (if (showChrome) transportInsets else Modifier)
+                        .padding(bottom = if (showChrome) chromeInset else 0.dp),
                 )
             }
-            if (bvid != null || liveRoom != null) {
+            if (!controlsLocked && (bvid != null || liveRoom != null || local != null)) {
                 Box(
                     Modifier
                         .fillMaxSize()
                         .then(
                             if (!gesturesReady) Modifier
-                            else Modifier.pointerInput(baseSpeed, liveRoom, desktop, brightnessOk) {
-                            var lastTap = 0L
-                            var lastX = 0f
-                            var chromeJob: kotlinx.coroutines.Job? = null
-                            var hintJob: kotlinx.coroutines.Job? = null
-                            fun showHint(text: String, linger: Boolean) {
-                                hint = text
-                                hintJob?.cancel()
-                                if (linger) {
-                                    hintJob = scope.launch {
-                                        kotlinx.coroutines.delay(800)
-                                        if (hint == text) hint = null
-                                    }
+                            else Modifier.pointerInput(baseSpeed, liveRoom, desktop, brightnessOk, startedTag, gestureSeekSeconds) {
+                                var lastTap = -1L
+                                var lastPosition = androidx.compose.ui.geometry.Offset.Zero
+                                var tapJob: kotlinx.coroutines.Job? = null
+                                var hintJob: kotlinx.coroutines.Job? = null
+                                var gestureHint: String? = null
+                                val tapWindow = viewConfiguration.doubleTapTimeoutMillis.coerceAtMost(250L)
+                                val slop = viewConfiguration.touchSlop
+
+                                fun clearGestureHint() {
+                                    hintJob?.cancel()
+                                    if (hint == gestureHint) hint = null
+                                    gestureHint = null
                                 }
-                            }
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                val origin = down.position
-                                var moved = false
-                                var holding = false
-                                var mode = 0
-                                var startPos = engine.currentPosition
-                                var startVolume = volume
-                                val startBrightness = windowBrightness()
-                                val hold = if (desktop) {
-                                    null
-                                } else {
-                                    scope.launch {
-                                        kotlinx.coroutines.delay(320)
-                                        if (!moved && liveRoom == null) {
-                                            holding = true
-                                            // 与 B 站官方一致：长按画面 3 倍速，松开恢复。
-                                            val holdSpeed = maxOf(3f, baseSpeed)
-                                            speed = holdSpeed
-                                            showHint("${speedLabel(holdSpeed)} 快进中", linger = false)
+
+                                fun showHint(text: String, linger: Boolean = false) {
+                                    hintJob?.cancel()
+                                    hint = text
+                                    gestureHint = text
+                                    if (linger) {
+                                        hintJob = scope.launch {
+                                            kotlinx.coroutines.delay(800)
+                                            if (hint == text) hint = null
+                                            gestureHint = null
                                         }
                                     }
                                 }
-                                var pendingSeek = startPos
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (!change.pressed) {
-                                        hold?.cancel()
-                                        if (holding) {
-                                            speed = baseSpeed
-                                            hintJob?.cancel()
-                                            hint = null
-                                        } else if (moved && liveRoom == null) {
-                                            if (mode == 1) {
-                                                seekTo(pendingSeek.coerceAtLeast(0L))
+
+                                fun togglePlayback() {
+                                    val willPlay = !engine.isPlaying
+                                    if (willPlay) engine.play() else engine.pause()
+                                    playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
+                                    playFlashTick++
+                                }
+
+                                try {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown()
+                                        val origin = down.position
+                                        val media = engine.mediaTag
+                                        var drag: PlayerSurfaceDrag? = null
+                                        var holding = false
+                                        var seekOutside = false
+                                        var seekDrag = 0f
+                                        var startPos = engine.currentPosition
+                                        var pendingSeek = startPos
+                                        val startVolume = volume
+                                        val startBrightness = windowBrightness()
+                                        val hold = if (!desktop && liveRoom == null) {
+                                            scope.launch {
+                                                kotlinx.coroutines.delay(320)
+                                                if (drag == null && engine.mediaTag == media) {
+                                                    tapJob?.cancel()
+                                                    lastTap = -1L
+                                                    holding = true
+                                                    val holdSpeed = temporarySpeeds[temporarySpeedIndex]
+                                                    speed = holdSpeed
+                                                    showHint("${speedLabel(holdSpeed)} 快进中")
+                                                }
+                                            }
+                                        } else null
+                                        var holdStep = 0
+                                        var release: PointerInputChange? = null
+                                        try {
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                if (change.isConsumed || engine.mediaTag != media ||
+                                                    event.changes.any { it.id != down.id && it.pressed }
+                                                ) break
+                                                val p = change.position
+                                                val outside = p.x !in 0f..size.width.toFloat() || p.y !in 0f..size.height.toFloat()
+                                                if (!change.pressed) {
+                                                    if (!outside && !seekOutside) release = change
+                                                    break
+                                                }
+                                                val dx = p.x - origin.x
+                                                val dy = p.y - origin.y
+                                                if (holding) {
+                                                    val step = (dx / 64.dp.toPx()).toInt()
+                                                    if (step != holdStep) {
+                                                        adjustTemporarySpeed(if (step > holdStep) 1 else -1)
+                                                        holdStep = step
+                                                    }
+                                                    change.consume()
+                                                    continue
+                                                }
+                                                val stepX = p.x - change.previousPosition.x
+                                                if (drag == null && (kotlin.math.abs(dx) > slop || kotlin.math.abs(dy) > slop)) {
+                                                    hold?.cancel()
+                                                    tapJob?.cancel()
+                                                    lastTap = -1L
+                                                    drag = when {
+                                                        kotlin.math.abs(dx) > kotlin.math.abs(dy) -> PlayerSurfaceDrag.Seek
+                                                        origin.x < size.width / 2f && brightnessOk -> PlayerSurfaceDrag.Brightness
+                                                        else -> PlayerSurfaceDrag.Volume
+                                                    }
+                                                    seekDrag = dx - stepX
+                                                    startPos = engine.currentPosition
+                                                }
+                                                if (liveRoom != null) continue
+                                                val activeDrag = drag ?: continue
+                                                change.consume()
+                                                when (activeDrag) {
+                                                    PlayerSurfaceDrag.Seek -> {
+                                                        if (!outside && !seekOutside) seekDrag += stepX
+                                                        seekOutside = outside
+                                                        val duration = engine.duration.coerceAtLeast(1L)
+                                                        val delta = (seekDrag / size.width.coerceAtLeast(1) * 90_000f).toLong()
+                                                        pendingSeek = (startPos + delta).coerceIn(0L, duration)
+                                                        showHint(if (outside) "松手取消定位" else "滑到 ${clock(pendingSeek)}")
+                                                    }
+                                                    PlayerSurfaceDrag.Brightness -> {
+                                                        val next = (startBrightness - dy / size.height.coerceAtLeast(1)).coerceIn(0.02f, 1f)
+                                                        setWindowBrightness(next)
+                                                        showHint("亮度 ${(next * 100).toInt()}")
+                                                    }
+                                                    PlayerSurfaceDrag.Volume -> {
+                                                        setVolume(startVolume - dy / size.height.coerceAtLeast(1))
+                                                        showHint("音量 ${(volume * 100).toInt()}")
+                                                    }
+                                                }
+                                            }
+                                        } finally {
+                                            hold?.cancel()
+                                            if (holding) speed = baseSpeed
+                                            if (holding || drag != null && release == null) clearGestureHint()
+                                        }
+                                        val up = release ?: return@awaitEachGesture
+                                        if (holding || engine.mediaTag != media) return@awaitEachGesture
+                                        if (drag != null) {
+                                            if (liveRoom == null && drag == PlayerSurfaceDrag.Seek) {
+                                                seekTo(pendingSeek)
                                                 showHint("滑到 ${clock(pendingSeek)}", linger = true)
-                                            } else {
-                                                showHint(hint.orEmpty(), linger = true)
+                                            } else if (gestureHint != null) {
+                                                showHint(gestureHint.orEmpty(), linger = true)
                                             }
-                                        } else if (!moved) {
-                                            val now = epochMs()
-                                            val x = change.position.x
-                                            val double = now - lastTap < 280L && kotlin.math.abs(x - lastX) < 120f
-                                            lastTap = now
-                                            lastX = x
-                                            chromeJob?.cancel()
-                                            if (desktop) {
-                                                if (double && liveRoom == null) {
-                                                    fullscreen = !fullscreen
-                                                } else if (liveRoom == null) {
-                                                    val willPlay = !engine.isPlaying
-                                                    if (willPlay) engine.play() else engine.pause()
-                                                    chrome = true
-                                                    playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
+                                            return@awaitEachGesture
+                                        }
+                                        val paired = liveRoom == null && lastTap >= 0L &&
+                                            up.uptimeMillis - lastTap in 1..tapWindow &&
+                                            (up.position - lastPosition).getDistance() <= 48.dp.toPx()
+                                        tapJob?.cancel()
+                                        if (paired) {
+                                            lastTap = -1L
+                                            val x = up.position.x
+                                            when {
+                                                desktop -> fullscreen = !fullscreen
+                                                x < size.width / 3f -> {
+                                                    seekTo((engine.currentPosition - gestureSeekSeconds * 1000L).coerceAtLeast(0L))
+                                                    seekFlashSide = -1
                                                     playFlashTick++
-                                                } else {
-                                                    chrome = !chrome
                                                 }
-                                            } else if (double && liveRoom == null) {
-                                                val width = size.width.toFloat()
-                                                when {
-                                                    x < width / 3f -> {
-                                                        seekTo((engine.currentPosition - 10_000).coerceAtLeast(0L))
-                                                        seekFlashSide = -1
-                                                        playFlashTick++
-                                                    }
-                                                    x > width * 2f / 3f -> {
-                                                        seekTo(engine.currentPosition + 10_000)
-                                                        seekFlashSide = 1
-                                                        playFlashTick++
-                                                    }
-                                                    else -> {
-                                                        val willPlay = !engine.isPlaying
-                                                        if (willPlay) engine.play() else engine.pause()
-                                                        playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
-                                                        playFlashTick++
-                                                    }
+                                                x > size.width * 2f / 3f -> {
+                                                    seekTo(engine.currentPosition + gestureSeekSeconds * 1000L)
+                                                    seekFlashSide = 1
+                                                    playFlashTick++
                                                 }
-                                            } else {
-                                                chromeJob = scope.launch {
-                                                    kotlinx.coroutines.delay(260)
-                                                    chrome = !chrome
-                                                }
+                                                else -> togglePlayback()
                                             }
-                                        }
-                                        break
-                                    }
-                                    val dx = change.position.x - origin.x
-                                    val dy = change.position.y - origin.y
-                                    if (!moved && !holding && (kotlin.math.abs(dx) > 28f || kotlin.math.abs(dy) > 28f)) {
-                                        moved = true
-                                        hold?.cancel()
-                                        mode = if (kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
-                                            1
-                                        } else if (origin.x < size.width / 2f && brightnessOk) {
-                                            2
+                                        } else if (liveRoom != null) {
+                                            chrome = !chrome
                                         } else {
-                                            3
-                                        }
-                                        startPos = engine.currentPosition
-                                    }
-                                    if (moved && liveRoom == null) {
-                                        change.consume()
-                                        when (mode) {
-                                            1 -> {
-                                                val duration = engine.duration.coerceAtLeast(1L)
-                                                val delta = (dx / size.width * 90_000f).toLong()
-                                                pendingSeek = (startPos + delta).coerceIn(0L, duration)
-                                                showHint("滑到 ${clock(pendingSeek)}", linger = false)
-                                            }
-                                            2 -> {
-                                                val next = (startBrightness - dy / size.height).coerceIn(0.02f, 1f)
-                                                setWindowBrightness(next)
-                                                showHint("亮度 ${(next * 100).toInt()}", linger = false)
-                                            }
-                                            3 -> {
-                                                setVolume(startVolume - dy / size.height)
-                                                showHint("音量 ${(volume * 100).toInt()}", linger = false)
+                                            lastTap = up.uptimeMillis
+                                            lastPosition = up.position
+                                            tapJob = scope.launch {
+                                                kotlinx.coroutines.delay(tapWindow)
+                                                lastTap = -1L
+                                                if (engine.mediaTag == media) {
+                                                    if (desktop) {
+                                                        togglePlayback()
+                                                        chrome = true
+                                                    } else {
+                                                        chrome = !chrome
+                                                    }
+                                                }
                                             }
                                         }
                                     }
+                                } finally {
+                                    tapJob?.cancel()
+                                    clearGestureHint()
                                 }
                             }
-                        }
                         )
                         .then(
                             if (desktop) {
@@ -1547,8 +2069,12 @@ fun PlayerRoute(
                                         while (true) {
                                             val event = awaitPointerEvent()
                                             if (event.type == PointerEventType.Scroll) {
-                                                val dy = event.changes.first().scrollDelta.y
-                                                setVolume(volume - dy * 0.05f)
+                                                val change = event.changes.firstOrNull() ?: continue
+                                                val dy = change.scrollDelta.y
+                                                if (dy == 0f || change.isConsumed) continue
+                                                if (rightBoost) adjustTemporarySpeed(if (dy < 0f) 1 else -1)
+                                                else setVolume(volume - dy * 0.05f)
+                                                change.consume()
                                             }
                                         }
                                     }
@@ -1559,8 +2085,18 @@ fun PlayerRoute(
                         ),
                 )
             }
+            if (controlsLocked && !app.ailiaili.core.data.inPip()) {
+                AliStageIconButton(
+                    Icons.Filled.Lock,
+                    "解锁播放控件",
+                    onClick = ::unlockControls,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp),
+                    onMedia = true,
+                    emphasized = true,
+                )
+            }
             // 中央状态浮现：播放/暂停图标或 ±10 秒，600ms 内淡入放大再淡出。
-            playFlash?.let { kind ->
+            playFlash?.takeUnless { reducedMotion }?.let { kind ->
                 androidx.compose.runtime.key(playFlashTick) {
                     val anim = remember { androidx.compose.animation.core.Animatable(0f) }
                     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -1593,7 +2129,7 @@ fun PlayerRoute(
                     }
                 }
             }
-            if (seekFlashSide != 0) {
+            if (!reducedMotion && seekFlashSide != 0) {
                 androidx.compose.runtime.key(playFlashTick) {
                     val anim = remember { androidx.compose.animation.core.Animatable(0f) }
                     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -1618,7 +2154,7 @@ fun PlayerRoute(
                             tint = Color.White,
                             modifier = Modifier.size(20.dp),
                         )
-                        Text("10 秒", color = Color.White, fontSize = 13.sp)
+                        Text("$gestureSeekSeconds 秒", color = Color.White, fontSize = 13.sp)
                     }
                 }
             }
@@ -1644,7 +2180,7 @@ fun PlayerRoute(
                     message,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 72.dp)
+                        .padding(bottom = if (showChrome) chromeInset else 24.dp)
                         .background(Color.Black.copy(alpha = 0.78f), RoundedCornerShape(20.dp))
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                     color = Color.White,
@@ -1678,8 +2214,19 @@ fun PlayerRoute(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("已播完", color = Color.White)
+                    val next = nextPlayback
+                    if (next != null) {
+                        Text("${nextSeconds} 秒后播放", color = Color.White)
+                        Text(next.title, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledTonalButton(onClick = { advanceNow = true }) { Text("立即播放") }
+                            FilledTonalButton(onClick = { nextPlayback = null }) { Text("取消") }
+                        }
+                    } else {
+                        Text("已播完", color = Color.White)
+                    }
                     FilledTonalButton(onClick = {
+                        nextPlayback = null
                         skippedStarts = emptySet()
                         if (isDesktopHost()) {
                             // 已结束的 VLC input 对 seek 只改读数不出画面：重建 Media 从头起播。
@@ -1700,16 +2247,23 @@ fun PlayerRoute(
                 LoadingIndicator(Modifier.align(Alignment.Center))
             }
             error?.let { message ->
-                if (info == null) {
+                if (info == null || !playing) {
                     Column(
-                        Modifier.align(Alignment.Center).padding(16.dp),
+                        Modifier.align(Alignment.Center)
+                            .background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.large).padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(message, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = {
                             refetchRetries = 0
                             liveRetries = 0
-                            attempt++
+                            val current = detail
+                            val cid = playingCid()
+                            if (current != null && local == null && liveRoom == null && cid > 0) {
+                                start(current.bvid, cid, engine.currentPosition, page?.durationSec ?: current.durationSec)
+                            } else {
+                                attempt++
+                            }
                         }) { Text("重试") }
                     }
                 }
@@ -1764,327 +2318,307 @@ fun PlayerRoute(
                     }
                 }
             }
-            androidx.compose.animation.AnimatedVisibility(
+            PlayerChromeEdge(
                 visible = showChrome,
+                top = true,
+                shadeHeight = topShade,
+                reducedMotion = reducedMotion,
+                hideImmediately = controlsLocked || inPip,
                 modifier = Modifier.align(Alignment.TopStart),
-                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220)),
-            ) { Row(
-                Modifier
-                    .then(if (fullscreen) Modifier.statusBarsPadding() else Modifier)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.45f)),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { if (fullscreen) fullscreen = false else leavePlayer() }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
-                }
-                if (fullscreen) {
-                    Text(
-                        title,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
-                if (info != null && liveRoom == null) {
-                    Box {
-                        TextButton(onClick = { qualityOpen = true }) {
-                            Text(qnLabel(info?.actualQn ?: settings.defaultQn), color = Color.White)
-                        }
-                        DropdownMenu(expanded = qualityOpen, onDismissRequest = { qualityOpen = false }) {
-                            (info?.qualities.orEmpty()).forEach { q ->
-                                DropdownMenuItem(
-                                    text = { Text(q.label) },
-                                    onClick = {
-                                        qualityOpen = false
-                                        val d = detail ?: return@DropdownMenuItem
-                                        val cid = page?.cid ?: d.cid
-                                        runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
-                                        scope.launch {
-                                            runCatching {
-                                                AppGraph.repo.updateSettings { it.copy(defaultQn = q.qn) }
-                                                start(d.bvid, cid, engine.currentPosition, page?.durationSec ?: d.durationSec)
-                                            }.onFailure { error = it.message ?: "切换清晰度失败" }
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                if (bvid != null && liveRoom == null && local == null && subtitleTracks.isNotEmpty()) {
-                    Box {
-                        TextButton(onClick = { subtitleOpen = true }) {
-                            Text(
-                                "字幕",
-                                color = if (settings.subtitleEnabled) Color(0xFF4FC3F7) else Color.White,
-                            )
-                        }
-                        DropdownMenu(expanded = subtitleOpen, onDismissRequest = { subtitleOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text(if (settings.subtitleEnabled) "关闭字幕（C）" else "开启字幕（C）") },
+                PlayerTopControls(
+                    title = title.takeIf { fullscreen && !compactChrome },
+                    onBack = { if (fullscreen) fullscreen = false else leavePlayer() },
+                    modifier = if (fullscreen) Modifier.statusBarsPadding() else Modifier,
+                    trailing = {
+                        if (fullscreen && detail != null && liveRoom == null && local == null) {
+                            AliStageIconButton(
+                                Icons.AutoMirrored.Filled.Comment,
+                                "全屏评论",
                                 onClick = {
-                                    subtitleOpen = false
-                                    AppGraph.repo.updateSettings { it.copy(subtitleEnabled = !it.subtitleEnabled) }
+                                    commentsFullscreen = !commentsFullscreen
+                                    if (commentsFullscreen) {
+                                        panel = "comments"
+                                        chrome = true
+                                    }
                                 },
-                            )
-                            HorizontalDivider()
-                            subtitleTracks.forEach { track ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            track.label + if (track.ai) "（AI）" else "",
-                                            fontWeight = if (track.lan == subtitleLan) FontWeight.SemiBold else FontWeight.Normal,
-                                        )
-                                    },
-                                    onClick = {
-                                        subtitleOpen = false
-                                        subtitleLan = track.lan
-                                        subtitleCues = emptyList()
-                                        AppGraph.repo.updateSettings {
-                                            it.copy(subtitleLan = track.lan, subtitleEnabled = true)
-                                        }
-                                        scope.launch {
-                                            AppGraph.repo.subtitleCues(track.url).onSuccess { cues ->
-                                                if (subtitleLan == track.lan) subtitleCues = cues
-                                            }.onFailure { toast = it.message ?: "字幕加载失败" }
-                                        }
-                                    },
-                                )
-                            }
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("提前 0.2s（Z）") },
-                                onClick = {
-                                    val next = ((settings.subtitleDelaySec - 0.2) * 10).roundToInt() / 10.0
-                                    AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = next.coerceIn(-5.0, 5.0)) }
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("延后 0.2s（X）") },
-                                onClick = {
-                                    val next = ((settings.subtitleDelaySec + 0.2) * 10).roundToInt() / 10.0
-                                    AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = next.coerceIn(-5.0, 5.0)) }
-                                },
-                            )
-                            if (settings.subtitleDelaySec != 0.0) {
-                                DropdownMenuItem(
-                                    text = { Text("重置延迟（当前 ${settings.subtitleDelaySec}s）") },
-                                    onClick = {
-                                        subtitleOpen = false
-                                        AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = 0.0) }
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                val room = liveRoom
-                val liveInfo = livePlayInfo
-                if (room != null && liveInfo != null && liveInfo.qualities.size > 1) {
-                    Box {
-                        TextButton(onClick = { qualityOpen = true }) {
-                            Text(
-                                liveInfo.qualities.firstOrNull { it.qn == liveInfo.currentQn }?.label ?: "清晰度",
-                                color = Color.White,
+                                selected = commentsFullscreen,
+                                overVideo = true,
                             )
                         }
-                        DropdownMenu(expanded = qualityOpen, onDismissRequest = { qualityOpen = false }) {
-                            liveInfo.qualities.forEach { quality ->
-                                DropdownMenuItem(
-                                    text = { Text(quality.label) },
-                                    onClick = {
-                                        qualityOpen = false
-                                        scope.launch {
-                                            AppGraph.repo.livePlay(room, quality.qn).onSuccess { got ->
-                                                livePlayInfo = got
-                                                engine.playLive(got.url)
-                                                toast = "清晰度已切换为 ${quality.label}"
-                                            }.onFailure { toast = it.message ?: "切换清晰度失败" }
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                if (liveRoom == null && local == null && info != null && !compactChrome) {
-                    TextButton(
-                        enabled = !listenSwitching,
-                        onClick = {
-                            // 切换闸门：重建媒体要停上一路解码，期间连点会出
-                            // 「按钮说听视频、实际播的是视频」的半状态。
-                            listenSwitching = true
-                            val pos = engine.currentPosition
-                            if (listening) {
-                                listening = false
-                                engine.restoreVideo(pos)
-                                scope.launch {
-                                    delay(600)
-                                    listenSwitching = false
-                                }
-                            } else if (engine.playAudioOnly(pos)) {
-                                listening = true
-                                scope.launch {
-                                    delay(600)
-                                    listenSwitching = false
-                                }
-                            } else {
-                                // durl 合流单流没有独立音轨；切回 DASH 再取一次 audioUrl。
-                                val id = bvid ?: detail?.bvid
-                                val cidNow = page?.cid ?: detail?.cid ?: 0L
-                                if (id.isNullOrBlank() || cidNow <= 0) {
-                                    toast = "这条视频没有可用的音轨"
-                                    listenSwitching = false
-                                } else {
-                                    listening = true
-                                    start(
-                                        id,
-                                        cidNow,
-                                        seek = pos,
-                                        durationSec = page?.durationSec
-                                            ?: detail?.durationSec
-                                            ?: 0,
-                                        forceDash = true,
+                    },
+                ) {
+                    if (info != null && liveRoom == null) {
+                        Box {
+                            PlayerControlLabel(qnLabel(info?.actualQn ?: settings.defaultQn), { qualityOpen = true }, active = qualityOpen)
+                            AliStageMenu(expanded = qualityOpen, onDismissRequest = { qualityOpen = false }) {
+                                (info?.qualities.orEmpty()).forEach { q ->
+                                    DropdownMenuItem(
+                                        text = { Text(q.label) },
+                                        onClick = {
+                                            qualityOpen = false
+                                            val d = detail ?: return@DropdownMenuItem
+                                            val cid = page?.cid ?: d.cid
+                                            runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
+                                            scope.launch {
+                                                runCatching {
+                                                    AppGraph.repo.updateSettings { it.copy(defaultQn = q.qn) }
+                                                    start(d.bvid, cid, engine.currentPosition, page?.durationSec ?: d.durationSec)
+                                                }.onFailure { error = it.message ?: "切换清晰度失败" }
+                                            }
+                                        },
                                     )
                                 }
                             }
-                        },
-                    ) {
-                        Text(
-                            when {
+                        }
+                    }
+                    if (liveRoom == null && subtitleChoices.isNotEmpty()) {
+                        Box {
+                            PlayerControlLabel("字幕", { subtitleOpen = true }, active = settings.subtitleEnabled || subtitleOpen)
+                            AliStageMenu(expanded = subtitleOpen, onDismissRequest = { subtitleOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(if (settings.subtitleEnabled) "关闭字幕（C）" else "开启字幕（C）") },
+                                    onClick = {
+                                        subtitleOpen = false
+                                        AppGraph.repo.updateSettings { it.copy(subtitleEnabled = !it.subtitleEnabled) }
+                                    },
+                                )
+                                HorizontalDivider()
+                                subtitleChoices.forEach { track ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                track.label + if (track.ai) "（AI）" else "",
+                                                fontWeight = if (track.lan == (selectedCachedSubtitle?.track?.lan ?: subtitleLan)) {
+                                                    FontWeight.SemiBold
+                                                } else FontWeight.Normal,
+                                            )
+                                        },
+                                        onClick = {
+                                            subtitleOpen = false
+                                            subtitleLan = track.lan
+                                            subtitleCues = emptyList()
+                                            AppGraph.repo.updateSettings {
+                                                it.copy(subtitleLan = track.lan, subtitleEnabled = true)
+                                            }
+                                            if (local == null) scope.launch {
+                                                AppGraph.repo.subtitleCues(track.url).onSuccess { cues ->
+                                                    if (subtitleLan == track.lan) subtitleCues = cues
+                                                }.onFailure { toast = it.message ?: "字幕加载失败" }
+                                            }
+                                        },
+                                    )
+                                }
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("提前 0.2s（Z）") },
+                                    onClick = {
+                                        val next = ((settings.subtitleDelaySec - 0.2) * 10).roundToInt() / 10.0
+                                        AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = next.coerceIn(-5.0, 5.0)) }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("延后 0.2s（X）") },
+                                    onClick = {
+                                        val next = ((settings.subtitleDelaySec + 0.2) * 10).roundToInt() / 10.0
+                                        AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = next.coerceIn(-5.0, 5.0)) }
+                                    },
+                                )
+                                if (settings.subtitleDelaySec != 0.0) {
+                                    DropdownMenuItem(
+                                        text = { Text("重置延迟（当前 ${settings.subtitleDelaySec}s）") },
+                                        onClick = {
+                                            subtitleOpen = false
+                                            AppGraph.repo.updateSettings { it.copy(subtitleDelaySec = 0.0) }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    val room = liveRoom
+                    val liveInfo = livePlayInfo
+                    if (room != null && liveInfo != null && liveInfo.qualities.size > 1) {
+                        Box {
+                            PlayerControlLabel(
+                                liveInfo.qualities.firstOrNull { it.qn == liveInfo.currentQn }?.label ?: "清晰度",
+                                { qualityOpen = true },
+                                active = qualityOpen,
+                            )
+                            AliStageMenu(expanded = qualityOpen, onDismissRequest = { qualityOpen = false }) {
+                                liveInfo.qualities.forEach { quality ->
+                                    DropdownMenuItem(
+                                        text = { Text(quality.label) },
+                                        onClick = {
+                                            qualityOpen = false
+                                            scope.launch {
+                                                AppGraph.repo.livePlay(room, quality.qn).onSuccess { got ->
+                                                    livePlayInfo = got
+                                                    engine.playLive(got.url)
+                                                    toast = "清晰度已切换为 ${quality.label}"
+                                                }.onFailure { toast = it.message ?: "切换清晰度失败" }
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (liveRoom == null && local == null && info != null && !compactChrome) {
+                        PlayerControlLabel(
+                            label = when {
                                 listenSwitching -> "切换中…"
                                 listening -> "正在聆听 $listenClock"
                                 else -> "听视频"
                             },
-                            color = if (listening) Color(0xFFF59E0B) else Color.White,
+                            active = listening,
+                            enabled = !listenSwitching,
+                            onClick = {
+                                // 切换闸门：重建媒体要停上一路解码，期间连点会出
+                                // 「按钮说听视频、实际播的是视频」的半状态。
+                                listenSwitching = true
+                                val pos = engine.currentPosition
+                                if (listening) {
+                                    listening = false
+                                    engine.restoreVideo(pos)
+                                    scope.launch {
+                                        delay(600)
+                                        listenSwitching = false
+                                    }
+                                } else if (engine.playAudioOnly(pos)) {
+                                    listening = true
+                                    scope.launch {
+                                        delay(600)
+                                        listenSwitching = false
+                                    }
+                                } else {
+                                    // durl 合流单流没有独立音轨；切回 DASH 再取一次 audioUrl。
+                                    val id = bvid ?: detail?.bvid
+                                    val cidNow = page?.cid ?: detail?.cid ?: 0L
+                                    if (id.isNullOrBlank() || cidNow <= 0) {
+                                        toast = "这条视频没有可用的音轨"
+                                        listenSwitching = false
+                                    } else {
+                                        listening = true
+                                        start(
+                                            id,
+                                            cidNow,
+                                            seek = pos,
+                                            durationSec = page?.durationSec
+                                                ?: detail?.durationSec
+                                                ?: 0,
+                                            forceDash = true,
+                                        )
+                                    }
+                                }
+                            },
                         )
                     }
-                }
-                IconButton(onClick = {
-                    AppGraph.repo.updateSettings { it.copy(danmakuEnabled = !it.danmakuEnabled) }
-                }) {
-                    Icon(
-                        if (settings.danmakuEnabled) Icons.Filled.ClosedCaption else Icons.Filled.ClosedCaptionOff,
-                        contentDescription = if (settings.danmakuEnabled) "关闭弹幕" else "打开弹幕",
-                        tint = Color.White,
+                    AliStageIconButton(
+                        when {
+                            clearScreen -> Icons.Filled.CenterFocusStrong
+                            settings.danmakuEnabled -> Icons.Filled.ClosedCaption
+                            else -> Icons.Filled.ClosedCaptionOff
+                        },
+                        when {
+                            clearScreen -> "退出清屏"
+                            settings.danmakuEnabled -> "关闭弹幕"
+                            else -> "打开弹幕"
+                        },
+                        onClick = ::toggleDanmaku,
+                        selected = clearScreen || settings.danmakuEnabled,
+                        overVideo = true,
                     )
-                }
-                if (bvid != null && !compactChrome) {
-                    TextButton(onClick = {
-                        AppGraph.repo.updateSettings {
-                            it.copy(danmakuPillBackground = !it.danmakuPillBackground)
-                        }
-                    }) {
-                        Text(if (settings.danmakuPillBackground) "底衬" else "纯字", color = Color.White)
+                    if (!clearScreen && liveRoom == null && local == null && bvid != null) {
+                        PlayerControlLabel("发弹幕", onClick = {
+                            dmBarOpen = !dmBarOpen
+                            if (dmBarOpen) {
+                                volumeOpen = false
+                                chrome = true
+                            }
+                        }, active = dmBarOpen)
                     }
-                    Box {
-                        TextButton(onClick = {
-                            areaDraft = settings.danmakuAreaPercent.toFloat()
-                            areaOpen = true
-                        }) { Text("${settings.danmakuAreaPercent}%", color = Color.White) }
-                        DropdownMenu(expanded = areaOpen, onDismissRequest = { areaOpen = false }) {
-                            Column(Modifier.padding(horizontal = 16.dp).width(220.dp)) {
-                                Text("弹幕区域 ${areaDraft.toInt()}%")
-                                Slider(
-                                    value = areaDraft,
-                                    onValueChange = { areaDraft = it },
-                                    onValueChangeFinished = {
-                                        AppGraph.repo.updateSettings {
-                                            it.copy(danmakuAreaPercent = areaDraft.toInt().coerceIn(25, 100))
-                                        }
-                                    },
-                                    valueRange = 25f..100f,
-                                )
+                    if (playQueue.size > 1) {
+                        PlayerControlLabel(
+                            "${if (seasonQueue) "选集" else "队列"} ${curQueueIndex + 1}/${playQueue.size}",
+                            { queuePanelOpen = true },
+                            active = queuePanelOpen,
+                        )
+                    }
+                    if (!clearScreen && bvid != null && !compactChrome) {
+                        PlayerControlLabel(if (settings.danmakuPillBackground) "底衬" else "纯字", onClick = {
+                            AppGraph.repo.updateSettings {
+                                it.copy(danmakuPillBackground = !it.danmakuPillBackground)
+                            }
+                        })
+                        Box {
+                            PlayerControlLabel("${settings.danmakuAreaPercent}%", onClick = {
+                                areaDraft = settings.danmakuAreaPercent.toFloat()
+                                areaOpen = true
+                            }, active = areaOpen)
+                            AliStageMenu(expanded = areaOpen, onDismissRequest = { areaOpen = false }) {
+                                Column(Modifier.padding(horizontal = 16.dp).width(220.dp)) {
+                                    Text("弹幕区域 ${areaDraft.toInt()}%")
+                                    Slider(
+                                        value = areaDraft,
+                                        onValueChange = { areaDraft = it },
+                                        onValueChangeFinished = {
+                                            AppGraph.repo.updateSettings {
+                                                it.copy(danmakuAreaPercent = areaDraft.toInt().coerceIn(25, 100))
+                                            }
+                                        },
+                                        valueRange = 25f..100f,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (liveRoom == null) {
+                        Box {
+                            PlayerControlLabel(speedLabel(speed), onClick = {
+                                speedDraft = speed
+                                speedOpen = true
+                            }, active = speedOpen)
+                            AliStageMenu(expanded = speedOpen, onDismissRequest = { speedOpen = false }) {
+                                speeds.forEach { value ->
+                                    DropdownMenuItem(
+                                        text = { Text(speedLabel(value)) },
+                                        onClick = {
+                                            speedOpen = false
+                                            speed = value
+                                            baseSpeed = value
+                                            AppGraph.repo.updateSettings { it.copy(playbackSpeed = value) }
+                                            runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
+                                        },
+                                    )
+                                }
+                                HorizontalDivider()
+                                Column(Modifier.padding(horizontal = 16.dp).width(220.dp)) {
+                                    Text("自定义 ${speedLabel(speedDraft)}")
+                                    Slider(
+                                        value = speedDraft,
+                                        onValueChange = { speedDraft = it },
+                                        onValueChangeFinished = {
+                                            speed = speedDraft
+                                            baseSpeed = speedDraft
+                                            AppGraph.repo.updateSettings { it.copy(playbackSpeed = speedDraft) }
+                                            runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
+                                        },
+                                        valueRange = 0.25f..4f,
+                                    )
+                                }
                             }
                         }
                     }
                 }
-                if (liveRoom == null) {
-                    Box {
-                        TextButton(onClick = {
-                            speedDraft = speed
-                            speedOpen = true
-                        }) {
-                            Text(speedLabel(speed), color = Color.White)
-                        }
-                        DropdownMenu(expanded = speedOpen, onDismissRequest = { speedOpen = false }) {
-                            speeds.forEach { value ->
-                                DropdownMenuItem(
-                                    text = { Text(speedLabel(value)) },
-                                    onClick = {
-                                        speedOpen = false
-                                        speed = value
-                                        baseSpeed = value
-                                        AppGraph.repo.updateSettings { it.copy(playbackSpeed = value) }
-                                        runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
-                                    },
-                                )
-                            }
-                            HorizontalDivider()
-                            Column(Modifier.padding(horizontal = 16.dp).width(220.dp)) {
-                                Text("自定义 ${speedLabel(speedDraft)}")
-                                Slider(
-                                    value = speedDraft,
-                                    onValueChange = { speedDraft = it },
-                                    onValueChangeFinished = {
-                                        speed = speedDraft
-                                        baseSpeed = speedDraft
-                                        AppGraph.repo.updateSettings { it.copy(playbackSpeed = speedDraft) }
-                                        runCatching { haptic.performHapticFeedback(HapticFeedbackType.Confirm) }
-                                    },
-                                    valueRange = 0.25f..4f,
-                                )
-                            }
-                        }
-                    }
-                }
-                val inf = info
-                if (inf != null && inf.audioQualities.size > 1 && !compactChrome) {
-                    Box {
-                        TextButton(onClick = { audioOpen = true }) {
-                            Text(
-                                inf.audioQualities.firstOrNull { it.id == inf.audioQn }?.label ?: "音质",
-                                color = Color.White,
-                            )
-                        }
-                        DropdownMenu(expanded = audioOpen, onDismissRequest = { audioOpen = false }) {
-                            inf.audioQualities.forEach { quality ->
-                                DropdownMenuItem(
-                                    text = { Text(quality.label) },
-                                    onClick = {
-                                        audioOpen = false
-                                        val pos = engine.currentPosition
-                                        val next = inf.copy(audioUrl = quality.url, audioQn = quality.id)
-                                        info = next
-                                        engine.play(next, pos, audioOnly = listening)
-                                        toast = "音质已切换为 ${quality.label}"
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                IconButton(onClick = {
-                    fullscreen = !fullscreen
-                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                }) {
-                    Icon(
-                        if (fullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                        contentDescription = if (fullscreen) "退出全屏" else "全屏",
-                        tint = Color.White,
-                    )
-                }
-            } }
-            androidx.compose.animation.AnimatedVisibility(
+            }
+            PlayerChromeEdge(
                 visible = showChrome,
+                top = false,
+                shadeHeight = bottomShade,
+                reducedMotion = reducedMotion,
+                hideImmediately = controlsLocked || inPip,
                 modifier = Modifier.align(Alignment.BottomCenter),
-                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)),
-                exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(220)),
             ) {
                 PlayerTransport(
                     engine = engine,
@@ -2094,6 +2628,7 @@ fun PlayerRoute(
                     onSeek = { ms ->
                         seekTo(ms)
                         if (ended) {
+                            nextPlayback = null
                             engine.play()
                             ended = false
                         }
@@ -2104,40 +2639,356 @@ fun PlayerRoute(
                         playFlash = if (willPlay) FlashKind.Play else FlashKind.Pause
                         playFlashTick++
                     },
-                    onVolume = { volumeOpen = !volumeOpen },
-                    muted = volume <= 0.01f,
+                    onVolume = {
+                        volumeOpen = !volumeOpen
+                        if (volumeOpen && dmBarOpen) dmBarOpen = false
+                    },
+                    volumeOpen = volumeOpen,
+                    muted = volume <= 0f,
                     marks = if (settings.sponsorBlock) activeMarks else emptyList(),
                     chapters = chapters,
+                    chaptersOpen = chaptersOpen,
+                    onChaptersOpen = { chaptersOpen = it },
                     shot = shot,
-                    onSnapshot = if (liveRoom == null) {
-                        {
-                            scope.launch {
-                                val name = (detail?.title ?: seedTitle).take(40)
-                                val result = runCatching { engine.snapshot(name) }.getOrNull()
-                                toast = result ?: "截图失败，画面可能还没就绪"
+                    abRange = if (abA >= 0 && abB > abA + 1_000) abA to abB else null,
+                    fullscreen = fullscreen,
+                    inlineTimeline = inlineTimeline,
+                    playbackOptions = {
+                        val inf = info
+                        Box {
+                            AliStageIconButton(
+                                Icons.Filled.MoreHoriz, "更多播放选项",
+                                onClick = { playbackOptionsOpen = true }, selected = playbackOptionsOpen,
+                                overVideo = true,
+                            )
+                            AliStageMenu(expanded = playbackOptionsOpen, onDismissRequest = { playbackOptionsOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(if (clearScreen) "关闭清屏模式" else "清屏模式") },
+                                    leadingIcon = { Icon(Icons.Filled.CenterFocusStrong, null) },
+                                    trailingIcon = if (desktop) ({ Text("G", style = MaterialTheme.typography.labelMedium) }) else null,
+                                    onClick = {
+                                        playbackOptionsOpen = false
+                                        toggleClearScreen()
+                                    },
+                                )
+                                val momentBvid = startedBvid
+                                if (local == null && liveRoom == null && momentBvid != null && startedCid == playingCid() &&
+                                    detail?.bvid == momentBvid && engine.mediaTag == startedTag
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("分享此刻 · 复制链接") },
+                                        leadingIcon = { Icon(Icons.Filled.Link, null) },
+                                        onClick = {
+                                            playbackOptionsOpen = false
+                                            val position = engine.currentPosition.coerceAtLeast(0L)
+                                            clipboard.setText(AnnotatedString(videoMomentUrl(momentBvid, page?.page ?: 1, position)))
+                                            toast = "已复制 ${clock(position)} 的播放链接"
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("画面比例 · ${settings.playerScale.label}") },
+                                    onClick = {
+                                        playbackOptionsOpen = false
+                                        scaleOpen = true
+                                    },
+                                )
+                                if (fullscreen) {
+                                    DropdownMenuItem(
+                                        text = { Text("锁定播放控件") },
+                                        onClick = {
+                                            playbackOptionsOpen = false
+                                            rightHeld = false
+                                            controlsLocked = true
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("播放信息") },
+                                    onClick = {
+                                        playbackOptionsOpen = false
+                                        playbackInfoOpen = true
+                                    },
+                                )
+                                if ((bvid != null || cachedPlayback.danmaku.isNotEmpty()) && liveRoom == null) {
+                                    DropdownMenuItem(
+                                        text = { Text("弹幕时间偏移") },
+                                        onClick = {
+                                            playbackOptionsOpen = false
+                                            danmakuTimingOpen = true
+                                        },
+                                    )
+                                }
+                                if (inf != null && inf.audioQualities.size > 1) {
+                                    DropdownMenuItem(text = { Text("音质") }, onClick = {
+                                        playbackOptionsOpen = false
+                                        audioOpen = true
+                                    })
+                                }
+                                if (liveRoom == null) {
+                                    DropdownMenuItem(
+                                        text = { Text("截图") },
+                                        onClick = {
+                                            playbackOptionsOpen = false
+                                            scope.launch {
+                                                val name = (detail?.title ?: seedTitle).take(40)
+                                                val result = runCatching { engine.snapshot(name) }.getOrNull()
+                                                toast = result ?: "截图失败，画面可能还没就绪"
+                                            }
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(when {
+                                                abA >= 0 && abB > abA -> "A–B 循环 · 已开启"
+                                                abA >= 0 -> "A–B 循环 · 已设 A 点"
+                                                else -> "A–B 循环"
+                                            })
+                                        },
+                                        onClick = {
+                                            playbackOptionsOpen = false
+                                            abOpen = true
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(if (sleepMinutes < 0) "睡眠定时" else "睡眠定时 · ${sleepRemainText.ifBlank { "已开启" }}")
+                                    },
+                                    onClick = {
+                                        playbackOptionsOpen = false
+                                        sleepOpen = true
+                                    },
+                                )
+                            }
+                            if (inf != null && inf.audioQualities.size > 1) {
+                                AliStageMenu(expanded = audioOpen, onDismissRequest = { audioOpen = false }) {
+                                    inf.audioQualities.forEach { quality ->
+                                        DropdownMenuItem(
+                                            text = { Text(quality.label) },
+                                            onClick = {
+                                                audioOpen = false
+                                                val pos = engine.currentPosition
+                                                val next = inf.copy(audioUrl = quality.url, audioQn = quality.id)
+                                                info = next
+                                                engine.play(next, pos, audioOnly = listening)
+                                                toast = "音质已切换为 ${quality.label}"
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            if (liveRoom == null) {
+                                AliStageMenu(expanded = abOpen, onDismissRequest = { abOpen = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text(if (abA >= 0) "重设 A 点（${clock(abA)}）" else "设为 A 点") },
+                                        onClick = {
+                                            abOpen = false
+                                            abA = engine.currentPosition
+                                            if (abB >= 0 && abB <= abA + 1_000) abB = -1L
+                                            toast = "A 点已设在 ${clock(abA)}"
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        enabled = abA >= 0,
+                                        text = { Text(if (abB > abA) "重设 B 点（${clock(abB)}）" else "设为 B 点") },
+                                        onClick = {
+                                            abOpen = false
+                                            val pos = engine.currentPosition
+                                            if (pos <= abA + 1_000) {
+                                                toast = "B 点要在 A 点之后至少 1 秒"
+                                            } else {
+                                                abB = pos
+                                                toast = "A-B 循环已开启"
+                                            }
+                                        },
+                                    )
+                                    if (abA >= 0 || abB >= 0) {
+                                        HorizontalDivider()
+                                        DropdownMenuItem(
+                                            text = { Text("清除循环") },
+                                            onClick = {
+                                                abOpen = false
+                                                abA = -1L
+                                                abB = -1L
+                                                toast = "已清除 A-B 循环"
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            AliStageMenu(expanded = sleepOpen, onDismissRequest = { sleepOpen = false }) {
+                                app.ailiaili.core.model.SLEEP_TIMER_OPTIONS.forEach { minutes ->
+                                    if (minutes == 0 && (liveRoom != null || local != null)) return@forEach
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(app.ailiaili.core.model.sleepTimerLabel(minutes) + if (sleepMinutes == minutes) " ✓" else "")
+                                        },
+                                        onClick = {
+                                            sleepOpen = false
+                                            sleepMinutes = minutes
+                                            sleepDeadline = if (minutes > 0) epochMs() + minutes * 60_000L else 0L
+                                            toast = if (minutes == 0) "将在播完当前视频后暂停" else "将在 $minutes 分钟后暂停播放"
+                                        },
+                                    )
+                                }
+                                if (sleepMinutes >= 0) {
+                                    HorizontalDivider()
+                                    DropdownMenuItem(
+                                        text = { Text("取消定时") },
+                                        onClick = {
+                                            sleepOpen = false
+                                            sleepMinutes = -1
+                                            sleepDeadline = 0L
+                                            sleepRemainText = ""
+                                            toast = "已取消定时关闭"
+                                        },
+                                    )
+                                }
                             }
                         }
-                    } else {
-                        null
                     },
-                    modifier = Modifier
-                        .then(if (fullscreen) Modifier.navigationBarsPadding() else Modifier),
+                    onToggleFullscreen = {
+                        fullscreen = !fullscreen
+                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                    },
+                    modifier = transportInsets,
                 )
             }
             if (showChrome && volumeOpen) {
-                Slider(
-                    value = volume,
-                    onValueChange = { setVolume(it) },
-                    modifier = Modifier
+                Row(
+                    Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(start = 24.dp, end = 24.dp, bottom = 64.dp)
-                        .fillMaxWidth(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.35f),
-                    ),
-                )
+                        .then(transportInsets)
+                        .padding(start = 16.dp, end = 16.dp, bottom = transportClearance)
+                        .widthIn(max = 320.dp)
+                        .fillMaxWidth()
+                        .aliMaterial(AliMaterial.Playback, MaterialTheme.shapes.large, opacity = .84f)
+                        .padding(start = 4.dp, end = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AliStageIconButton(
+                        if (volume <= 0f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                        if (volume <= 0f) "解除静音" else "静音",
+                        onClick = ::toggleMute,
+                        overVideo = true,
+                    )
+                    AliStageSeekBar(
+                        value = volume,
+                        onValueChange = { setVolume(it) },
+                        onValueChangeFinished = {},
+                        modifier = Modifier.weight(1f).height(44.dp),
+                    )
+                    Text(
+                        "${(volume * 100).roundToInt()}%",
+                        color = AliColors.StageInk,
+                        style = MaterialTheme.typography.labelMedium.copy(shadow = PlayerCaptionShadow, fontFeatureSettings = "tnum"),
+                        modifier = Modifier.width(46.dp),
+                    )
+                }
+            }
+            // 弹幕发送条：浮在控制栏上方，与音量滑条同一套浮层约定。
+            if (showChrome && dmBarOpen && liveRoom == null && local == null) {
+                val playbackAccent = aliPlaybackAccent()
+                Row(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .then(transportInsets)
+                        .imePadding()
+                        .widthIn(max = 680.dp)
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, end = 10.dp, bottom = transportClearance)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Box {
+                        var dmStyleOpen by remember { mutableStateOf(false) }
+                        TextButton(onClick = { dmStyleOpen = true }, shape = MaterialTheme.shapes.small) {
+                            Box(
+                                Modifier.size(10.dp).clip(CircleShape)
+                                    .background(Color(dmColor or 0xFF000000.toInt()))
+                                    .border(1.dp, AliColors.StageMuted, CircleShape),
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                when (dmMode) {
+                                    4 -> "底部"
+                                    5 -> "顶部"
+                                    else -> "滚动"
+                                },
+                                color = AliColors.StageInk,
+                                style = MaterialTheme.typography.labelLarge.copy(shadow = PlayerCaptionShadow),
+                            )
+                        }
+                        AliStageMenu(expanded = dmStyleOpen, onDismissRequest = { dmStyleOpen = false }) {
+                            listOf(1 to "滚动", 5 to "顶部", 4 to "底部").forEach { (mode, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label + if (dmMode == mode) " ✓" else "") },
+                                    onClick = { dmMode = mode; dmStyleOpen = false },
+                                )
+                            }
+                            HorizontalDivider()
+                            Row(
+                                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                listOf(
+                                    0xFFFFFF to "白", 0xFE0302 to "红", 0xFF7204 to "橙",
+                                    0xFFAA02 to "黄", 0x00CD00 to "绿", 0x00A0EA to "蓝",
+                                    0xCC0273 to "紫",
+                                ).forEach { (c, name) ->
+                                    Box(
+                                        Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(c or 0xFF000000.toInt()))
+                                            .then(
+                                                if (dmColor == c) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                                else Modifier.border(1.dp, MaterialTheme.colorScheme.outline, CircleShape),
+                                            )
+                                            .clickable { dmColor = c },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = dmDraft,
+                        onValueChange = { if (it.length <= 100) dmDraft = it },
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { composing = it.isFocused },
+                        placeholder = { Text("发个友善的弹幕吧（最长 100 字）", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        shape = MaterialTheme.shapes.small,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = AliColors.StageInk,
+                            unfocusedTextColor = AliColors.StageInk,
+                            focusedBorderColor = playbackAccent,
+                            unfocusedBorderColor = AliColors.StageMuted,
+                            focusedPlaceholderColor = AliColors.StageMuted,
+                            unfocusedPlaceholderColor = AliColors.StageMuted,
+                            cursorColor = playbackAccent,
+                        ),
+                    )
+                    if (dmSending) {
+                        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(20.dp), color = playbackAccent, strokeWidth = 2.dp)
+                        }
+                    } else {
+                        AliStageIconButton(
+                            Icons.AutoMirrored.Filled.Send,
+                            "发送弹幕",
+                            onClick = { sendDanmakuNow() },
+                            enabled = dmDraft.isNotBlank(),
+                            selected = dmDraft.isNotBlank(),
+                            overVideo = true,
+                        )
+                    }
+                    AliStageIconButton(Icons.Filled.Close, "收起弹幕输入", onClick = { dmBarOpen = false }, overVideo = true)
+                }
             }
             }
         }
@@ -2145,14 +2996,33 @@ fun PlayerRoute(
 
         @Composable
         fun Details(modifier: Modifier) {
-            Column(
-                modifier
-                    .imePadding()
-                    .smoothWheelScroll(scroll, LocalWheelSpeed.current)
-                    .verticalScroll(scroll)
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+            val episodes = detail?.episodes.orEmpty()
+            val showingSeason = panel == "season" && episodes.size > 1
+            val shown = when {
+                showingSeason -> "season"
+                panel == "comments" -> "comments"
+                else -> "intro"
+            }
+            LaunchedEffect(shown, commentsFullscreen) { scroll.scrollTo(0) }
+            Column(modifier.imePadding()) {
+                if (liveRoom == null && local == null && !commentsFullscreen) {
+                    BiliContentTabs(
+                        labels = listOf("简介", if (commentTotal > 0) "评论 ${formatCount(commentTotal.toLong())}" else "评论"),
+                        selected = if (showingSeason) -1 else if (shown == "comments") 1 else 0,
+                        onSelect = { panel = if (it == 0) "intro" else "comments" },
+                        actionLabel = if (episodes.size > 1) "合集" else null,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        actionOn = showingSeason,
+                        onAction = { panel = if (panel == "season") "intro" else "season" },
+                    )
+                }
+                Column(
+                    Modifier.fillMaxWidth().weight(1f)
+                        .smoothWheelScroll(scroll, LocalWheelSpeed.current)
+                        .verticalScroll(scroll).padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(11.dp),
+                ) {
+                if (shown == "intro") {
                 VideoHeader(
                     title = title,
                     detail = detail,
@@ -2358,40 +3228,9 @@ fun PlayerRoute(
                             val message = shareText("分享", url)
                             if (message.isNotEmpty()) toast = message
                         }
-                        Act(
-                            if (downloading) Icons.Filled.Close else Icons.Filled.Download,
-                            if (downloading) "取消缓存" else "缓存",
-                            Modifier.weight(1f),
-                            on = downloading,
-                            active = MaterialTheme.colorScheme.primary,
-                        ) {
-                            // 下载中点同一按钮即取消：断点保留，下次续传。
-                            if (downloading) {
-                                downloadCancelled = true
-                                return@Act
-                            }
-                            val play = info ?: return@Act
-                            cacheQn = play.actualQn
-                            cacheOpen = true
+                        Act(Icons.Filled.Download, "缓存", Modifier.weight(1f)) {
+                            if (detail != null) cacheOpen = true
                         }
-                    }
-                }
-                if (downloading) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (downloadProgress >= 0f) {
-                            LinearProgressIndicator(
-                                progress = { downloadProgress },
-                                modifier = Modifier.weight(1f),
-                            )
-                        } else {
-                            LinearProgressIndicator(Modifier.weight(1f))
-                        }
-                        Text(
-                            "取消",
-                            modifier = Modifier.clickable { downloadCancelled = true },
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelLarge,
-                        )
                     }
                 }
                 val pages = detail?.pages.orEmpty()
@@ -2417,27 +3256,70 @@ fun PlayerRoute(
                         }
                     }
                 }
-                val episodes = detail?.episodes.orEmpty()
-                val showingSeason = panel == "season" && episodes.size > 1
-                val shown = when {
-                    showingSeason -> "season"
-                    panel == "comments" -> "comments"
-                    else -> "intro"
-                }
-                if (liveRoom == null) {
-                    BiliContentTabs(
-                        labels = listOf("简介", "评论"),
-                        selected = if (showingSeason) -1 else if (shown == "comments") 1 else 0,
-                        onSelect = { panel = if (it == 0) "intro" else "comments" },
-                        actionLabel = if (episodes.size > 1) "合集" else null,
-                        actionOn = showingSeason,
-                        onAction = { panel = if (panel == "season") "intro" else "season" },
-                    )
                 }
                 when {
+                    local != null -> {
+                        AliStagePanel(Modifier.fillMaxWidth()) {
+                            Text(
+                                "离线播放",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                if (local.audioPath == null) "本地视频文件" else "本地视频及独立音轨",
+                                modifier = Modifier.padding(top = 4.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            if (local.bvid.isNotBlank()) {
+                                if (onOpenOriginal != null) {
+                                    TextButton(onClick = { onOpenOriginal(engine.currentPosition.coerceAtLeast(0L)) }) {
+                                        Text("打开原视频")
+                                    }
+                                }
+                            }
+                        }
+                    }
                     liveRoom != null -> {
                         BiliSectionTitle("直播弹幕")
                         LiveChatList(liveChat)
+                        if (AppGraph.repo.session.collectAsState().value.loggedIn) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = liveMsgDraft,
+                                    onValueChange = { if (it.length <= 30) liveMsgDraft = it },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .onFocusChanged { composing = it.isFocused },
+                                    placeholder = { Text("发个友善的弹幕吧（最长 30 字）", fontSize = 13.sp) },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.bodyMedium,
+                                )
+                                if (liveMsgSending) {
+                                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                } else {
+                                    IconButton(onClick = { sendLiveMsgNow() }, enabled = liveMsgDraft.isNotBlank()) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = "发送",
+                                            tint = if (liveMsgDraft.isNotBlank()) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(
+                                "登录后可以在直播间发言",
+                                modifier = Modifier.padding(top = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp,
+                            )
+                        }
                     }
                     shown == "intro" -> {
                         val ink = MaterialTheme.colorScheme.onSurface
@@ -2458,7 +3340,7 @@ fun PlayerRoute(
                         // 关掉相关视频后简介是页面唯一内容：整段展开，不再给折叠按钮。
                         // settings 是响应式读取，设置里切开关立即生效。
                         val descLong = settings.showRelated && (desc.length > 80 || desc.count { it == '\n' } >= 4)
-                        BiliSurfaceCard(
+                        AliStagePanel(
                             Modifier.fillMaxWidth(),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                         ) {
@@ -2591,6 +3473,11 @@ fun PlayerRoute(
                                 onClick = { switchSort(2) },
                                 label = { Text("最新") },
                             )
+                            BiliFilterChip(
+                                selected = onlyUpComments,
+                                onClick = { onlyUpComments = !onlyUpComments },
+                                label = { Text("只看UP") },
+                            )
                         }
                         if (AppGraph.repo.session.value.loggedIn && (detail?.aid ?: 0) > 0) {
                             val replying = replyTarget
@@ -2689,7 +3576,18 @@ fun PlayerRoute(
                                 }) { Text("重试") }
                             }
                         }
-                        comments.forEachIndexed { index, c ->
+                        // 只看 UP：本地过滤已加载页（接口 up 标记）；整页没有 UP 评论时
+                        // 给提示，「更多评论」仍可继续翻页找。
+                        val visibleComments = if (onlyUpComments) comments.filter { it.up } else comments
+                        if (onlyUpComments && comments.isNotEmpty() && visibleComments.isEmpty()) {
+                            Text(
+                                "这一页还没有 UP 主的评论，点「更多评论」继续找",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                            )
+                        }
+                        visibleComments.forEachIndexed { index, c ->
                             if (index > 0) {
                                 HorizontalDivider(
                                     modifier = Modifier.padding(vertical = 2.dp),
@@ -2791,7 +3689,6 @@ fun PlayerRoute(
                             )
                             BiliBadge(
                                 text = if (playingIndex >= 0) "${playingIndex + 1}/${episodes.size}" else "共 ${episodes.size} 集",
-                                tone = BiliBadgeTone.Accent,
                                 style = BiliBadgeStyle.Soft,
                             )
                         }
@@ -2835,13 +3732,41 @@ fun PlayerRoute(
                     }
                 }
             }
+            }
         }
         when {
-            fullscreen -> Stage(Modifier.weight(1f).fillMaxWidth())
-            splitPlayer -> Row(Modifier.weight(1f).fillMaxSize()) {
-                Stage(Modifier.weight(1.2f).fillMaxHeight())
-                if (detailsReady) Details(Modifier.weight(0.8f).fillMaxHeight())
-                else Spacer(Modifier.weight(0.8f).fillMaxHeight())
+            fullscreen -> BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                Stage(Modifier.fillMaxSize())
+                if (commentsFullscreen) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().widthIn(max = 480.dp)
+                            .fillMaxWidth(if (maxWidth >= 800.dp) 0.48f else 0.92f),
+                    ) {
+                        Column {
+                            Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("评论", modifier = Modifier.weight(1f))
+                                IconButton(onClick = { commentsFullscreen = false }) {
+                                    Icon(Icons.Filled.Close, "关闭评论")
+                                }
+                            }
+                            Details(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+            splitPlayer -> Row(
+                Modifier.weight(1f).fillMaxSize().padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Stage(Modifier.weight(1.85f).fillMaxHeight().clip(MaterialTheme.shapes.medium))
+                Surface(
+                    Modifier.weight(1f).fillMaxHeight().aliMaterial(AliMaterial.Panel, MaterialTheme.shapes.medium),
+                    shape = MaterialTheme.shapes.medium,
+                    color = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ) {
+                    if (detailsReady) Details(Modifier.fillMaxSize())
+                }
             }
             else -> {
                 Stage(Modifier.fillMaxWidth())
@@ -2849,64 +3774,120 @@ fun PlayerRoute(
                 else Spacer(Modifier.weight(1f))
             }
         }
-        if (cacheOpen) {
-            val play = info
-            val d = detail
-            AlertDialog(
-                onDismissRequest = { cacheOpen = false },
-                title = { Text("缓存视频") },
+        if (queuePanelOpen && playQueue.size > 1) {
+            AliStageDialog(
+                onDismissRequest = { queuePanelOpen = false },
+                title = { Text(if (seasonQueue) "选集 · ${playQueue.size} 集" else "播放队列 · ${playQueue.size} 条") },
                 text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            "选择清晰度",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            play?.qualities.orEmpty().forEach { quality ->
-                                BiliFilterChip(
-                                    selected = cacheQn == quality.qn,
-                                    onClick = { cacheQn = quality.qn },
-                                    label = { Text(quality.label) },
+                    val queueScroll = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = (curQueueIndex - 1).coerceAtLeast(0))
+                    LazyColumn(
+                        Modifier.height(360.dp).smoothWheelScroll(queueScroll, LocalWheelSpeed.current),
+                        state = queueScroll,
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        itemsIndexed(playQueue) { index, item ->
+                            val current = index == curQueueIndex
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(
+                                        if (current) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                        else Color.Transparent,
+                                    )
+                                    .clickable {
+                                        queuePanelOpen = false
+                                        if (!current) {
+                                            curQueueIndex = index
+                                            openQueueItem(item)
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "${index + 1}",
+                                    color = if (current) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.width(24.dp),
                                 )
+                                Text(
+                                    item.title.ifBlank { item.bvid },
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 13.sp,
+                                    color = if (current) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                )
+                                if (current) {
+                                    Text("播放中", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                                }
                             }
                         }
-                        Text(
-                            "保存到应用缓存，可在「我的 → 离线缓存」查看。高画质需要登录/大会员，权限不足时按实际可取的最高画质缓存。",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
                     }
                 },
                 confirmButton = {
-                    TextButton(
-                        enabled = play != null && d != null && cacheQn > 0,
-                        onClick = {
-                            cacheOpen = false
-                            val target = play ?: return@TextButton
-                            val detailNow = d ?: return@TextButton
-                            val cid = page?.cid ?: detailNow.cid
-                            scope.launch {
-                                AppGraph.repo.playAt(detailNow.bvid, cid, cacheQn, forceDash = true)
-                                    .onSuccess { got -> cacheToDisk(got) }
-                                    .onFailure { toast = it.message ?: "获取清晰度失败" }
-                            }
-                        },
-                    ) { Text("开始缓存") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { cacheOpen = false }) { Text("取消") }
+                    TextButton(onClick = { queuePanelOpen = false }) { Text("关闭") }
                 },
             )
+        }
+        if (cacheOpen) {
+            detail?.let { source ->
+                PlayerDownloadDialog(
+                    detail = source,
+                    info = info,
+                    currentCid = page?.cid ?: source.cid,
+                    episodeId = currentEpId,
+                    defaultQn = settings.downloadQuality,
+                    onDismiss = { cacheOpen = false },
+                    onOpenQueue = onOpenDownloads,
+                    onMessage = { toast = it },
+                )
+            }
+        }
+        if (danmakuTimingOpen) {
+            AliStageDialog(
+                onDismissRequest = { danmakuTimingOpen = false },
+                title = { Text("弹幕时间偏移") },
+                text = {
+                    app.ailiaili.core.designsystem.DanmakuDelayControl(settings.danmakuDelayMs, onChange = { value ->
+                        AppGraph.repo.updateSettings { it.copy(danmakuDelayMs = value) }
+                    })
+                },
+                confirmButton = { TextButton(onClick = { danmakuTimingOpen = false }) { Text("完成") } },
+            )
+        }
+        if (scaleOpen) {
+            AliStageDialog(
+                onDismissRequest = { scaleOpen = false },
+                title = { Text("画面比例") },
+                text = {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PlayerScale.entries.forEach { mode ->
+                            BiliFilterChip(
+                                selected = settings.playerScale == mode,
+                                onClick = { AppGraph.repo.updateSettings { it.copy(playerScale = mode) } },
+                                label = { Text(mode.label) },
+                            )
+                        }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { scaleOpen = false }) { Text("完成") } },
+            )
+        }
+        if (playbackInfoOpen) {
+            PlaybackInfoDialog(info, local, liveRoom != null, desktop, engine, speed) {
+                playbackInfoOpen = false
+            }
         }
         if (coinOpen) {
             val balance = myCoins
             val canOne = balance != null && balance >= 1.0
             val canTwo = balance != null && balance >= 2.0 && !coined
-            AlertDialog(
+            AliStageDialog(
                 onDismissRequest = { coinOpen = false },
                 title = { Text("给这个视频投币") },
                 text = {
@@ -2957,13 +3938,31 @@ fun PlayerRoute(
                 },
             )
         }
-        if (favOpen) {
-            AlertDialog(
+        if (createFolderOpen) {
+            app.ailiaili.core.designsystem.CreateFavoriteFolderDialog(onDismiss = { createFolderOpen = false }) { created ->
+                createFolderOpen = false
+                if (created != null) {
+                    favDraft = favDraft + created.copy(favored = true)
+                } else {
+                    val aid = detail?.aid ?: 0L
+                    scope.launch {
+                        AppGraph.repo.videoFavFolders(aid).onSuccess { loaded ->
+                            if (detail?.aid != aid) return@onSuccess
+                            val existing = favDraft.associateBy { it.id }
+                            val added = loaded.filterNot { it.id in existing }
+                            favDraft = loaded.map { existing[it.id] ?: it.copy(favored = added.size == 1) }
+                        }
+                    }
+                }
+            }
+        } else if (favOpen) {
+            AliStageDialog(
                 onDismissRequest = { favOpen = false },
                 title = { Text("选择收藏夹") },
                 text = {
                     val favScroll = rememberScrollState()
                     Column(Modifier.verticalScroll(favScroll).smoothWheelScroll(favScroll, LocalWheelSpeed.current)) {
+                        TextButton(onClick = { createFolderOpen = true }) { Text("新建收藏夹") }
                         if (favDraft.isEmpty()) {
                             Text("没有可用的收藏夹")
                         }
@@ -3044,8 +4043,9 @@ fun PlayerRoute(
 
 private enum class FlashKind { Play, Pause }
 
+private enum class PlayerSurfaceDrag { Seek, Brightness, Volume }
+
 /** 用户主动取消缓存：与真实失败区分，提示语不同且保留断点。 */
-private class DownloadCancelledException : RuntimeException("已取消")
 
 private fun mergeDanmaku(current: List<Danmaku>, extra: List<Danmaku>): List<Danmaku> {
     if (extra.isEmpty()) return current
@@ -3133,7 +4133,7 @@ private fun LiveChatList(messages: List<LiveDanmaku>) {
                 verticalAlignment = Alignment.Top,
             ) {
                 if (message.admin) {
-                    BiliBadge(text = "房管", tone = BiliBadgeTone.Accent, style = BiliBadgeStyle.Solid)
+                    BiliBadge(text = "房管", style = BiliBadgeStyle.Solid)
                 } else if (message.guard > 0) {
                     BiliBadge(
                         text = when (message.guard) {
@@ -3189,42 +4189,18 @@ private fun VideoHeader(
     onlineText: String?,
     onCopyTitle: () -> Unit,
 ) {
-    BiliSurfaceCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-    ) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier
-                    .padding(top = 4.dp)
-                    .width(4.dp)
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.primary),
-            )
             Text(
                 text = title,
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 28.sp,
-                ),
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
             )
-            IconButton(
-                onClick = onCopyTitle,
-                modifier = Modifier.size(32.dp),
-            ) {
-                Icon(
-                    Icons.Filled.ContentCopy,
-                    contentDescription = "复制标题",
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            AliStageIconButton(Icons.Filled.ContentCopy, "复制标题", onCopyTitle)
         }
         if (detail != null) {
             val d = detail
@@ -3253,30 +4229,6 @@ private fun VideoHeader(
                             MetricTone.Danmaku,
                         ),
                     )
-                    add(
-                        MetricSpec(
-                            Icons.Filled.ThumbUp,
-                            formatCount(d.likeCount).ifBlank { "0" },
-                            "点赞",
-                            MetricTone.Like,
-                        ),
-                    )
-                    add(
-                        MetricSpec(
-                            Icons.Filled.MonetizationOn,
-                            formatCount(d.coinCount).ifBlank { "0" },
-                            "投币",
-                            MetricTone.Coin,
-                        ),
-                    )
-                    add(
-                        MetricSpec(
-                            Icons.Filled.Star,
-                            formatCount(d.favoriteCount).ifBlank { "0" },
-                            "收藏",
-                            MetricTone.Favorite,
-                        ),
-                    )
                     if (!watching.isNullOrBlank()) {
                         add(
                             MetricSpec(
@@ -3300,7 +4252,12 @@ private fun VideoHeader(
                     }
                 }
             }
-            MetricFlow(metrics)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                metrics.forEach { MetaRow(listOf(MetaSpec(it.icon, "${it.value} ${it.label}", it.tone))) }
+            }
         }
     }
 }

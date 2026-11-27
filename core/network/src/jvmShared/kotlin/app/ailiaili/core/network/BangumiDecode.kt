@@ -16,6 +16,7 @@ fun parseBangumiEpisode(e: JSONObject): BangumiEpisode? {
         longTitle = e.str("long_title"),
         cover = normalizeUrl(e.str("cover")),
         durationSec = kotlin.math.round(durationMs / 1000.0).toInt(),
+        aid = e.lng("aid"),
     )
 }
 
@@ -25,4 +26,5 @@ fun parseBangumiDetail(seasonId: Long, result: JSONObject): BangumiDetail = Bang
     cover = normalizeUrl(result.str("cover")),
     evaluate = result.str("evaluate"),
     episodes = result.arr("episodes")?.objects().orEmpty().mapNotNull(::parseBangumiEpisode),
+    followType = if (result.int("type") in setOf(0, 1, 4)) 1 else 2,
 )

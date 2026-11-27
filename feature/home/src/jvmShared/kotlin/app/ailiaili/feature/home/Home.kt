@@ -1,24 +1,26 @@
 package app.ailiaili.feature.home
 
+import androidx.compose.foundation.layout.widthIn
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.AliStageTabs
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,125 +53,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.data.ResumePlayback
 import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliFilterChip
 import app.ailiaili.core.designsystem.BiliFloatButton
 import app.ailiaili.core.designsystem.BiliHeaderAction
+import app.ailiaili.core.designsystem.BiliPaginationFooter
 import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.FilterAutoLoad
 import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.BiliRuleChip
-import app.ailiaili.core.designsystem.BiliSurfaceCard
-import app.ailiaili.core.designsystem.BiliSearchEntry
-import app.ailiaili.core.designsystem.BiliUnderlineTabs
+import app.ailiaili.core.designsystem.LocalAliReducedMotion
 import app.ailiaili.core.designsystem.LoadBox
-import app.ailiaili.core.designsystem.shellBottomPadding
-import app.ailiaili.core.designsystem.shellNavigationBottom
+import app.ailiaili.core.designsystem.shellBottomClearance
 import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.model.ThemeMode
+import app.ailiaili.core.model.UrlHit
 import app.ailiaili.core.model.VideoItem
 
 import kotlinx.coroutines.launch
-
-enum class HomeTab(val label: String) { Recommend("推荐"), Popular("热门"), Ranking("排行榜"), Live("直播") }
-
-class HomeViewModel : ViewModel() {
-    var tab by mutableStateOf(HomeTab.Recommend)
-    var items by mutableStateOf<List<VideoItem>>(emptyList())
-    var loading by mutableStateOf(true)
-    var refreshing by mutableStateOf(false)
-    var error by mutableStateOf<String?>(null)
-    var page by mutableIntStateOf(1)
-    var hasMore by mutableStateOf(true)
-    /** 直播分区：-1 = 热门（跨分区兜底），其余为官方大分区 id。 */
-    var liveAreas by mutableStateOf<List<app.ailiaili.core.model.LiveArea>>(emptyList())
-    var liveAreaId by mutableIntStateOf(-1)
-    private var source = AppGraph.repo.settings.value.recommendSource
-    private var loadTicket = 0
-
-    init {
-        refresh()
-        viewModelScope.launch {
-            AppGraph.repo.liveAreas().onSuccess { liveAreas = it }
-        }
-    }
-
-    fun selectLiveArea(id: Int) {
-        if (liveAreaId == id) return
-        liveAreaId = id
-        if (tab == HomeTab.Live) refresh()
-    }
-
-    fun onSourceChanged() {
-        val next = AppGraph.repo.settings.value.recommendSource
-        if (next == source) return
-        source = next
-        if (tab == HomeTab.Recommend) refresh()
-    }
-
-    fun select(next: HomeTab) {
-        if (tab == next) return
-        tab = next
-        refresh()
-    }
-
-    fun refresh() {
-        page = 1
-        hasMore = true
-        refreshing = true
-        load(reset = true)
-    }
-
-    fun loadMore() {
-        if (loading || !hasMore || tab == HomeTab.Ranking) return
-        load(reset = false)
-    }
-
-    private fun load(reset: Boolean) {
-        val current = tab
-        // 刷新会作废所有在途请求（含加载更多）：旧页后回会把第 N 页拼到
-        // 新的第 1 页后面，中间页丢失且页码跳号。
-        val ticketNow = if (reset) ++loadTicket else loadTicket
-        val requestPage = if (reset) 1 else page + 1
-        loading = true
-        error = null
-        viewModelScope.launch {
-            val result = when (current) {
-                HomeTab.Recommend -> AppGraph.repo.recommend(requestPage)
-                HomeTab.Popular -> AppGraph.repo.popular(requestPage)
-                HomeTab.Ranking -> AppGraph.repo.ranking()
-                HomeTab.Live -> AppGraph.repo.liveList(requestPage, liveAreaId)
-            }
-            if (tab != current || ticketNow != loadTicket) return@launch
-            loading = false
-            refreshing = false
-            result.onSuccess { list ->
-                page = requestPage
-                val merged = if (reset) list else (items + list).distinctBy { it.stableKey }
-                val grew = reset || merged.size > items.size
-                items = merged
-                hasMore = when (current) {
-                    HomeTab.Ranking -> false
-                    HomeTab.Recommend -> list.isNotEmpty() && grew
-                    else -> list.isNotEmpty()
-                }
-                if (list.isEmpty() && reset) error = null
-            }.onFailure {
-                if (reset) items = emptyList()
-                error = it.message ?: "加载失败"
-                hasMore = false
-                refreshing = false
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -176,34 +84,57 @@ fun HomeRoute(
     onAuthor: (VideoItem) -> Unit,
     onSearch: () -> Unit,
     onMessages: () -> Unit,
+    onOpenLink: (UrlHit) -> Unit,
+    onHistory: () -> Unit,
+    onOffline: () -> Unit,
+    immersive: Boolean,
+    onImmersive: (Boolean) -> Unit,
+    active: Boolean,
+    onCommentDetail: (Long, Long) -> Unit,
+    onFeedVideo: (VideoItem, Long) -> Unit,
+    onResume: (ResumePlayback) -> Unit,
     vm: HomeViewModel = appViewModel { HomeViewModel() },
 ) {
-    app.ailiaili.core.designsystem.RegisterPageRefresh(vm::refresh)
-    val grid = rememberLazyGridState()
+    if (active) app.ailiaili.core.designsystem.RegisterPageRefresh(vm::refresh)
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     val settings by AppGraph.repo.settings.collectAsState()
     LaunchedEffect(settings.recommendSource) { vm.onSourceChanged() }
-    val greeting = remember { greetingNow() }
-    val away by remember {
+    val feed = when (vm.tab) {
+        HomeTab.Live -> vm.liveAreaId
+        HomeTab.Recommend -> settings.recommendSource
+        else -> vm.tab
+    }
+    val grid = key(feed) { rememberLazyGridState() }
+    val session by AppGraph.repo.session.collectAsState()
+    var unread by remember(session.dedeUserId) { mutableIntStateOf(0) }
+    var importingBlocks by remember(session.dedeUserId) { mutableStateOf(false) }
+    LaunchedEffect(session.dedeUserId, session.loggedIn) {
+        if (!session.loggedIn) return@LaunchedEffect
+        while (true) {
+            AppGraph.repo.unreadMessages().onSuccess { unread = it }
+            kotlinx.coroutines.delay(90_000)
+        }
+    }
+    if (immersive) {
+        ImmersiveFeed(
+            vm, feed, active, settings.playerVolume, unread, { onImmersive(false) },
+            onSearch, onMessages, onOpenLink, onHistory, onOffline, onFeedVideo, onAuthor, onCommentDetail,
+        )
+        return
+    }
+
+    val reducedMotion = LocalAliReducedMotion.current
+    val away by remember(grid) {
         derivedStateOf { grid.firstVisibleItemIndex > 0 || grid.firstVisibleItemScrollOffset > 240 }
     }
-    val navBottom = shellNavigationBottom()
+    val navBottom = shellBottomClearance()
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             BiliPageHeader(
                 title = "首页",
-                subtitle = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(greeting.first)
-                        Text(
-                            greeting.second,
-                            modifier = Modifier.padding(start = 6.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
                 actions = {
+                    BiliHeaderAction(Icons.Filled.PlayCircle, "片流", onClick = { onImmersive(true) })
                     val (themeIcon, themeLabel) = when (settings.theme) {
                         ThemeMode.System -> Icons.Filled.BrightnessAuto to "主题：跟随系统"
                         ThemeMode.Light -> Icons.Filled.LightMode to "主题：浅色"
@@ -218,72 +149,47 @@ fun HomeRoute(
                         }
                         AppGraph.repo.updateSettings { it.copy(theme = next) }
                     })
-                    Spacer(Modifier.width(8.dp))
                     BiliHeaderAction(Icons.Filled.Refresh, "刷新", onClick = vm::refresh, enabled = !vm.loading)
-                    Spacer(Modifier.width(8.dp))
-                    BiliHeaderAction(Icons.AutoMirrored.Filled.Message, "消息", onClick = onMessages)
+                    androidx.compose.material3.BadgedBox(
+                        badge = {
+                            if (unread > 0) androidx.compose.material3.Badge {
+                                Text(if (unread > 99) "99+" else unread.toString())
+                            }
+                        },
+                    ) {
+                        BiliHeaderAction(Icons.AutoMirrored.Filled.Message, "消息", onClick = onMessages)
+                    }
                 },
             )
-            BoxWithConstraints(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 10.dp),
-            ) {
-                BiliSearchEntry(
-                    placeholder = "搜索你感兴趣的视频",
-                    onClick = onSearch,
-                    modifier = Modifier
-                        .width(minOf(maxWidth, 440.dp))
-                        .align(Alignment.Center),
-                )
-            }
-            BiliUnderlineTabs(
-                labels = HomeTab.entries.map { it.label },
-                selected = vm.tab.ordinal,
-                onSelect = { vm.select(HomeTab.entries[it]) },
-            )
+            HomeDiscovery(onSearch, onOpenLink, onHistory, onOffline)
             var filterOpen by remember { mutableStateOf(false) }
-    // 关键词输入落盘：防抖在 ContentFilter 内部的独立作用域里做，
-    // 切页取消这里的协程也不会丢掉最后一次输入。
-    LaunchedEffect(ContentFilter.title, ContentFilter.up) {
-        ContentFilter.persist()
-    }
+            LaunchedEffect(ContentFilter.title, ContentFilter.up) {
+                ContentFilter.persist()
+            }
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                Modifier.widthIn(max = 490.dp).fillMaxWidth().padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                BiliFilterChip(
-                    selected = ContentFilter.active || filterOpen,
-                    onClick = { filterOpen = !filterOpen },
-                    label = { Text(if (ContentFilter.active) "屏蔽中" else "屏蔽") },
-                    leadingIcon = {
-                        Icon(Icons.Filled.FilterList, contentDescription = null, Modifier.size(18.dp))
-                    },
+                AliStageTabs(
+                    labels = HomeTab.entries.map { it.label },
+                    selected = vm.tab.ordinal,
+                    onSelect = { vm.select(HomeTab.entries[it]) },
+                    modifier = Modifier.weight(1f),
                 )
-                if (ContentFilter.active) {
-                    Text(
-                        ContentFilter.summary(),
-                        modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    TextButton(onClick = {
-                        ContentFilter.clear()
-                        filterOpen = false
-                    }) {
-                        Text("清除")
-                    }
-                }
+                AliStageIconButton(
+                    Icons.Filled.FilterList,
+                    if (ContentFilter.active) "内容屏蔽已开启" else "内容屏蔽",
+                    onClick = { filterOpen = !filterOpen },
+                    emphasized = ContentFilter.active || filterOpen,
+                )
             }
             AnimatedVisibility(
                 visible = filterOpen,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut(),
+                enter = if (reducedMotion) EnterTransition.None else expandVertically() + fadeIn(),
+                exit = if (reducedMotion) ExitTransition.None else shrinkVertically() + fadeOut(),
             ) {
-                BiliSurfaceCard(
+                AliStagePanel(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     contentPadding = PaddingValues(12.dp),
                 ) {
@@ -293,12 +199,11 @@ fun HomeRoute(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium,
                         )
-                        FlowRow(
+                        androidx.compose.foundation.lazy.LazyRow(
                             modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            ContentFilter.blockedUps.forEach { rule ->
+                            items(ContentFilter.blockedUps) { rule ->
                                 BiliRuleChip(
                                     label = rule.name.ifBlank { "UID ${rule.mid}" },
                                     onRemove = { ContentFilter.removeBlockedUp(rule) },
@@ -313,12 +218,11 @@ fun HomeRoute(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelMedium,
                         )
-                        FlowRow(
+                        androidx.compose.foundation.lazy.LazyRow(
                             modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            ContentFilter.blockedTitles.forEach { blocked ->
+                            items(ContentFilter.blockedTitles) { blocked ->
                                 BiliRuleChip(
                                     label = blocked.take(24),
                                     onRemove = { ContentFilter.removeBlockedTitle(blocked) },
@@ -348,8 +252,36 @@ fun HomeRoute(
                         label = { Text("UP 主名称") },
                         shape = MaterialTheme.shapes.medium,
                     )
-                    if (ContentFilter.active) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        if (ContentFilter.active) {
+                            TextButton(onClick = {
+                                ContentFilter.clear()
+                                filterOpen = false
+                            }) { Text("清除屏蔽") }
+                        }
+                        if (session.loggedIn) {
+                            TextButton(
+                                enabled = !importingBlocks,
+                                onClick = {
+                                    val uid = session.dedeUserId
+                                    importingBlocks = true
+                                    scope.launch {
+                                        AppGraph.repo.blockedUsers().onSuccess { rules ->
+                                            if (AppGraph.repo.session.value.dedeUserId == uid) {
+                                                val count = ContentFilter.importBlockedUps(rules)
+                                                app.ailiaili.core.designsystem.QuickActions.showToast(
+                                                    if (count > 0) "已导入 $count 个屏蔽项" else "没有可添加的屏蔽项",
+                                                )
+                                            }
+                                        }.onFailure {
+                                            app.ailiaili.core.designsystem.QuickActions.showToast(it.message ?: "导入黑名单失败")
+                                        }
+                                        importingBlocks = false
+                                    }
+                                },
+                            ) { Text(if (importingBlocks) "导入中…" else "导入 B 站黑名单") }
+                        }
+                        if (ContentFilter.active) {
                             TextButton(onClick = ContentFilter::clear) { Text("清除全部屏蔽") }
                         }
                     }
@@ -382,19 +314,53 @@ fun HomeRoute(
                 }
             }
             val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
+            val resume by AppGraph.playbackMemory.resume.collectAsState()
+            val resumeCard: (@Composable () -> Unit)? = resume
+                ?.takeIf { vm.tab == HomeTab.Recommend && ContentFilter.allows(it.video) }
+                ?.let { playback ->
+                    {
+                        HomeResumeCard(
+                            playback,
+                            onResume = { onResume(playback) },
+                            onDismiss = { AppGraph.playbackMemory.dismiss(playback.video.bvid, playback.video.cid) },
+                        )
+                    }
+                }
             val blockedOut = vm.items.isNotEmpty() && shown.isEmpty() && ContentFilter.active
+            val autoLoadMore = vm.hasMore && vm.paginationError == null && vm.error == null
+            val footer: (@Composable () -> Unit)? = if (vm.hasMore && vm.error == null) {
+                { BiliPaginationFooter(vm.loading && !vm.refreshing, vm.paginationError, vm::loadMore) }
+            } else {
+                null
+            }
             FilterAutoLoad(
                 shownEmpty = blockedOut,
-                hasMore = vm.hasMore,
+                hasMore = autoLoadMore,
                 loading = vm.loading,
                 onLoadMore = vm::loadMore,
             )
+            if (vm.items.isNotEmpty() && vm.error != null) {
+                AliStagePanel(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "刷新失败，可以继续浏览已加载内容",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = vm::refresh) { Text("重试") }
+                    }
+                }
+            }
+            if (shown.isEmpty() && resumeCard != null) {
+                Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { resumeCard() }
+            }
             PullToRefreshBox(
                 isRefreshing = vm.refreshing,
                 onRefresh = vm::refresh,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                LoadBox(vm.loading, vm.error, shown.isEmpty() && !blockedOut, "这里还没有内容", vm::refresh) {
+                LoadBox(vm.loading && vm.items.isEmpty(), vm.error, shown.isEmpty() && !blockedOut, "这里还没有内容", vm::refresh) {
                     if (blockedOut) {
                         BiliEmptyState(
                             title = "这一页都被屏蔽了",
@@ -403,6 +369,7 @@ fun HomeRoute(
                             modifier = Modifier.fillMaxSize(),
                             action = {
                                 TextButton(onClick = { ContentFilter.clear() }) { Text("清除屏蔽") }
+                                footer?.invoke()
                             },
                         )
                     } else VideoGrid(
@@ -410,38 +377,22 @@ fun HomeRoute(
                         onClick = onVideo,
                         onAuthor = onAuthor,
                         state = grid,
-                        onLoadMore = if (vm.hasMore) vm::loadMore else null,
-                        contentPadding = PaddingValues(12.dp, 4.dp, 12.dp, 96.dp + navBottom),
+                        onLoadMore = if (autoLoadMore) vm::loadMore else null,
+                        contentPadding = PaddingValues(12.dp, 4.dp, 12.dp, 64.dp + navBottom),
+                        onDislike = if (vm.tab == HomeTab.Recommend) vm::dismiss else null,
+                        footer = footer,
+                        header = resumeCard,
                     )
                 }
             }
         }
-        Column(
-            Modifier
-                .align(Alignment.BottomEnd)
-                .shellBottomPadding()
-                .padding(end = 12.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        if (away) {
             BiliFloatButton(
                 icon = Icons.Filled.KeyboardArrowUp,
                 label = "回到顶部",
-                enabled = away,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 16.dp + navBottom),
                 onClick = { scope.launch { grid.scrollToItem(0) } },
             )
-            BiliFloatButton(Icons.Filled.Refresh, "刷新", onClick = vm::refresh)
         }
     }
-}
-
-private fun greetingNow(): Pair<String, String> {
-    val hour = app.ailiaili.core.model.currentHourOfDay()
-    val (text, faces) = when (hour) {
-        in 5..10 -> "早上好" to arrayOf("(｡･ω･｡)", "(＾▽＾)", "(・ω・)")
-        in 11..12 -> "中午好" to arrayOf("(￣▽￣)", "(＾ω＾)", "(・ω・)")
-        in 13..17 -> "下午好" to arrayOf("(´・ω・`)", "(・ω・)ノ", "(￣ω￣)")
-        in 18..22 -> "晚上好" to arrayOf("(￣▽￣)ノ", "(・ω・)ﾉ", "(＾▽＾)")
-        else -> "夜深了" to arrayOf("(。-ω-)zzz", "(-ω-)zZ", "(´-ω-`)")
-    }
-    return text to faces.random()
 }

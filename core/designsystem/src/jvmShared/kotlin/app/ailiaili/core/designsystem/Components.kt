@@ -5,12 +5,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -31,7 +33,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -42,8 +43,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,6 +63,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.formatCount
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 
 @Composable
 inline fun <reified VM : ViewModel> appViewModel(
@@ -91,6 +97,7 @@ fun LoadBox(
     emptyText: String,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    emptyMessage: String? = null,
     content: @Composable () -> Unit,
 ) {
     Box(modifier.fillMaxSize()) {
@@ -106,6 +113,7 @@ fun LoadBox(
             )
             empty && !loading -> BiliEmptyState(
                 title = emptyText,
+                message = emptyMessage,
                 modifier = Modifier.align(Alignment.Center),
             )
             else -> content()
@@ -125,25 +133,38 @@ fun VideoGrid(
     onLoadMore: (() -> Unit)? = null,
     state: LazyGridState = rememberLazyGridState(),
     contentPadding: PaddingValues = PaddingValues(12.dp),
+    /** 提供后卡片菜单出现「不感兴趣」（推荐流负反馈）；其他列表不传。 */
+    onDislike: ((VideoItem) -> Unit)? = null,
+    footer: (@Composable () -> Unit)? = null,
+    header: (@Composable () -> Unit)? = null,
 ) {
+    val textScale = LocalDensity.current.fontScale.coerceIn(1f, 1.35f)
+    val loadLatest by rememberUpdatedState(onLoadMore)
     if (onLoadMore != null) {
-        LaunchedEffect(state, items.size) {
+        LaunchedEffect(state, items.size, header != null) {
             snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
                 .collect { last ->
-                    if (items.isNotEmpty() && last >= items.size - 4) onLoadMore()
+                    val videoIndex = last - if (header == null) 0 else 1
+                    if (items.isNotEmpty() && videoIndex >= items.size - 4) loadLatest?.invoke()
                 }
         }
     }
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(LocalWindowForm.current.gridMin),
+        columns = GridCells.Adaptive(LocalWindowForm.current.gridMin * textScale),
         state = state,
         modifier = modifier.fillMaxSize().smoothWheelScroll(state, LocalWheelSpeed.current),
         contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (header != null) {
+            item(key = "video-grid-header", span = { GridItemSpan(maxLineSpan) }) { header() }
+        }
         items(items, key = { it.stableKey + it.title }) { item ->
-            VideoCard(item, onClick, onAuthor, Modifier.animateItem())
+            VideoCard(item, onClick, onAuthor, Modifier.animateItem(), onDislike)
+        }
+        if (footer != null) {
+            item(span = { GridItemSpan(maxLineSpan) }) { footer() }
         }
     }
 }
@@ -154,73 +175,68 @@ fun VideoCard(
     onClick: (VideoItem) -> Unit,
     onAuthor: (VideoItem) -> Unit,
     modifier: Modifier = Modifier,
+    onDislike: ((VideoItem) -> Unit)? = null,
 ) {
     var previewCover by remember(item.cover) { mutableStateOf(false) }
     var menuOpen by remember(item.stableKey) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .biliPressScale(interaction, pressedScale = 0.98f),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
-            Modifier
-                .combinedClickable(
-                    interactionSource = interaction,
-                    indication = LocalIndication.current,
-                    onClick = { onClick(item) },
-                    onLongClick = {
-                        // 安卓没有右键/悬停：长按必须能打开菜单（稍后再看/屏蔽），
-                        // 否则这些操作在安卓完全不可达。桌面长按仍是封面预览。
-                        if (app.ailiaili.core.data.isDesktopHost()) {
-                            if (item.cover.isNotBlank()) previewCover = true
-                        } else {
-                            menuOpen = true
-                        }
-                    },
-                )
-                .secondaryClick {
-                    menuOpen = true
+    val focused by interaction.collectIsFocusedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val colors = MaterialTheme.colorScheme
+    val authorStyle = MaterialTheme.typography.labelMedium
+    val authorHeight = with(LocalDensity.current) { maxOf(18.dp, authorStyle.lineHeight.toDp()) }
+    Column(
+        modifier.fillMaxWidth()
+            .biliPressScale(interaction, pressedScale = .98f)
+            .aliMaterial(AliMaterial.Panel, MaterialTheme.shapes.medium, tinted = focused)
+            .background(if (hovered) colors.onSurface.copy(alpha = .04f) else Color.Transparent)
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = { onClick(item) },
+                onLongClick = {
+                    // 安卓没有右键/悬停：长按必须能打开菜单（稍后再看/屏蔽），
+                    // 否则这些操作在安卓完全不可达。桌面长按仍是封面预览。
+                    if (app.ailiaili.core.data.isDesktopHost()) {
+                        if (item.cover.isNotBlank()) previewCover = true
+                    } else {
+                        menuOpen = true
+                    }
                 },
+            )
+            .secondaryClick {
+                menuOpen = true
+            },
+    ) {
+        VideoCover(item)
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            VideoCover(item)
-            Column(
-                Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            Text(
+                item.title,
+                style = MaterialTheme.typography.titleSmall,
+                color = colors.onSurface,
+                minLines = 2,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val authorLink = if (item.author.isNotBlank()) {
+                Modifier.clip(RoundedCornerShape(50)).clickable(enabled = item.ownerMid > 0) { onAuthor(item) }
+            } else Modifier
+            Row(
+                modifier = Modifier.height(authorHeight).then(authorLink),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text(
-                    item.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    minLines = 2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (item.reason.isNotBlank()) {
-                    BiliBadge(
-                        text = item.reason,
-                        tone = BiliBadgeTone.Warning,
-                        style = BiliBadgeStyle.Soft,
-                    )
-                }
                 if (item.author.isNotBlank()) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .clickable(enabled = item.ownerMid > 0) { onAuthor(item) },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
+                    Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
                         if (item.ownerFace.isNotBlank()) {
                             AsyncImage(
                                 model = app.ailiaili.core.model.cdnThumb(item.ownerFace, 48),
                                 contentDescription = null,
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                                modifier = Modifier.matchParentSize().clip(CircleShape)
+                                    .background(colors.surfaceContainerHighest),
                                 contentScale = ContentScale.Crop,
                             )
                         } else {
@@ -228,63 +244,69 @@ fun VideoCard(
                                 Icons.Filled.Person,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = colors.onSurfaceVariant,
                             )
                         }
-                        if (item.authorFollowed) {
-                            BiliBadge(
-                                text = "已关注",
-                                tone = BiliBadgeTone.Accent,
-                                style = BiliBadgeStyle.Solid,
-                            )
-                        }
-                        Text(
-                            item.author,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    }
+                    Text(
+                        item.author,
+                        modifier = Modifier.weight(1f, fill = false),
+                        style = authorStyle,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (item.authorFollowed) {
+                        Text("已关注", color = colors.primary, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                     }
                 }
             }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                if (!item.isLive && item.aid > 0) {
-                    DropdownMenuItem(
-                        text = { Text(if (QuickActions.inLater(item)) "已在稍后再看" else "稍后再看") },
-                        onClick = {
-                            menuOpen = false
-                            QuickActions.addWatchLater(item)
-                        },
-                    )
-                }
-                if (item.cover.isNotBlank()) {
-                    DropdownMenuItem(
-                        text = { Text("预览封面") },
-                        onClick = {
-                            menuOpen = false
-                            previewCover = true
-                        },
-                    )
-                }
-                if (item.author.isNotBlank() || item.ownerMid > 0) {
-                    DropdownMenuItem(
-                        text = { Text("屏蔽此 UP 主") },
-                        onClick = {
-                            menuOpen = false
-                            ContentFilter.blockUp(item.ownerMid, item.author)
-                        },
-                    )
-                }
-                if (item.title.isNotBlank()) {
-                    DropdownMenuItem(
-                        text = { Text("屏蔽此标题") },
-                        onClick = {
-                            menuOpen = false
-                            ContentFilter.blockTitle(item.title)
-                        },
-                    )
-                }
+        }
+        AliStageMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            if (onDislike != null && !item.isLive && item.feedbackId.isNotBlank()) {
+                DropdownMenuItem(
+                    text = { Text("不感兴趣") },
+                    onClick = {
+                        menuOpen = false
+                        onDislike(item)
+                    },
+                )
+            }
+            if (!item.isLive && item.aid > 0) {
+                DropdownMenuItem(
+                    text = { Text(if (QuickActions.inLater(item)) "已在稍后再看" else "稍后再看") },
+                    onClick = {
+                        menuOpen = false
+                        QuickActions.addWatchLater(item)
+                    },
+                )
+            }
+            if (item.cover.isNotBlank()) {
+                DropdownMenuItem(
+                    text = { Text("预览封面") },
+                    onClick = {
+                        menuOpen = false
+                        previewCover = true
+                    },
+                )
+            }
+            if (item.author.isNotBlank() || item.ownerMid > 0) {
+                DropdownMenuItem(
+                    text = { Text("屏蔽此 UP 主") },
+                    onClick = {
+                        menuOpen = false
+                        ContentFilter.blockUp(item.ownerMid, item.author)
+                    },
+                )
+            }
+            if (item.title.isNotBlank()) {
+                DropdownMenuItem(
+                    text = { Text("屏蔽此标题") },
+                    onClick = {
+                        menuOpen = false
+                        ContentFilter.blockTitle(item.title)
+                    },
+                )
             }
         }
     }
@@ -306,8 +328,18 @@ private val CoverScrim = Brush.verticalGradient(
 @Composable
 private fun VideoCover(item: VideoItem) {
     val later = QuickActions.inLater(item)
+    val compactStats = LocalWindowForm.current.widthClass == WidthClass.Compact ||
+        LocalDensity.current.fontScale > 1.15f
     var hovered by remember(item.stableKey) { mutableStateOf(false) }
     var coverLoading by remember(item.cover) { mutableStateOf(true) }
+    val context = LocalPlatformContext.current
+    val reducedMotion = LocalAliReducedMotion.current
+    val image = remember(context, item.cover, reducedMotion) {
+        ImageRequest.Builder(context)
+            .data(app.ailiaili.core.model.cdnThumb(item.cover, 800, 500))
+            .crossfade(if (reducedMotion) 0 else 140)
+            .build()
+    }
     Box(
         Modifier
             .fillMaxWidth()
@@ -317,8 +349,7 @@ private fun VideoCover(item: VideoItem) {
             .hoverAware { hovered = it },
     ) {
         AsyncImage(
-            // 卡片封面最大也就 400dp 宽，2x 缩图足够清晰，流量省一个量级。
-            model = app.ailiaili.core.model.cdnThumb(item.cover, 800, 500),
+            model = image,
             contentDescription = item.title,
             modifier = Modifier.matchParentSize(),
             contentScale = ContentScale.Crop,
@@ -350,13 +381,17 @@ private fun VideoCover(item: VideoItem) {
                 .height(44.dp)
                 .background(CoverScrim),
         )
-        if (item.isLive) {
-            BiliBadge(
-                text = "直播中",
-                modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
-                tone = BiliBadgeTone.Accent,
-                style = BiliBadgeStyle.Solid,
-            )
+        if (item.isLive || item.reason.isNotBlank()) {
+            Column(
+                Modifier.align(Alignment.TopStart)
+                    .padding(start = 6.dp, top = 6.dp, end = if (!item.isLive && item.aid > 0) 42.dp else 6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (item.isLive) {
+                    BiliBadge("直播中", tone = BiliBadgeTone.Dark, style = BiliBadgeStyle.Solid)
+                }
+                BiliBadge(item.reason, tone = BiliBadgeTone.Dark, style = BiliBadgeStyle.Solid)
+            }
         }
         Row(
             Modifier
@@ -364,21 +399,28 @@ private fun VideoCover(item: VideoItem) {
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (item.isLive) {
-                formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
-                    CoverStat(Icons.Filled.Person, "$it 人气")
-                }
-            } else if (item.statsReady) {
-                formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
-                    CoverStat(Icons.Filled.PlayArrow, it)
-                }
-                formatCount(item.danmakuCount).takeIf { it.isNotBlank() }?.let {
-                    CoverStat(Icons.AutoMirrored.Filled.Comment, it)
+            Row(
+                Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (item.isLive) {
+                    formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
+                        CoverStat(Icons.Filled.Person, "$it 人气")
+                    }
+                } else if (item.statsReady) {
+                    formatCount(item.viewCount).takeIf { it.isNotBlank() }?.let {
+                        CoverStat(Icons.Filled.PlayArrow, it)
+                    }
+                    if (!compactStats) {
+                        formatCount(item.danmakuCount).takeIf { it.isNotBlank() }?.let {
+                            CoverStat(Icons.AutoMirrored.Filled.Comment, it)
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.weight(1f))
             val duration = item.durationText
             if (!item.isLive && duration.isNotBlank() && duration != "--:--") {
                 Text(
@@ -411,6 +453,7 @@ private fun CoverStat(icon: ImageVector, text: String) {
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

@@ -1,6 +1,7 @@
 package app.ailiaili.core.network
 
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -14,7 +15,7 @@ actual class HttpEngine actual constructor(
     connectTimeoutMs: Long,
     readTimeoutMs: Long,
 ) {
-    private val client = OkHttpClient.Builder()
+    private val baseClient = OkHttpClient.Builder()
         .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
         .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
         .callTimeout(readTimeoutMs + connectTimeoutMs, TimeUnit.MILLISECONDS)
@@ -25,6 +26,38 @@ actual class HttpEngine actual constructor(
         .dispatcher(sharedDispatcher)
         .build()
 
+    /**
+     * HTTP 代理热切换：设置变化后下一次请求即用新代理，无需重启。
+     * 解析失败（用户填了非法地址）按直连兜底，不让整个网络层瘫痪。
+     * newBuilder 复用连接池与调度器；代理不同的连接在池里按地址区分。
+     */
+    @Volatile private var proxyKey: String = app.ailiaili.core.model.effectiveProxy()
+    @Volatile private var activeClient: OkHttpClient = buildProxied(baseClient, proxyKey)
+    @Volatile private var activeDownload: OkHttpClient =
+        activeClient.newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).build()
+
+    private fun buildProxied(base: OkHttpClient, raw: String): OkHttpClient {
+        val addr = runCatching { app.ailiaili.core.model.parseProxyAddress(raw) }.getOrNull()
+            ?: return base
+        return base.newBuilder()
+            .proxy(java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress(addr.host, addr.port)))
+            .build()
+    }
+
+    private fun client(): OkHttpClient {
+        val key = app.ailiaili.core.model.effectiveProxy()
+        if (key != proxyKey) {
+            synchronized(this) {
+                if (key != proxyKey) {
+                    proxyKey = key
+                    activeClient = buildProxied(baseClient, key)
+                    activeDownload = activeClient.newBuilder().callTimeout(0, TimeUnit.MILLISECONDS).build()
+                }
+            }
+        }
+        return activeClient
+    }
+
     private companion object {
         val sharedPool = okhttp3.ConnectionPool(12, 5, TimeUnit.MINUTES)
         val sharedDispatcher = okhttp3.Dispatcher().apply {
@@ -34,10 +67,9 @@ actual class HttpEngine actual constructor(
     }
 
     /** 大文件下载不能受 API 的 callTimeout 限制。 */
-    private val downloadClient by lazy {
-        client.newBuilder()
-            .callTimeout(0, TimeUnit.MILLISECONDS)
-            .build()
+    private fun downloadClient(): OkHttpClient {
+        client()
+        return activeDownload
     }
 
 
@@ -59,7 +91,7 @@ actual class HttpEngine actual constructor(
         } else {
             builder.method(method, null)
         }
-        client.newCall(builder.build()).execute().use { resp ->
+        client().newCall(builder.build()).execute().use { resp ->
             return readResponse(resp, maxBytes)
         }
     }
@@ -73,7 +105,7 @@ actual class HttpEngine actual constructor(
             .url(url)
             .post(json.toRequestBody("application/json; charset=utf-8".toMediaType()))
         headers.forEach { (key, value) -> builder.header(key, value) }
-        client.newCall(builder.build()).execute().use { resp ->
+        client().newCall(builder.build()).execute().use { resp ->
             return readResponse(resp, null)
         }
     }
@@ -100,7 +132,7 @@ actual class HttpEngine actual constructor(
             .build()
         val builder = Request.Builder().url(url).post(body)
         headers.forEach { (key, value) -> builder.header(key, value) }
-        client.newCall(builder.build()).execute().use { resp ->
+        client().newCall(builder.build()).execute().use { resp ->
             return readResponse(resp, null)
         }
     }
@@ -109,127 +141,104 @@ actual class HttpEngine actual constructor(
         url: String,
         headers: Map<String, String>,
         filePath: String,
+        cancellation: DownloadCancellation?,
         onProgress: (downloaded: Long, total: Long) -> Unit,
     ) {
         val target = File(filePath)
         target.parentFile?.mkdirs()
-        // 同一目标的并发下载必须串行，避免字节交叉后 rename 成「完整」视频。
         val gate = downloadGates.getOrPut(target.absolutePath) { Any() }
         synchronized(gate) {
-            // 断点续传用稳定临时名（同目标已有互斥闸）：失败保留 .part，
-            // 下次 Range 从断点继续；URL 变了（换流/过期签名）则整段重下。
+            cancellation?.check()
             val temp = File("$filePath.part")
             val meta = File("$filePath.part.meta")
-            // meta 两行：URL + 已知总长（0 = 未知）。URL 变了（换流/过期签名）
-            // 则断点不可信，整段重下。
-            val metaLines = if (meta.isFile) runCatching { meta.readLines() }.getOrDefault(emptyList()) else emptyList()
-            val metaUrl = metaLines.getOrNull(0).orEmpty()
-            val metaTotal = metaLines.getOrNull(1)?.toLongOrNull() ?: 0L
-            var resumeFrom = if (temp.isFile && metaUrl == url) temp.length() else 0L
-            if (resumeFrom > 0 && metaTotal > 0 && resumeFrom >= metaTotal) {
-                // 上次其实下完了只是没改名：直接收尾。
-                if (!temp.renameTo(target)) {
-                    temp.copyTo(target, overwrite = true)
-                    temp.delete()
+            val saved = runCatching { meta.readLines() }.getOrDefault(emptyList())
+            val savedTotal = saved.getOrNull(1)?.toLongOrNull() ?: 0L
+            val validator = saved.getOrNull(2).orEmpty()
+            val sameSource = saved.firstOrNull() == url
+            val strongValidator = validator.length > 2 && validator.startsWith('"') && validator.endsWith('"')
+            val source = saved.firstOrNull()?.toHttpUrlOrNull()?.newBuilder()?.query(null)?.fragment(null)?.build()
+            val current = url.toHttpUrlOrNull()?.newBuilder()?.query(null)?.fragment(null)?.build()
+            val renewedSource = strongValidator && source != null && source == current
+            val offset = temp.length().takeIf {
+                (sameSource || renewedSource && it < savedTotal) && (savedTotal <= 0 || it <= savedTotal)
+            } ?: 0L
+            fun transfer(start: Long): Boolean {
+                val builder = Request.Builder().url(url).get()
+                headers.forEach { (key, value) -> builder.header(key, value) }
+                builder.header("Accept-Encoding", "identity")
+                if (start > 0) {
+                    builder.header("Range", "bytes=$start-")
+                    if (validator.isNotEmpty()) builder.header("If-Range", validator)
                 }
-                meta.delete()
-                onProgress(resumeFrom, metaTotal)
-                return
-            }
-            val builder = Request.Builder().url(url).get()
-            headers.forEach { (key, value) -> builder.header(key, value) }
-            if (resumeFrom > 0) builder.header("Range", "bytes=$resumeFrom-")
-            var knownTotal = 0L
-            try {
-                downloadClient.newCall(builder.build()).execute().use { resp ->
-                    when {
-                        resp.code == 416 -> {
-                            // 断点超出文件长度：本地残留不可信，整段重下。
-                            temp.delete()
-                            resumeFrom = 0
-                            val retry = Request.Builder().url(url).get()
-                            headers.forEach { (key, value) -> retry.header(key, value) }
-                            downloadClient.newCall(retry.build()).execute().use { again ->
-                                if (!again.isSuccessful) error("下载失败 ${again.code}")
-                                knownTotal = again.body?.contentLength() ?: 0L
-                                writeBody(again, temp, 0, onProgress)
+                val call = downloadClient().newCall(builder.build())
+                val consume = {
+                    call.execute().use { response ->
+                        if (response.code == 416 && start > 0) {
+                            false
+                        } else {
+                            check(response.isSuccessful) { "下载失败 HTTP ${response.code}" }
+                            val body = checkNotNull(response.body) { "下载响应为空" }
+                            val range = response.header("Content-Range")?.let(downloadRange::matchEntire)
+                            val suppliedValidator = response.header("ETag")?.takeUnless { it.startsWith("W/") }
+                                ?: response.header("Last-Modified").orEmpty()
+                            val partial = response.code == 206
+                            val end = range?.groupValues?.get(2)?.toLongOrNull()
+                            val total = if (partial) range?.groupValues?.get(3)?.toLongOrNull() ?: -1L else body.contentLength()
+                            val validRange = !partial || range?.groupValues?.get(1)?.toLongOrNull() == start &&
+                                end != null && end >= start && end == total - 1 &&
+                                (savedTotal <= 0 || start == 0L || total == savedTotal) &&
+                                (start == 0L || validator == suppliedValidator ||
+                                    sameSource && (validator.isEmpty() || suppliedValidator.isEmpty()))
+                            if (!validRange && start > 0) false else {
+                                check(validRange) { "下载响应的字节范围无效" }
+                                val base = if (partial) start else 0L
+                                if (base == 0L) {
+                                    check(!temp.exists() || temp.delete()) { "无法重置临时文件" }
+                                }
+                                val free = target.parentFile?.usableSpace ?: 0L
+                                if (free > 0L && total - base > free) throw DownloadStorageException()
+                                meta.writeText("$url\n$total\n${suppliedValidator.ifEmpty { if (base > 0) validator else "" }}")
+                                var written = base
+                                body.byteStream().use { input ->
+                                    java.io.FileOutputStream(temp, base > 0).use { output ->
+                                        val buffer = ByteArray(64 * 1024)
+                                        onProgress(written, total)
+                                        while (true) {
+                                            cancellation?.check()
+                                            val count = input.read(buffer)
+                                            if (count < 0) break
+                                            output.write(buffer, 0, count)
+                                            written += count
+                                            onProgress(written, total)
+                                        }
+                                    }
+                                }
+                                check(written > 0 && (total <= 0 || written == total)) { "下载文件长度不完整" }
+                                true
                             }
                         }
-                        resp.code == 206 -> {
-                            // 真续传：追加写。总长 = 已下 + 剩余（Content-Range 更准）。
-                            val rangeTotal = resp.header("Content-Range")
-                                ?.substringAfterLast('/')?.toLongOrNull()
-                            knownTotal = rangeTotal ?: (resumeFrom + (resp.body?.contentLength() ?: 0L))
-                            appendBody(resp, temp, resumeFrom, knownTotal, onProgress)
-                        }
-                        resp.isSuccessful -> {
-                            // 服务端无视 Range 回了 200：从头整段重下。
-                            resumeFrom = 0
-                            knownTotal = resp.body?.contentLength() ?: 0L
-                            writeBody(resp, temp, 0, onProgress)
-                        }
-                        else -> error("下载失败 ${resp.code}")
                     }
                 }
-                if (!temp.renameTo(target)) {
-                    temp.copyTo(target, overwrite = true)
-                    temp.delete()
-                }
-                meta.delete()
-            } catch (t: Throwable) {
-                // 保留 .part 供下次续传；meta 记下 URL 与总长，
-                // 下次可判断「已下完只差改名」或从断点继续。
-                runCatching { meta.writeText("$url\n${knownTotal.coerceAtLeast(0)}") }
-                throw t
+                return if (cancellation == null) consume() else cancellation.withRequest(call::cancel, consume)
             }
+
+            if (offset <= 0L || offset != savedTotal) {
+                if (!transfer(offset)) check(transfer(0)) { "下载无法重新开始" }
+            }
+            cancellation?.check()
+            try {
+                java.nio.file.Files.move(
+                    temp.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                java.nio.file.Files.move(temp.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            }
+            meta.delete()
         }
     }
 
-    private fun writeBody(
-        resp: okhttp3.Response,
-        temp: File,
-        base: Long,
-        onProgress: (Long, Long) -> Unit,
-    ) {
-        val body = resp.body ?: error("下载失败：响应为空")
-        val total = body.contentLength()
-        body.byteStream().use { input ->
-            temp.outputStream().use { output ->
-                val buffer = ByteArray(64 * 1024)
-                var downloaded = base
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    output.write(buffer, 0, read)
-                    downloaded += read
-                    onProgress(downloaded, total)
-                }
-            }
-        }
-    }
-
-    private fun appendBody(
-        resp: okhttp3.Response,
-        temp: File,
-        base: Long,
-        total: Long,
-        onProgress: (Long, Long) -> Unit,
-    ) {
-        val body = resp.body ?: error("下载失败：响应为空")
-        body.byteStream().use { input ->
-            java.io.FileOutputStream(temp, /* append = */ true).use { output ->
-                val buffer = ByteArray(64 * 1024)
-                var downloaded = base
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    output.write(buffer, 0, read)
-                    downloaded += read
-                    onProgress(downloaded, total)
-                }
-            }
-        }
-    }
+    private val downloadRange = Regex("bytes (\\d+)-(\\d+)/(\\d+)")
 
     /** 同目标下载互斥。条目数最多等于历史下载目标数，内存可忽略；
      *  不能在下载结束时移除：还在排队的第二个下载会拿到新锁失去互斥。 */
@@ -238,7 +247,7 @@ actual class HttpEngine actual constructor(
     actual fun openStream(url: String, headers: Map<String, String>): InputStream {
         val builder = Request.Builder().url(url).get()
         headers.forEach { (key, value) -> builder.header(key, value) }
-        val resp = client.newCall(builder.build()).execute()
+        val resp = client().newCall(builder.build()).execute()
         if (!resp.isSuccessful) {
             resp.close()
             error("请求失败 ${resp.code}")

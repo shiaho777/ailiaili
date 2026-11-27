@@ -4,6 +4,7 @@ import app.ailiaili.core.model.AppSettings
 import app.ailiaili.core.model.AudioQuality
 import app.ailiaili.core.model.BangumiDetail
 import app.ailiaili.core.model.BangumiItem
+import app.ailiaili.core.model.BlockedUp
 import app.ailiaili.core.model.Comment
 import app.ailiaili.core.model.CommentPage
 import app.ailiaili.core.model.ContentKind
@@ -11,6 +12,8 @@ import app.ailiaili.core.model.Danmaku
 import app.ailiaili.core.model.DynamicPage
 import app.ailiaili.core.model.FavFolder
 import app.ailiaili.core.model.FollowUser
+import app.ailiaili.core.model.HistoryCursor
+import app.ailiaili.core.model.HistoryPage
 import app.ailiaili.core.model.ItemPage
 import app.ailiaili.core.model.LivePlayInfo
 import app.ailiaili.core.model.LiveQuality
@@ -40,6 +43,7 @@ import app.ailiaili.core.model.ioDispatcher
 import app.ailiaili.core.model.searchReferer
 import app.ailiaili.core.model.searchType
 import app.ailiaili.core.model.signed
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -77,6 +81,8 @@ class BiliClient(
     private val getFlight = SingleFlight<String, String?>()
     /** 低频变化的只读接口短缓存；播放地址/动态/评论等实时接口绝不进这里。 */
     private val readCache = ShortTtlCache<String, String>()
+    private val followedSeasons = ShortTtlCache<String, ItemPage<BangumiItem>>()
+    private val followRevision = java.util.concurrent.atomic.AtomicLong()
     /** 私信设备号：同一进程保持稳定，与免登录指纹同一风控原则。 */
     private val msgDevId = randomHex(32)
     private var laterAids: Set<Long>? = null
@@ -221,7 +227,7 @@ class BiliClient(
         val items = data.arr("item")?.objects().orEmpty().mapNotNull(::parseRecommend)
         if (items.isEmpty()) error("推荐为空")
         items
-    }.recoverCatching { popular(1).getOrThrow() }
+    }.recoverCatching { popular(brush).getOrThrow() }
 
     private suspend fun recommendApp(brush: Int): List<VideoItem> {
         val data = get(
@@ -333,6 +339,51 @@ class BiliClient(
         parseBangumiDetail(seasonId, resp.data)
     }
 
+    suspend fun followedBangumi(page: Int, type: Int, fresh: Boolean = false): Result<ItemPage<BangumiItem>> = api {
+        val uid = session().dedeUserId?.takeIf { session().loggedIn } ?: error("请先登录")
+        val cacheKey = "$uid:$type:$page:${followRevision.get()}"
+        if (!fresh) followedSeasons.get(cacheKey)?.let { return@api it }
+        val response = get(
+            "https://api.bilibili.com/x/space/bangumi/follow/list",
+            mapOf("vmid" to uid, "pn" to page.toString(), "ps" to "30", "type" to type.toString()),
+        )
+        if (response.code != 0) error(friendly(response.code, response.message ?: "追番列表加载失败"))
+        val data = response.data ?: error("追番列表加载失败")
+        val rows = data.arr("list")?.objects().orEmpty()
+        val total = data.lng("total")
+        val result = ItemPage(
+            items = rows.mapNotNull(::parseBangumiItem),
+            hasMore = rows.isNotEmpty() && if (total > 0) page * 30L < total else rows.size >= 30,
+            total = total,
+        )
+        if (session().dedeUserId != uid) error("账号已切换")
+        followedSeasons.put(cacheKey, result, 3 * 60_000L)
+        result
+    }
+
+    suspend fun bangumiFollowed(seasonId: Long, type: Int): Result<Boolean> = api {
+        val uid = session().dedeUserId
+        if (!session().loggedIn) return@api false
+        var page = 1
+        val seen = mutableSetOf<Long>()
+        while (session().dedeUserId == uid) {
+            val result = followedBangumi(page, type).getOrThrow()
+            if (result.items.any { it.seasonId == seasonId }) return@api true
+            if (!result.hasMore) return@api false
+            val seenCount = seen.size
+            result.items.forEach { seen.add(it.seasonId) }
+            if (seen.size == seenCount) error("追番状态暂时无法确认")
+            page++
+        }
+        error("账号已切换")
+    }
+
+    suspend fun setBangumiFollow(seasonId: Long, followed: Boolean): Result<Unit> = postOk(
+        if (followed) "https://api.bilibili.com/pgc/web/follow/add" else "https://api.bilibili.com/pgc/web/follow/del",
+        mapOf("season_id" to seasonId.toString()),
+        referer = "https://www.bilibili.com/bangumi/play/ss$seasonId",
+    ).onSuccess { followRevision.incrementAndGet() }
+
     private suspend fun mediaFt(keyword: String, page: Int): List<BangumiItem> = runCatching {
         val resp = get(
             "https://api.bilibili.com/x/web-interface/search/type",
@@ -428,10 +479,12 @@ class BiliClient(
         // seek 不可靠，而 durl 是普通 MP4，拖动进度条一次到位。
         // 1080P 及以上继续走 DASH，避免被 durl 的 720P 上限锁死画质。
         // 听视频模式需要独立音轨，必须强制 DASH（durl 没有 audioUrl）。
-        if (!forceDash && app.ailiaili.core.model.shouldPreferDurl(qn)) {
-            parseDurl(bvid, cid, qn)?.let { return@api it }
-            // durl 取不到（多段切片/大会员/该档无源）时回落到 DASH，行为与旧版一致。
+        val single = if (!forceDash && app.ailiaili.core.model.shouldPreferDurl(qn)) {
+            parseDurl(bvid, cid, qn)
+        } else {
+            null
         }
+        if (single != null && single.actualQn == qn) return@api single
 
         val ps = mutableMapOf(
             "bvid" to bvid,
@@ -448,15 +501,65 @@ class BiliClient(
             ps["dm_cover_img_str"] = dmCoverImgStr
             ps["dm_img_inter"] = """{"ds":[],"wh":[0,0,0],"of":[0,0,0]}"""
         }
-        val resp = get("https://api.bilibili.com/x/player/wbi/playurl", ps, sign = true, transportRetry = false)
-        if (resp.code != 0) error(friendly(resp.code, resp.message ?: "获取播放地址失败"))
+        val resp = try {
+            get("https://api.bilibili.com/x/player/wbi/playurl", ps, sign = true, transportRetry = false)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            return@api single ?: throw failure
+        }
+        if (resp.code != 0) return@api single
+            ?: error(friendly(resp.code, resp.message ?: "获取播放地址失败"))
         val data = resp.data
         val dash = data?.obj("dash")
         if (dash != null) {
             val parsed = parseDash(dash, data.lng("timelength"), qn, settings)
-            if (parsed != null) return@api parsed
+            if (parsed != null && (single == null || parsed.actualQn >= single.actualQn)) return@api parsed
         }
-        parseDurl(bvid, cid, qn) ?: error(resp.message ?: "没有可播放的地址，可能是大会员或付费专属")
+        single ?: parseDurl(bvid, cid, qn) ?: error(resp.message ?: "没有可播放的地址，可能是大会员或付费专属")
+    }
+
+    /**
+     * 番剧/影视 PGC 取流（pgc/player/web/playurl，ep_id 链路）。
+     * 与 UGC 同一套 DASH 解析/CDN 选择/不可播档过滤；PGC 的 durl 常为多段切片，
+     * 单段限制会拒绝，因此只走 DASH（fnval=4048），失败交给上层回退 UGC bvid。
+     * 大会员/付费专属的错误文案由 friendly 与接口 message 透传。
+     */
+    suspend fun pgcPlayUrl(
+        epId: Long,
+        aid: Long,
+        cid: Long,
+        settings: AppSettings,
+        qnOverride: Int? = null,
+    ): Result<PlayInfo> = api {
+        ensureBuvid()
+        if (epId <= 0) error("没有番剧集号")
+        val qn = qnOverride?.coerceAtLeast(0)?.takeIf { it > 0 } ?: settings.defaultQn
+        val ps = mutableMapOf(
+            "ep_id" to epId.toString(),
+            "cid" to cid.toString(),
+            "qn" to qn.toString(),
+            "fnval" to "4048",
+            "fnver" to "0",
+            "fourk" to "1",
+            "module" to "bangumi",
+        )
+        if (aid > 0) ps["avid"] = aid.toString()
+        val resp = get(
+            "https://api.bilibili.com/pgc/player/web/playurl",
+            ps,
+            referer = "https://www.bilibili.com/bangumi/play/ep$epId",
+            bodyKey = "result",
+            transportRetry = false,
+        )
+        if (resp.code != 0) error(friendly(resp.code, resp.message ?: "获取番剧播放地址失败"))
+        val data = resp.data ?: error("没有可播放的地址，可能是大会员或付费专属")
+        val dash = data.obj("dash")
+        if (dash != null) {
+            parseDash(dash, data.lng("timelength"), qn, settings)?.let { return@api it }
+        }
+        // PGC 低清晰度可能只给 durl；单段才可用，多段切片拒绝后由上层回退。
+        decodeDurl(data) ?: error(resp.message ?: "没有可播放的地址，可能是大会员或付费专属")
     }
 
     /** 弹幕按 6 分钟一段。segmentIndex 从 1 开始。304 表示这一段是空的。 */
@@ -691,6 +794,45 @@ class BiliClient(
                 if (code != 0) error(commentFriendly(code, msg))
             }
         }
+
+    /** 发送弹幕。写操作不重试；表单校验在模型层纯函数里，可单测。 */
+    suspend fun sendDanmaku(aid: Long, cid: Long, text: String, progressMs: Long, mode: Int, color: Int): Result<Unit> =
+        withContext(ioDispatcher) {
+            runCatching {
+                val form = app.ailiaili.core.model.danmakuSendForm(aid, cid, text, progressMs, mode, color).getOrThrow()
+                val (code, msg) = postRaw("https://api.bilibili.com/x/v2/dm/post", form, REFERER)
+                if (code != 0) error(danmakuFriendly(code, msg))
+            }
+        }
+
+    /**
+     * 推荐流「不感兴趣」负反馈。需要登录；未登录时 UI 只做本地移除。
+     * 接口按 app 协议带 mobi_app/platform/build 参数，网页与 App 推荐源都可用。
+     */
+    suspend fun feedDislike(goto: String, id: String): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val form = app.ailiaili.core.model.feedDislikeForm(goto, id).getOrThrow().toMutableMap()
+            form["mobi_app"] = "android"
+            form["platform"] = "android"
+            form["build"] = "74800100"
+            val (code, msg) = postRaw("https://api.bilibili.com/x/feed/dislike", form, REFERER)
+            if (code != 0) error(friendly(code, msg ?: "反馈失败"))
+        }
+    }
+
+    /** 直播间发言。写操作不重试；接口同时认 csrf 与 csrf_token，两个都带上。 */
+    suspend fun sendLiveMsg(roomId: Long, text: String): Result<Unit> = withContext(ioDispatcher) {
+        runCatching {
+            val form = app.ailiaili.core.model.liveMsgSendForm(roomId, text).getOrThrow().toMutableMap()
+            form["csrf_token"] = session().biliJct.orEmpty()
+            val (code, msg) = postRaw(
+                "https://api.live.bilibili.com/msg/send",
+                form,
+                "https://live.bilibili.com/$roomId",
+            )
+            if (code != 0) error(liveMsgFriendly(code, msg))
+        }
+    }
 
     suspend fun dynamics(offset: String?): Result<DynamicPage> = api {
         ensureBuvid()
@@ -1047,22 +1189,53 @@ class BiliClient(
         ItemPage(folders, hasMore)
     }
 
-    suspend fun followings(mid: Long, page: Int): Result<ItemPage<FollowUser>> = api {
+    suspend fun blockedUsers(): Result<List<BlockedUp>> = api {
+        val uid = session().dedeUserId?.takeIf { session().loggedIn } ?: error("登录后可导入黑名单")
+        val users = linkedMapOf<Long, BlockedUp>()
+        var page = 1
+        while (users.size < 200) {
+            val response = get(
+                "https://api.bilibili.com/x/relation/blacks",
+                mapOf("pn" to page.toString(), "ps" to "50"),
+                sign = true,
+            )
+            if (response.code != 0) error(friendly(response.code, response.message ?: "黑名单加载失败"))
+            val data = response.data ?: error("黑名单加载失败")
+            val previousSize = users.size
+            val rows = data.arr("list")?.objects().orEmpty()
+            for (row in rows) {
+                val mid = row.lng("mid")
+                if (mid > 0) users[mid] = BlockedUp(mid, row.str("uname").ifBlank { row.str("name") })
+            }
+            val total = data.lng("total")
+            if (users.size == previousSize || rows.size < 50 || total > 0 && users.size >= total) break
+            page++
+        }
+        if (session().dedeUserId != uid) error("账号已切换")
+        users.values.take(200)
+    }
+
+    suspend fun followings(mid: Long, page: Int): Result<ItemPage<FollowUser>> = relations(mid, page, false)
+
+    suspend fun followers(mid: Long, page: Int): Result<ItemPage<FollowUser>> = relations(mid, page, true)
+
+    private suspend fun relations(mid: Long, page: Int, followers: Boolean): Result<ItemPage<FollowUser>> = api {
         if (!session().loggedIn) error("请先登录")
         ensureBuvid()
-        val ps = 30
+        val ps = if (followers) 20 else 30
+        val path = if (followers) "followers" else "followings"
         val resp = get(
-            "https://api.bilibili.com/x/relation/followings",
+            "https://api.bilibili.com/x/relation/$path",
             mapOf(
                 "vmid" to mid.toString(),
                 "pn" to page.toString(),
                 "ps" to ps.toString(),
                 "order" to "desc",
             ),
-            referer = "https://space.bilibili.com/$mid/fans/follow",
+            referer = "https://space.bilibili.com/$mid/fans/${if (followers) "fans" else "follow"}",
         )
         if (resp.code == -101) error("请先登录")
-        if (resp.code != 0) error(resp.message ?: "关注列表加载失败")
+        if (resp.code != 0) error(resp.message ?: if (followers) "粉丝列表加载失败" else "关注列表加载失败")
         val data = resp.data
         val users = data?.arr("list")?.objects().orEmpty().mapNotNull { user ->
             val id = user.lng("mid")
@@ -1076,7 +1249,7 @@ class BiliClient(
             )
         }
         val total = data?.int("total") ?: 0
-        ItemPage(users, if (total > 0) page * ps < total else users.size >= ps)
+        ItemPage(users, if (total > 0) users.isNotEmpty() && page.toLong() * ps < total else users.size >= ps, total.toLong())
     }
 
     /**
@@ -1177,33 +1350,27 @@ class BiliClient(
         return node.arr("rich_text_nodes")?.objects().orEmpty().joinToString("") { it.str("text") }.trim()
     }
 
-    private var liveHistoryViewAt = 0L
-    private var liveHistoryMax = 0L
-
-    suspend fun liveHistory(page: Int): Result<List<VideoItem>> = api {
+    suspend fun liveHistory(position: HistoryCursor?): Result<HistoryPage> = api {
         if (!session().loggedIn) error("云端历史需要登录")
         ensureBuvid()
-        if (page <= 1) {
-            liveHistoryViewAt = 0
-            liveHistoryMax = 0
-        }
         val ps = mutableMapOf(
             "type" to "live",
             "ps" to "20",
         )
-        if (page > 1 && liveHistoryViewAt > 0) {
-            ps["view_at"] = liveHistoryViewAt.toString()
-            ps["max"] = liveHistoryMax.toString()
+        if (position != null) {
+            ps["view_at"] = position.viewAt.toString()
+            ps["max"] = position.max.toString()
+            if (position.business.isNotBlank()) ps["business"] = position.business
         }
         val data = get(
             "https://api.bilibili.com/x/web-interface/history/cursor",
             ps,
             referer = "https://www.bilibili.com/account/history",
         ).data ?: error("直播历史加载失败")
-        val cursor = data.obj("cursor")
-        liveHistoryViewAt = cursor?.lng("view_at") ?: 0
-        liveHistoryMax = cursor?.lng("max") ?: 0
-        data.arr("list")?.objects().orEmpty().mapNotNull { h ->
+        val next = data.obj("cursor")?.let { HistoryCursor(it.lng("max"), it.lng("view_at"), it.str("business")) }
+            ?.takeIf { it.viewAt > 0 && it != position }
+        val rows = data.arr("list")?.objects().orEmpty()
+        val items = rows.mapNotNull { h ->
             var roomId = h.lng("kid")
             if (roomId <= 0) roomId = h.obj("history")?.lng("oid") ?: 0
             if (roomId <= 0) return@mapNotNull null
@@ -1227,9 +1394,10 @@ class BiliClient(
                 pubdate = h.lng("view_at"),
             )
         }
+        HistoryPage(items, rows.isNotEmpty() && next != null, next)
     }
 
-    suspend fun history(page: Int): Result<List<VideoItem>> = api {
+    suspend fun history(page: Int): Result<HistoryPage> = api {
         if (!session().loggedIn) error("云端历史需要登录")
         ensureBuvid()
         val data = get(
@@ -1238,11 +1406,8 @@ class BiliClient(
             sign = true,
             referer = "https://www.bilibili.com/account/history",
         ).data ?: error("历史加载失败")
-        val arr = when (data) {
-            else -> data.arr("list") ?: if (data.opt("list") == null && data.has("length")) null else null
-        }
-        val raw = arr?.objects() ?: emptyList()
-        raw.mapNotNull { h ->
+        val raw = data.arr("list")?.objects().orEmpty()
+        val items = raw.mapNotNull { h ->
             val bvid = h.str("bvid").ifBlank { h.obj("history")?.str("bvid").orEmpty() }
             if (bvid.isBlank()) return@mapNotNull null
             val cover = h.str("pic").ifBlank { h.str("cover") }
@@ -1260,6 +1425,7 @@ class BiliClient(
                 pubdate = h.lng("view_at"),
             )
         }
+        HistoryPage(items, raw.size >= 30)
     }
 
     suspend fun deleteHistory(id: Long, live: Boolean = false): Result<Unit> = postOk(
@@ -1283,7 +1449,12 @@ class BiliClient(
             referer = "https://space.bilibili.com/$mid/favlist",
         ).data ?: error("收藏夹加载失败")
         data.arr("list")?.objects().orEmpty().map {
-            FavFolder(it.lng("id"), it.str("title"), it.int("media_count"))
+            FavFolder(
+                id = it.lng("id"),
+                title = it.str("title"),
+                count = it.int("media_count"),
+                privateFolder = (it.lng("attr") and 2L) != 0L,
+            )
         }
     }
 
@@ -1311,14 +1482,22 @@ class BiliClient(
         }
     }
 
-    suspend fun favVideos(mediaId: Long, page: Int): Result<List<VideoItem>> = api {
+    suspend fun favVideos(mediaId: Long, page: Int, keyword: String = ""): Result<ItemPage<VideoItem>> = api {
         val mid = session().dedeUserId.orEmpty()
-        val data = get(
+        val params = mapOf(
+            "media_id" to mediaId.toString(), "pn" to page.toString(), "ps" to "20",
+            "keyword" to keyword.trim(), "order" to "mtime", "type" to "0", "tid" to "0",
+            "platform" to "web", "web_location" to "333.1387",
+        )
+        val response = get(
             "https://api.bilibili.com/x/v3/fav/resource/list",
-            mapOf("media_id" to mediaId.toString(), "pn" to page.toString(), "ps" to "20"),
+            params,
+            sign = true,
             referer = "https://space.bilibili.com/$mid/favlist?fid=$mediaId",
-        ).data ?: error("收藏加载失败")
-        data.arr("medias")?.objects().orEmpty().mapNotNull { m ->
+        )
+        if (response.code != 0) error(friendly(response.code, response.message ?: "收藏加载失败"))
+        val data = response.data ?: error("收藏加载失败")
+        val items = data.arr("medias")?.objects().orEmpty().mapNotNull { m ->
             val bvid = m.str("bvid")
             if (bvid.isBlank()) return@mapNotNull null
             VideoItem(
@@ -1334,7 +1513,35 @@ class BiliClient(
                 viewCount = m.obj("cnt_info")?.lng("play") ?: 0,
             )
         }
+        ItemPage(items, data.optBoolean("has_more"), data.obj("info")?.lng("media_count") ?: 0)
     }
+
+    suspend fun createFavFolder(title: String, privateFolder: Boolean): Result<FavFolder?> = api {
+        val name = title.trim()
+        require(name.length in 1..20) { "收藏夹名称需要 1–20 字" }
+        val account = session()
+        val csrf = account.biliJct?.takeIf { it.isNotBlank() } ?: error("请先登录")
+        val form = mapOf(
+            "title" to name, "intro" to "", "privacy" to if (privateFolder) "1" else "0",
+            "platform" to "web", "web_location" to "333.1387", "csrf" to csrf,
+        )
+        val response = http.post(
+            "https://api.bilibili.com/x/v3/fav/folder/add",
+            form,
+            defaultHeaders("https://space.bilibili.com/${account.dedeUserId}/favlist", account.cookieHeader()),
+        ).bodyText.let(::JSONObject)
+        val code = response.optInt("code", -999)
+        if (code != 0) error(friendly(code, response.str("message").ifBlank { "新建收藏夹失败" }))
+        val data = response.obj("data")
+        val id = data?.lng("id") ?: 0
+        if (id <= 0) null else FavFolder(id, name, 0, privateFolder = privateFolder)
+    }
+
+    suspend fun deleteFavFolder(mediaId: Long): Result<Unit> = postOk(
+        "https://api.bilibili.com/x/v3/fav/folder/del",
+        mapOf("media_ids" to mediaId.toString(), "platform" to "web"),
+        referer = "https://space.bilibili.com/${session().dedeUserId}/favlist",
+    )
 
     suspend fun videoFavFolders(aid: Long): Result<List<FavFolder>> = api {
         if (aid <= 0) error("缺少稿件号")
@@ -1532,6 +1739,47 @@ class BiliClient(
     suspend fun sendMsg(receiverId: Long, text: String): Result<Unit> =
         sendMsgRaw(receiverId, type = 1, content = JSONObject().put("content", text).toString())
 
+    suspend fun commentEmotes(): Result<List<Pair<String, String>>> = api {
+        if (!session().loggedIn) error("表情需要登录")
+        val response = get(
+            "https://api.bilibili.com/x/emote/user/panel/web",
+            mapOf("business" to "reply"),
+            cacheTtlMs = 30 * 60_000L,
+        )
+        if (response.code != 0) error(friendly(response.code, response.message ?: "表情加载失败"))
+        response.data?.arr("packages")?.objects().orEmpty().flatMap { pack ->
+            pack.arr("emote")?.objects().orEmpty().mapNotNull { emote ->
+                val text = emote.str("text")
+                val url = normalizeUrl(emote.str("url"))
+                if (emote.int("type") == 4 || text.isBlank() || !url.startsWith("https://")) null else text to url
+            }
+        }.distinctBy { it.first }
+    }
+
+    suspend fun unreadMessages(): Result<Int> = api {
+        if (!session().loggedIn) return@api 0
+        coroutineScope {
+            val notifications = async {
+                get(
+                    "https://api.bilibili.com/x/msgfeed/unread",
+                    mapOf("build" to "0", "mobi_app" to "web"),
+                    referer = "https://message.bilibili.com/",
+                ).data
+            }
+            val messages = async {
+                get(
+                    "https://api.vc.bilibili.com/session_svr/v1/session_svr/single_unread",
+                    mapOf("unread_type" to "0", "show_unfollow_list" to "0", "show_dustbin" to "0", "build" to "0", "mobi_app" to "web"),
+                    referer = "https://message.bilibili.com/",
+                ).data
+            }
+            val notice = notifications.await()
+            val chat = messages.await()
+            (notice?.let { maxOf(it.int("reply"), it.int("recv_reply")) + it.int("at") + maxOf(it.int("like"), it.int("recv_like")) } ?: 0) +
+                (chat?.let { it.int("follow_unread") + it.int("unfollow_unread") } ?: 0)
+        }
+    }
+
     /** 私信表情面板（B 站官方表情包），key 是 [xxx] 短代码。基本不变，缓存 1 小时。 */
     suspend fun msgEmotes(): Result<List<Pair<String, String>>> = api {
         val data = get(
@@ -1709,14 +1957,15 @@ class BiliClient(
         )
         if (resp.code != 0) error(friendly(resp.code, resp.message ?: "弹幕服务器信息获取失败"))
         val data = resp.data ?: error("弹幕服务器信息获取失败")
-        val host = data.arr("host_list")?.optJSONObject(0) ?: error("弹幕服务器列表为空")
-        val name = host.str("host")
-        if (name.isBlank()) error("弹幕服务器地址为空")
-        LiveDanmakuInfo(
-            host = name,
-            port = host.int("wss_port").takeIf { it > 0 } ?: 443,
-            token = data.str("token"),
-        )
+        val endpoints = data.arr("host_list")?.objects().orEmpty().mapNotNull { server ->
+            val host = server.str("host").trim()
+            if (host.isBlank()) null else LiveDanmakuEndpoint(
+                host = host,
+                port = server.int("wss_port").takeIf { it in 1..65535 } ?: 443,
+            )
+        }.distinct()
+        if (endpoints.isEmpty()) error("弹幕服务器列表为空")
+        LiveDanmakuInfo(endpoints, data.str("token"))
     }
 
     fun liveDanmaku(roomId: Long): Flow<LiveDanmaku> = flow {
@@ -1724,8 +1973,7 @@ class BiliClient(
         val uid = session().dedeUserId?.toLongOrNull() ?: 0L
         emitAll(
             LiveDanmakuConnection(
-                host = info.host,
-                port = info.port,
+                endpoints = info.endpoints,
                 token = info.token,
                 roomId = roomId,
                 uid = uid,
@@ -1916,9 +2164,11 @@ class BiliClient(
     }
 
     private suspend fun <T> api(block: suspend () -> T): Result<T> = withContext(ioDispatcher) {
-        runCatching { block() }.recoverCatching { e ->
-            if (e is ApiException) throw e
-            throw ApiException(e.message ?: "请求失败")
+        val result = runCatching { block() }
+        when (val error = result.exceptionOrNull()) {
+            null, is ApiException -> result
+            is CancellationException -> throw error
+            else -> Result.failure(ApiException(error.message ?: "请求失败"))
         }
     }
 
@@ -2109,6 +2359,39 @@ class BiliClient(
         else -> msg?.takeIf { it.isNotBlank() } ?: friendly(code, "操作失败")
     }
 
+    private fun liveMsgFriendly(code: Int, msg: String?): String = when (code) {
+        -101 -> "请先登录后再发言"
+        -111 -> "登录状态已失效，请重新登录"
+        -400 -> "发言内容不合规，换个说法试试"
+        -403 -> "当前账号在这个直播间被禁言"
+        -412, -509 -> "发言太频繁，请稍后再试"
+        11000 -> "发言失败，请稍后再试"
+        else -> msg?.takeIf { it.isNotBlank() } ?: friendly(code, "发言失败")
+    }
+
+    private fun danmakuFriendly(code: Int, msg: String?): String = when (code) {
+        -101 -> "请先登录后再发弹幕"
+        -111 -> "登录状态已失效，请重新登录"
+        -400 -> "弹幕内容不合规，换个说法试试"
+        -403 -> "当前账号没有发弹幕的权限（可能需要答题转正）"
+        -412, -509 -> "发送太频繁，请稍后再试"
+        36701 -> "弹幕包含被屏蔽的内容"
+        36702 -> "弹幕最长 100 个字"
+        36703 -> "发送太频繁，请稍后再试"
+        36704 -> "禁止向未过审的视频发送弹幕"
+        36705 -> "您的等级不足，暂时不能发弹幕"
+        36706 -> "发送太频繁，请稍后再试"
+        36707 -> "该视频禁止发送弹幕"
+        36708 -> "该视频弹幕已满"
+        36709 -> "弹幕不能为空"
+        36710 -> "当前账号没有发弹幕的权限"
+        36711 -> "该视频不允许发送这种类型的弹幕"
+        36712 -> "当前等级不能发送彩色弹幕"
+        36713 -> "当前等级不能发送这种模式的弹幕"
+        36714 -> "弹幕发送时间不合法"
+        else -> msg?.takeIf { it.isNotBlank() } ?: friendly(code, "弹幕发送失败")
+    }
+
     private fun friendly(code: Int, fallback: String): String = when (code) {
         -101 -> "请先登录"
         -111 -> "登录状态已失效，请重新登录"
@@ -2184,7 +2467,7 @@ class BiliClient(
         return PlayInfo(
             videoUrl = videoUrl,
             audioUrl = selectedAudio?.url,
-            backupUrls = videoCands.filter { it != videoUrl },
+            backupUrls = CdnPicker.retryOrder(videoCands.filter { it != videoUrl }),
             durationMs = durationMs,
             qualities = qualities,
             actualQn = bestId,

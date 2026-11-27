@@ -65,6 +65,18 @@ object ContentFilter {
         save()
     }
 
+    fun importBlockedUps(rules: List<BlockedUp>): Int {
+        val existing = blockedUps.map { it.mid }.toMutableSet()
+        val additions = rules.filter { it.mid > 0 && existing.add(it.mid) }
+            .take((200 - blockedUps.size).coerceAtLeast(0))
+            .map { it.copy(name = it.name.trim().take(80)) }
+        if (additions.isNotEmpty()) {
+            blockedUps = blockedUps + additions
+            save()
+        }
+        return additions.size
+    }
+
     fun blockTitle(title: String) {
         val safe = title.trim().take(200)
         if (safe.isBlank() || safe in blockedTitles) return

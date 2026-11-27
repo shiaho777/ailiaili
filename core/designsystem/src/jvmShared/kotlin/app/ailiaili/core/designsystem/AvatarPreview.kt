@@ -23,11 +23,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,7 +37,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -128,7 +125,7 @@ fun AvatarPreviewDialog(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(AliColors.StageMedia)
                 .focusRequester(focus)
                 .focusable()
                 .onPreviewKeyEvent { event ->
@@ -180,35 +177,23 @@ fun AvatarPreviewDialog(
             )
             if (pages.size > 1) {
                 if (index > 0) {
-                    IconButton(
-                        onClick = { turn(-1) },
-                        modifier = Modifier.align(Alignment.CenterStart).padding(8.dp),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "上一张",
-                            tint = Color.White,
-                        )
-                    }
+                    AliStageIconButton(
+                        Icons.AutoMirrored.Filled.ArrowBack, "上一张", { turn(-1) },
+                        modifier = Modifier.align(Alignment.CenterStart).padding(8.dp), onMedia = true,
+                    )
                 }
                 if (index < pages.lastIndex) {
-                    IconButton(
-                        onClick = { turn(1) },
-                        modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowForward,
-                            contentDescription = "下一张",
-                            tint = Color.White,
-                        )
-                    }
+                    AliStageIconButton(
+                        Icons.AutoMirrored.Filled.ArrowForward, "下一张", { turn(1) },
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(8.dp), onMedia = true,
+                    )
                 }
             }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .align(Alignment.TopCenter)
-                    .background(Color.Black.copy(alpha = 0.45f))
+                    .aliVideoScrim(top = true)
                     .systemBarsPadding()
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -218,22 +203,20 @@ fun AvatarPreviewDialog(
                         append(name.ifBlank { "图片预览" })
                         if (pages.size > 1) append(" · ${index + 1}/${pages.size}")
                     },
-                    color = Color.White,
+                    color = AliColors.StageInk,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.titleSmall,
                 )
-                TextButton(onClick = {
+                AliStageIconButton(Icons.Filled.Download, "保存图片", onClick = {
                     scope.launch {
                         val message = saveImage(current, name)
                         onSaved(message)
                         onDismiss()
                     }
-                }) { Text("保存", color = Color.White) }
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "关闭", tint = Color.White)
-                }
+                }, onMedia = true)
+                AliStageIconButton(Icons.Filled.Close, "关闭预览", onDismiss, onMedia = true)
             }
             Text(
                 text = when {
@@ -241,9 +224,10 @@ fun AvatarPreviewDialog(
                     pages.size > 1 -> "左右滑动切换 · 双击放大 · 双指/滚轮缩放"
                     else -> "双击放大 · 双指/滚轮缩放"
                 },
-                color = Color.White.copy(alpha = 0.7f),
+                color = AliColors.StageMuted,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .aliVideoScrim(top = false)
                     .systemBarsPadding()
                     .padding(16.dp),
                 style = MaterialTheme.typography.bodySmall,

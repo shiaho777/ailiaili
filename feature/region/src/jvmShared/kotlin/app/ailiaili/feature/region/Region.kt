@@ -1,6 +1,8 @@
 package app.ailiaili.feature.region
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,40 +10,67 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import app.ailiaili.core.designsystem.BiliBackHeader
-import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.AliMaterial
+import app.ailiaili.core.designsystem.aliMaterial
+import app.ailiaili.core.designsystem.AliStageBody
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStageNotice
+import app.ailiaili.core.designsystem.AliStagePageHeader
+import app.ailiaili.core.designsystem.AliStageTabs
+import app.ailiaili.core.designsystem.BiliPaginationFooter
+import app.ailiaili.core.designsystem.BiliSearchField
+import app.ailiaili.core.designsystem.BiliSectionHeader
+import app.ailiaili.core.designsystem.LocalWheelSpeed
+import app.ailiaili.core.designsystem.MetaRow
+import app.ailiaili.core.designsystem.MetaSpec
+import app.ailiaili.core.designsystem.MetricTone
+import app.ailiaili.core.designsystem.VideoListRow
+import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.designsystem.BiliFloatButton
-import app.ailiaili.core.designsystem.BiliHeaderAction
-import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.FilterAutoLoad
-import app.ailiaili.core.designsystem.shellNavigationBottom
+import app.ailiaili.core.designsystem.shellBottomClearance
 import androidx.compose.material3.Surface
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -113,20 +142,47 @@ class RegionViewModel(private val tid: Int) : ViewModel() {
 
 @Composable
 fun RegionPickerRoute(onPick: (Partition) -> Unit, onSearch: () -> Unit) {
-    val navBottom = shellNavigationBottom()
+    val navBottom = shellBottomClearance()
+    val grid = rememberLazyGridState()
+    var query by rememberSaveable { mutableStateOf("") }
+    val focus = LocalFocusManager.current
+    val parts = remember(query) {
+        val keyword = query.trim()
+        PartitionCatalog.all.filter { it.name.contains(keyword, ignoreCase = true) }
+    }
+    LaunchedEffect(parts) { if (parts.isNotEmpty()) grid.scrollToItem(0) }
     Column(Modifier.fillMaxSize()) {
-        BiliPageHeader("分区") {
-            BiliHeaderAction(Icons.Filled.Search, "搜索", onSearch)
+        AliStagePageHeader("分区") {
+            AliStageIconButton(Icons.Filled.Search, "全站搜索", onSearch)
         }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(150.dp),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp + navBottom),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            items(PartitionCatalog.all, key = { it.tid }) { part ->
-                PartitionTile(part, onClick = { onPick(part) })
+        AliStageBody(Modifier.weight(1f), maxWidth = 1040.dp) {
+            BiliSearchField(
+                value = query,
+                onValueChange = { query = it },
+                onSearch = { focus.clearFocus() },
+                placeholder = "查找分区",
+                accessibilityLabel = "查找分区",
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 9.dp),
+            )
+            if (parts.isEmpty()) {
+                AliStageNotice("没有匹配的分区", null, Icons.Filled.GridView, actionLabel = "清除搜索", onAction = { query = "" })
+            } else {
+                BiliSectionHeader(
+                    if (query.isBlank()) "全部分区" else "匹配的分区",
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                )
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(132.dp),
+                    state = grid,
+                    modifier = Modifier.fillMaxSize().smoothWheelScroll(grid, LocalWheelSpeed.current),
+                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 16.dp + navBottom),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
+                ) {
+                    gridItems(parts, key = { it.tid }) { part ->
+                        PartitionTile(part, onClick = { onPick(part) })
+                    }
+                }
             }
         }
     }
@@ -134,31 +190,32 @@ fun RegionPickerRoute(onPick: (Partition) -> Unit, onSearch: () -> Unit) {
 
 @Composable
 private fun PartitionTile(part: Partition, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
     val tint = Color(part.tint)
     Surface(
         onClick = onClick,
+        modifier = Modifier.aliMaterial(AliMaterial.Panel, MaterialTheme.shapes.large),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        color = Color.Transparent,
+        contentColor = colors.onSurface,
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().heightIn(min = 67.dp).padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(tint.copy(alpha = 0.18f), MaterialTheme.shapes.medium),
+                Modifier.size(33.dp).background(tint.copy(alpha = .16f), CircleShape)
+                    .border(1.dp, tint.copy(alpha = .31f), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(part.initial, color = tint, style = MaterialTheme.typography.titleMedium)
+                Text(part.initial, color = colors.onSurface, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
             }
             Text(
-                part.name,
-                modifier = Modifier.padding(start = 12.dp),
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
+                part.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(14.dp), tint = colors.onSurfaceVariant)
         }
     }
 }
@@ -175,76 +232,103 @@ fun RegionRoute(
 ) {
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var listMode by rememberSaveable(tid) { mutableStateOf(false) }
+    val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
+    val canLoadMore = vm.hasMore && vm.error == null
+    val footer: (@Composable () -> Unit)? = if (vm.hasMore && vm.items.isNotEmpty()) {
+        { BiliPaginationFooter(vm.loadingMore, vm.error, vm::loadMore) }
+    } else null
+    if (listMode && canLoadMore) {
+        LaunchedEffect(listState, shown.size) {
+            snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }.collect { last ->
+                if (last >= 0 && last >= shown.size - 4) vm.loadMore()
+            }
+        }
+    }
     Scaffold(
         topBar = {
-            BiliBackHeader(name, onBack) {
-                BiliHeaderAction(Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading)
+            Column {
+                AliStagePageHeader(name, onBack = onBack) {
+                    AliStageIconButton(Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading)
+                }
+                AliStageTabs(
+                    labels = listOf("封面", "列表"),
+                    selected = if (listMode) 1 else 0,
+                    onSelect = { listMode = it == 1 },
+                    modifier = Modifier.widthIn(max = 290.dp).fillMaxWidth().padding(horizontal = 12.dp),
+                )
             }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            Column(Modifier.fillMaxSize()) {
-                val shown = app.ailiaili.core.designsystem.rememberFilteredVideos(vm.items)
-                FilterAutoLoad(
-                    shownEmpty = vm.items.isNotEmpty() && shown.isEmpty(),
-                    hasMore = vm.hasMore,
-                    loading = vm.loading || vm.loadingMore,
-                    onLoadMore = vm::loadMore,
-                )
-                LoadBox(
-                    vm.loading || vm.loadingMore,
-                    if (vm.items.isNotEmpty()) null else vm.error,
-                    shown.isEmpty(),
-                    "这个分区暂时没有内容",
-                    vm::reload,
-                    Modifier.weight(1f),
-                ) {
-                    if (shown.isEmpty()) {
-                        BiliEmptyState(
-                            title = "这一页都被屏蔽了",
-                            message = ContentFilter.summary(),
-                            icon = Icons.Filled.FilterList,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else VideoGrid(
-                        shown,
-                        onVideo,
-                        onAuthor,
-                        onLoadMore = if (vm.hasMore) vm::loadMore else null,
-                        state = gridState,
+            FilterAutoLoad(
+                shownEmpty = vm.items.isNotEmpty() && shown.isEmpty(),
+                hasMore = canLoadMore,
+                loading = vm.loading || vm.loadingMore,
+                onLoadMore = vm::loadMore,
+            )
+            LoadBox(
+                vm.loading || vm.loadingMore,
+                vm.error.takeIf { vm.items.isEmpty() },
+                vm.items.isEmpty(),
+                "这个分区暂时没有内容",
+                vm::reload,
+            ) {
+                when {
+                    shown.isEmpty() -> Column(Modifier.fillMaxWidth()) {
+                        AliStageNotice("这些视频已被屏蔽", ContentFilter.summary(), Icons.Filled.FilterList)
+                        footer?.invoke()
+                    }
+                    listMode -> AliStageBody {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize().smoothWheelScroll(listState, LocalWheelSpeed.current),
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp),
+                        ) {
+                            items(shown, key = { it.stableKey }) { video ->
+                                VideoListRow(
+                                    title = video.title,
+                                    cover = video.cover,
+                                    onClick = { onVideo(video) },
+                                    badge = video.durationText,
+                                    author = video.author,
+                                    ownerMid = video.ownerMid,
+                                    aid = video.aid,
+                                    coverWidth = 104.dp,
+                                    panel = true,
+                                    meta = {
+                                        if (video.author.isNotBlank()) {
+                                            MetaRow(
+                                                listOf(MetaSpec(Icons.Filled.Person, video.author, MetricTone.Neutral)),
+                                                modifier = Modifier.clickable(enabled = video.ownerMid > 0) { onAuthor(video) },
+                                            )
+                                        }
+                                    },
+                                )
+                            }
+                            if (footer != null) item { footer() }
+                        }
+                    }
+                    else -> VideoGrid(
+                        shown, onVideo, onAuthor, state = gridState,
+                        onLoadMore = if (canLoadMore) vm::loadMore else null,
+                        footer = footer,
                     )
                 }
-                val moreError = vm.error
-                if (moreError != null && vm.items.isNotEmpty()) {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .clip(MaterialTheme.shapes.medium)
-                            .background(MaterialTheme.colorScheme.errorContainer)
-                            .padding(start = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            moreError,
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        TextButton(onClick = vm::loadMore) { Text("重试") }
-                    }
-                }
             }
-            Column(
-                Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                BiliFloatButton(Icons.Filled.Refresh, "刷新", onClick = vm::reload)
+            val away = if (listMode) listState.firstVisibleItemIndex > 0 else gridState.firstVisibleItemIndex > 0
+            if (away) {
                 BiliFloatButton(
                     Icons.Filled.KeyboardArrowUp,
                     "回到顶部",
-                    onClick = { scope.launch { gridState.animateScrollToItem(0) } },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    onClick = {
+                        scope.launch {
+                            if (listMode) listState.animateScrollToItem(0) else gridState.animateScrollToItem(0)
+                        }
+                    },
                 )
             }
         }

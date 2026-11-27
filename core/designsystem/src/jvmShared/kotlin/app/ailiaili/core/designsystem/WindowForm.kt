@@ -25,7 +25,7 @@ data class WindowForm(
     val splitPlayer: Boolean get() = widthClass == WidthClass.Expanded && height >= 560.dp
 
     val gridMin: Dp get() = when (widthClass) {
-        WidthClass.Compact -> 168.dp
+        WidthClass.Compact -> 140.dp
         WidthClass.Medium -> 188.dp
         WidthClass.Expanded -> 220.dp
     }

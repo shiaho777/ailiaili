@@ -1,6 +1,7 @@
 package app.ailiaili.feature.dynamic
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,15 +14,19 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,8 +35,7 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.Button
-import app.ailiaili.core.designsystem.BiliFilterChip
+import app.ailiaili.core.designsystem.BiliPrimaryButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,6 +57,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,8 +71,10 @@ import app.ailiaili.core.designsystem.BiliBadgeTone
 import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.ContentFilter
 import app.ailiaili.core.designsystem.FilterAutoLoad
-import app.ailiaili.core.designsystem.BiliHeaderAction
-import app.ailiaili.core.designsystem.BiliPageHeader
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStagePageHeader
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.AliStageTabs
 import app.ailiaili.core.designsystem.BiliSearchField
 import app.ailiaili.core.designsystem.LoadBox
 import app.ailiaili.core.designsystem.MetaRow
@@ -76,7 +83,7 @@ import app.ailiaili.core.designsystem.MetricTone
 import app.ailiaili.core.designsystem.VideoGrid
 import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.designsystem.smoothWheelScroll
-import app.ailiaili.core.designsystem.shellNavigationBottom
+import app.ailiaili.core.designsystem.shellBottomClearance
 import app.ailiaili.core.model.FollowUser
 import app.ailiaili.core.model.VideoItem
 import app.ailiaili.core.model.formatCount
@@ -357,32 +364,20 @@ class DynamicViewModel : ViewModel() {
     private fun updateUnread(source: List<VideoItem>) {
         if (users.isEmpty()) return
         // 动态流按时间倒序，每个 UP 先遇到的就是最新一条。
-        val newest = LinkedHashMap<Long, String>()
-        source.forEach { item ->
-            if (item.ownerMid > 0 && item.bvid.isNotBlank() && !newest.containsKey(item.ownerMid)) {
-                newest[item.ownerMid] = item.bvid
-            }
-        }
+        val byOwner = source.filter { it.ownerMid > 0 && it.bvid.isNotBlank() }.groupBy { it.ownerMid }
         val next = unread.toMutableMap()
         users.forEach { user ->
-            val top = newest[user.mid] ?: return@forEach
+            val ordered = byOwner[user.mid] ?: return@forEach
+            val top = ordered.first().bvid
             val seen = AppGraph.dynamicSeen.seen(user.mid)
             if (seen == null) {
                 AppGraph.dynamicSeen.put(user.mid, top)
                 next.remove(user.mid)
-                return@forEach
+            } else {
+                val seenIndex = ordered.indexOfFirst { it.bvid == seen }
+                val count = if (seenIndex < 0) ordered.size else seenIndex
+                if (count > 0) next[user.mid] = count else next.remove(user.mid)
             }
-            if (seen == top) {
-                next.remove(user.mid)
-                return@forEach
-            }
-            var count = 0
-            for (item in source) {
-                if (item.ownerMid != user.mid) continue
-                if (item.bvid == seen) break
-                count++
-            }
-            if (count > 0) next[user.mid] = count else next.remove(user.mid)
         }
         AppGraph.dynamicSeen.flush()
         unread = next
@@ -433,7 +428,7 @@ fun DynamicRoute(
 ) {
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::refresh)
     val session by AppGraph.repo.session.collectAsState()
-    val navBottom = shellNavigationBottom()
+    val navBottom = shellBottomClearance()
     val haptic = LocalHapticFeedback.current
     val userRow = rememberLazyListState()
     // 宽屏左栏是 LazyColumn、窄屏是 LazyRow，翻页监听必须两个都盯：
@@ -464,23 +459,38 @@ fun DynamicRoute(
         }
     }
     Column(Modifier.fillMaxSize()) {
-        BiliPageHeader("动态") {
-            if (session.loggedIn) {
-                BiliHeaderAction(Icons.Filled.Refresh, "刷新", vm::refresh)
-            }
+        AliStagePageHeader("动态") {
+            if (session.loggedIn) AliStageIconButton(Icons.Filled.Refresh, "刷新", vm::refresh)
         }
         if (!session.loggedIn) {
-            Box(Modifier.fillMaxSize().padding(bottom = navBottom), contentAlignment = Alignment.Center) {
-                BiliEmptyState(
-                    title = "登录后查看关注动态",
-                    message = "你关注的 UP 主发布的视频、直播都会出现在这里",
-                    icon = Icons.Filled.Person,
-                    action = {
-                        Button(onClick = onLogin, modifier = Modifier.padding(top = 6.dp)) {
-                            Text("登录哔哩哔哩")
+            Box(
+                Modifier.fillMaxSize().padding(start = 14.dp, top = 16.dp, end = 14.dp, bottom = navBottom),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                AliStagePanel(Modifier.widthIn(max = 540.dp).fillMaxWidth()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Box(
+                            Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Filled.List, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
-                    },
-                )
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("关注动态", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "登录后查看关注作者的视频、动态和直播。",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                    BiliPrimaryButton(onClick = onLogin, modifier = Modifier.align(Alignment.End).padding(top = 14.dp)) {
+                        Text("登录哔哩哔哩")
+                    }
+                }
             }
         } else {
             BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -493,15 +503,21 @@ fun DynamicRoute(
                     modifier = Modifier
                         .width(232.dp)
                         .fillMaxHeight()
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .padding(start = 12.dp, end = 6.dp, top = 10.dp, bottom = navBottom)
+                        .clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow)
                         .smoothWheelScroll(userListState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
                 ) {
                     item(key = "user-search") {
+                        Text(
+                            "关注的 UP 主", Modifier.padding(start = 12.dp, top = 12.dp),
+                            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+                        )
                         BiliSearchField(
                             value = userQuery,
                             onValueChange = { userQuery = it },
                             onSearch = {},
                             placeholder = "搜索已关注的 UP",
+                            accessibilityLabel = "搜索已关注的 UP",
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         )
                     }
@@ -556,92 +572,58 @@ fun DynamicRoute(
             if (!wide && (vm.users.isNotEmpty() || vm.selected != null)) {
                 LazyRow(
                     state = userRow,
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.selectableGroup(),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     item(key = "all") {
-                        BiliFilterChip(
-                            selected = vm.selected == null,
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                vm.selectAll()
-                            },
-                            label = { Text("全部") },
-                        )
+                        FollowingAvatar("全部关注", "", vm.selected == null, 0, vm::selectAll)
                     }
                     items(vm.users, key = { it.mid }) { user ->
-                        BiliFilterChip(
-                            selected = vm.selected?.mid == user.mid,
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                vm.select(user)
-                            },
-                            leadingIcon = {
-                                if (user.face.isNotBlank()) {
-                                    AsyncImage(
-                                        app.ailiaili.core.model.cdnThumb(user.face, 48),
-                                        user.name,
-                                        Modifier.size(22.dp).clip(CircleShape),
-                                        contentScale = ContentScale.Crop,
-                                    )
-                                }
-                            },
-                            label = {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                ) {
-                                    Text(
-                                        user.name,
-                                        fontWeight = if (vm.selected?.mid == user.mid) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                    val count = vm.unread[user.mid] ?: 0
-                                    if (count > 0) {
-                                        BiliBadge(
-                                            text = if (count > 99) "99+" else count.toString(),
-                                            tone = BiliBadgeTone.Accent,
-                                            style = BiliBadgeStyle.Solid,
-                                        )
-                                    }
-                                }
-                            },
-                        )
-                    }
-                }
-                Row(
-                    Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        if (vm.selected == null) "全部动态" else "${vm.selected?.name} 的视频",
-                        modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    val picked = vm.selected
-                    if (picked != null) {
-                        Text(
-                            "主页",
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                    onAuthor(VideoItem(ownerMid = picked.mid, author = picked.name))
-                                }
-                                .padding(horizontal = 8.dp, vertical = 8.dp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
-                        )
+                        FollowingAvatar(
+                            user.name, user.face, vm.selected?.mid == user.mid, vm.unread[user.mid] ?: 0,
+                        ) { vm.select(user) }
                     }
                 }
             }
+            vm.selected?.let { picked ->
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${picked.name} 的视频", Modifier.weight(1f),
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    androidx.compose.material3.TextButton(onClick = {
+                        onAuthor(VideoItem(ownerMid = picked.mid, author = picked.name))
+                    }) { Text("主页") }
+                }
+            }
             if (vm.selected == null) {
-                // 综合动态：视频投稿 + 图文，统一卡片流。
-                val shownEntries = app.ailiaili.core.designsystem.rememberFilteredEntries(vm.entries) { entryAllowed(it) }
-                val feedBlocked = vm.entries.isNotEmpty() && shownEntries.isEmpty() && ContentFilter.active
+                var videoOnly by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+                AliStageTabs(
+                    labels = listOf("全部动态", "只看视频"),
+                    selected = if (videoOnly) 1 else 0,
+                    onSelect = { videoOnly = it == 1 },
+                    modifier = Modifier.widthIn(max = 300.dp).fillMaxWidth().padding(horizontal = 12.dp),
+                )
+                val source = remember(vm.entries, videoOnly) {
+                    if (videoOnly) {
+                        vm.entries.filter { it.video != null }
+                            .sortedWith(compareByDescending<app.ailiaili.core.model.DynamicEntry> {
+                                it.video?.pubdate?.takeIf { timestamp -> timestamp > 0 } ?: it.pubTs
+                            }.thenBy { it.forwarded })
+                            .distinctBy { it.video?.bvid }
+                    } else {
+                        vm.entries
+                    }
+                }
+                val shownEntries = app.ailiaili.core.designsystem.rememberFilteredEntries(source) { entryAllowed(it) }
+                val feedBlocked = source.isNotEmpty() && shownEntries.isEmpty() && ContentFilter.active
                 FilterAutoLoad(
-                    shownEmpty = feedBlocked,
+                    shownEmpty = feedBlocked || videoOnly && shownEntries.isEmpty(),
                     hasMore = vm.feedHasMore,
                     loading = vm.feedLoading,
                     onLoadMore = vm::loadMore,
@@ -655,7 +637,7 @@ fun DynamicRoute(
                         vm.feedLoading,
                         vm.feedError,
                         shownEntries.isEmpty() && !feedBlocked,
-                        "关注的 UP 还没有新动态",
+                        if (videoOnly) "关注的 UP 还没有新视频" else "关注的 UP 还没有新动态",
                         vm::refresh,
                     ) {
                         if (feedBlocked) {
@@ -671,7 +653,9 @@ fun DynamicRoute(
                                 },
                             )
                         } else {
-                            val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+                            val gridState = androidx.compose.runtime.key(videoOnly) {
+                                androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+                            }
                             if (vm.feedHasMore) {
                                 androidx.compose.runtime.LaunchedEffect(gridState, shownEntries.size) {
                                     androidx.compose.runtime.snapshotFlow {
@@ -682,9 +666,7 @@ fun DynamicRoute(
                                 }
                             }
                             androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-                                columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(
-                                    app.ailiaili.core.designsystem.LocalWindowForm.current.gridMin,
-                                ),
+                                columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(310.dp),
                                 state = gridState,
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -754,6 +736,50 @@ fun DynamicRoute(
 }
 
 @Composable
+private fun FollowingAvatar(name: String, face: String, selected: Boolean, unread: Int, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val haptic = LocalHapticFeedback.current
+    Column(
+        Modifier.width(70.dp).heightIn(min = 74.dp).clip(RoundedCornerShape(10.dp))
+            .selectable(selected, role = Role.Tab) {
+                haptic.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                onClick()
+            }.padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Box {
+            Box(
+                Modifier.size(43.dp).border(2.dp, if (selected) colors.primary else colors.outlineVariant, CircleShape)
+                    .padding(3.dp).clip(CircleShape).background(colors.surfaceContainerHigh),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (face.isBlank()) {
+                    Icon(Icons.Filled.Person, null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
+                } else {
+                    AsyncImage(
+                        app.ailiaili.core.model.cdnThumb(face, 90), null,
+                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                    )
+                }
+            }
+            if (unread > 0) {
+                BiliBadge(
+                    text = if (unread > 99) "99+" else unread.toString(),
+                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 6.dp),
+                    style = BiliBadgeStyle.Solid,
+                )
+            }
+        }
+        Text(
+            name, color = if (selected) colors.onSurface else colors.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
 private fun UserFilterRow(
     name: String,
     face: String?,
@@ -811,7 +837,6 @@ private fun UserFilterRow(
                     BiliBadge(
                         text = if (newCount > 99) "99+" else newCount.toString(),
                         modifier = Modifier.align(Alignment.BottomEnd).offset(x = 4.dp, y = 4.dp),
-                        tone = BiliBadgeTone.Accent,
                         style = BiliBadgeStyle.Solid,
                     )
                 }
@@ -846,6 +871,9 @@ private fun LiveBoard(
     onToggle: () -> Unit,
     onVideo: (VideoItem) -> Unit,
 ) {
+    // 解析已保留全部状态：直播中在前，未开播/轮播垫后（灰态展示）。
+    val living = liveNow.filter { it.liveStatus == 1 }
+    val offline = liveNow.filter { it.liveStatus != 1 }
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
         Row(
             modifier = Modifier
@@ -861,9 +889,9 @@ private fun LiveBoard(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
             )
-            if (liveNow.isNotEmpty()) {
+            if (living.isNotEmpty()) {
                 Text(
-                    " · ${liveNow.size}",
+                    " · ${living.size} 人在播",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                 )
@@ -885,22 +913,75 @@ private fun LiveBoard(
                 )
             } else if (liveNow.isEmpty()) {
                 Text(
-                    "关注的主播暂时都没有在直播",
+                    "还没有关注的主播",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
                 )
             } else {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
-                ) {
-                    items(liveNow, key = { it.roomId }) { item ->
-                        LiveCard(item, onClick = { onVideo(item) })
+                if (living.isNotEmpty()) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                    ) {
+                        items(living, key = { it.roomId }) { item ->
+                            LiveCard(item, onClick = { onVideo(item) })
+                        }
+                    }
+                } else {
+                    Text(
+                        "关注的主播暂时都没有在直播",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
+                }
+                if (offline.isNotEmpty()) {
+                    Text(
+                        "未开播 · ${offline.size}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                    ) {
+                        items(offline, key = { it.roomId }) { item ->
+                            OfflineLiveChip(item)
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** 未开播主播：小头像+名字灰态条；点击仍进直播间（可看简介/回放态）。 */
+@Composable
+private fun OfflineLiveChip(item: VideoItem) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        AsyncImage(
+            model = app.ailiaili.core.model.cdnThumb(item.cover, 48),
+            contentDescription = null,
+            modifier = Modifier.size(20.dp).clip(androidx.compose.foundation.shape.CircleShape),
+            contentScale = ContentScale.Crop,
+        )
+        Text(
+            item.author.ifBlank { "主播" },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.widthIn(max = 96.dp),
+        )
     }
 }
 
@@ -929,7 +1010,7 @@ private fun LiveCard(item: VideoItem, onClick: () -> Unit) {
             BiliBadge(
                 text = "直播中",
                 modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
-                tone = BiliBadgeTone.Accent,
+                tone = BiliBadgeTone.Dark,
                 style = BiliBadgeStyle.Solid,
             )
         }

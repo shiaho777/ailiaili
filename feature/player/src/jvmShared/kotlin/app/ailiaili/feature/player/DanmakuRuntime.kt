@@ -57,6 +57,8 @@ internal class DanmakuRuntime {
 
     val wantsFrames: Boolean get() = config.enabled || shots.isNotEmpty()
     val pillBackground: Boolean get() = config.pill
+    /** 全局不透明度（0.3–1.0）：绘制层乘进文字与底衬的 alpha。 */
+    val opacity: Float get() = config.opacity
 
     /**
      * 播放中用墙钟把采样进度补平滑。桌面 VLC 的 time() 往往几十到几百毫秒才跳一格，
@@ -154,6 +156,8 @@ internal class DanmakuRuntime {
         config.allowFixed = settings.danmakuFilterFixed
         config.allowColorful = settings.danmakuFilterColorful
         config.allowAdvanced = settings.danmakuFilterAdvanced
+        config.opacity = settings.danmakuOpacityPercent.coerceIn(30, 100) / 100f
+        config.maxOnScreen = settings.danmakuMaxOnScreen.coerceIn(10, MAX_ON_SCREEN)
     }
 
     fun offer(list: List<Danmaku>, videoSec: Double) {
@@ -211,7 +215,7 @@ internal class DanmakuRuntime {
                 cursor++
                 continue
             }
-            if (budget == 0 || shots.size >= MAX_ON_SCREEN) break
+            if (budget == 0 || shots.size >= config.maxOnScreen) break
             budget--
             cursor++
             spawn(
@@ -560,6 +564,8 @@ internal class DanmakuRuntime {
         var allowFixed = true
         var allowColorful = true
         var allowAdvanced = true
+        var opacity = 1f
+        var maxOnScreen = MAX_ON_SCREEN
 
         fun filterKey() = FilterKey(smart, keywords, allowScroll, allowFixed, allowColorful, allowAdvanced)
     }

@@ -33,6 +33,7 @@ kotlin {
                 implementation(project(":core:model"))
                 implementation(project(":core:data"))
                 implementation(project(":core:designsystem"))
+                implementation(project(":core:player"))
 
                 implementation(compose.runtime)
                 implementation(compose.foundation)

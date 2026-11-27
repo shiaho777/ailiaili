@@ -49,4 +49,21 @@ class RecommendDecodeTest {
     fun reasonTypeAlsoMeansFollowed() {
         assertTrue(parseRecommend(item(""","rcmd_reason":{"reason_type":1}"""))!!.authorFollowed)
     }
+
+    @Test
+    fun keepsDislikeFeedbackFields() {
+        // 网页推荐：id 原样保留；缺 id 时回落 bvid。
+        val withId = JSONObject(
+            """{"goto":"av","id":"BV1yy411c7mD","bvid":"BV1xx411c7mD","title":"t","pic":"//x","owner":{"mid":1,"name":"UP"}}""",
+        )
+        val parsed = parseRecommend(withId)!!
+        assertEquals("av", parsed.feedbackGoto)
+        assertEquals("BV1yy411c7mD", parsed.feedbackId)
+        assertEquals("BV1xx411c7mD", parseRecommend(item(""))!!.feedbackId)
+        // App 推荐：param 即反馈 id。
+        val app = JSONObject(
+            """{"goto":"av","param":"123","title":"t","cover":"//x","args":{"aid":123},"player_args":{"cid":1}}""",
+        )
+        assertEquals("123", parseAppRecommend(app)!!.feedbackId)
+    }
 }

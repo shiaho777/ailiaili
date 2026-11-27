@@ -6,12 +6,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Refresh
+import app.ailiaili.core.designsystem.BiliPrimaryButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -27,12 +32,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.ailiaili.core.data.AppGraph
-import app.ailiaili.core.designsystem.BiliBackHeader
-import app.ailiaili.core.designsystem.BiliEmptyState
+import app.ailiaili.core.designsystem.aliAmbient
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStagePageHeader
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.appIconPainter
 import app.ailiaili.core.model.QrStatus
 import kotlinx.coroutines.delay
 
@@ -60,10 +71,13 @@ fun LoginRoute(onBack: () -> Unit, onSuccess: () -> Unit) {
                 QrStatus.Scanned -> message = "已扫码，请在手机上确认"
                 QrStatus.Success -> {
                     message = "登录成功"
+                    // 归档到多账号列表（昵称/头像由我的页加载后补齐）。
+                    AppGraph.repo.rememberCurrentAccount()
                     onSuccess()
                     return@LaunchedEffect
                 }
                 QrStatus.Expired -> {
+                    bitmap = null
                     message = "二维码已过期，请刷新"
                     failed = true
                     return@LaunchedEffect
@@ -75,68 +89,58 @@ fun LoginRoute(onBack: () -> Unit, onSuccess: () -> Unit) {
     }
 
     Scaffold(
-        topBar = { BiliBackHeader("扫码登录", onBack) },
-    ) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
-        ) {
-            Text(
-                "登录哔哩哔哩",
-                color = MaterialTheme.colorScheme.onBackground,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                "扫码后可以同步历史、收藏、关注和硬币",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-            )
-            val qr = bitmap
-            if (qr != null) {
-                Box(
-                    Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.White)
-                        .padding(16.dp),
-                ) {
-                    Image(
-                        bitmap = qr,
-                        contentDescription = "登录二维码",
-                        modifier = Modifier.size(220.dp),
-                    )
-                }
-            } else if (failed) {
-                BiliEmptyState(
-                    title = "二维码暂时不可用",
-                    message = message,
-                    icon = Icons.Filled.QrCodeScanner,
+        topBar = {
+            AliStagePageHeader("扫码登录", onBack = onBack) {
+                AliStageIconButton(
+                    Icons.Filled.Refresh, "刷新二维码", { refresh++ },
+                    enabled = bitmap != null || failed,
                 )
-            } else {
-                Box(
-                    Modifier
-                        .size(220.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                    contentAlignment = Alignment.Center,
+            }
+        },
+    ) { padding ->
+        Box(
+            Modifier.fillMaxSize().padding(padding).aliAmbient().verticalScroll(rememberScrollState()).padding(14.dp),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            AliStagePanel(Modifier.widthIn(max = 448.dp).fillMaxWidth()) {
+                Column(
+                    Modifier.fillMaxWidth().padding(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Icon(
-                        Icons.Filled.QrCodeScanner,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    Image(appIconPainter(), null, Modifier.size(48.dp))
+                    Text(
+                        "登录哔哩哔哩",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
                     )
+                    val qr = bitmap
+                    val shape = MaterialTheme.shapes.large
+                    Box(
+                        Modifier.size(228.dp).clip(shape)
+                            .background(if (qr == null) MaterialTheme.colorScheme.surfaceContainerHigh else Color.White)
+                            .padding(12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        when {
+                            qr != null -> Image(qr, "登录二维码", Modifier.fillMaxSize())
+                            failed -> Icon(
+                                Icons.Filled.QrCodeScanner, null, Modifier.size(36.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            else -> CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
+                        }
+                    }
+                    Text(
+                        message,
+                        Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                    if (failed) BiliPrimaryButton(onClick = { refresh++ }) { Text("重新获取") }
                 }
             }
-            Text(
-                message,
-                color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-            )
-            Button(onClick = { refresh += 1 }) { Text(if (failed) "重新获取" else "刷新二维码") }
         }
     }
 }

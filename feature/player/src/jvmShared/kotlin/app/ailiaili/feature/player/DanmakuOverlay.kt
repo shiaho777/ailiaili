@@ -42,12 +42,13 @@ internal fun DanmakuOverlay(
     modifier: Modifier = Modifier,
 ) {
     val measurer = rememberTextMeasurer(cacheSize = 256)
-    val runtime = remember { DanmakuRuntime() }
+    val delayMs = if (live) 0 else settings.danmakuDelayMs
+    val runtime = remember(delayMs) { DanmakuRuntime() }
     val fontFamily = app.ailiaili.core.designsystem.LocalBiliFontFamily.current
     SideEffect {
         runtime.fontFamily = fontFamily
         runtime.apply(settings)
-        val sec = runCatching { player.currentPosition / 1000.0 }.getOrDefault(0.0)
+        val sec = runCatching { (player.currentPosition - delayMs) / 1000.0 }.getOrDefault(0.0)
         runtime.offer(comments, sec)
     }
     Box(
@@ -55,7 +56,7 @@ internal fun DanmakuOverlay(
             .fillMaxSize()
             .clipToBounds()
             .clearAndSetSemantics {}
-            .then(DanmakuElement(runtime, player, measurer, frozen, live)),
+            .then(DanmakuElement(runtime, player, measurer, frozen, live, delayMs)),
     )
 }
 
@@ -65,8 +66,9 @@ private class DanmakuElement(
     private val measurer: TextMeasurer,
     private val frozen: Boolean,
     private val live: Boolean,
+    private val delayMs: Int,
 ) : ModifierNodeElement<DanmakuNode>() {
-    override fun create() = DanmakuNode(runtime, player, measurer, frozen, live)
+    override fun create() = DanmakuNode(runtime, player, measurer, frozen, live, delayMs)
 
     override fun update(node: DanmakuNode) {
         node.runtime = runtime
@@ -74,6 +76,7 @@ private class DanmakuElement(
         node.measurer = measurer
         node.frozen = frozen
         node.live = live
+        node.delayMs = delayMs
     }
 
     override fun equals(other: Any?): Boolean {
@@ -82,7 +85,8 @@ private class DanmakuElement(
             player === other.player &&
             measurer === other.measurer &&
             frozen == other.frozen &&
-            live == other.live
+            live == other.live &&
+            delayMs == other.delayMs
     }
 
     override fun hashCode(): Int {
@@ -91,6 +95,7 @@ private class DanmakuElement(
         hash = 31 * hash + measurer.hashCode()
         hash = 31 * hash + frozen.hashCode()
         hash = 31 * hash + live.hashCode()
+        hash = 31 * hash + delayMs
         return hash
     }
 }
@@ -101,6 +106,7 @@ private class DanmakuNode(
     var measurer: TextMeasurer,
     var frozen: Boolean,
     var live: Boolean,
+    var delayMs: Int,
 ) : Modifier.Node(), DrawModifierNode {
     private var clock: Job? = null
     @Volatile private var frameNanos = 0L
@@ -151,7 +157,7 @@ private class DanmakuNode(
     }
 
     private fun pinNow() {
-        val sec = runCatching { player.currentPosition / 1000.0 }.getOrDefault(Double.NaN)
+        val sec = runCatching { (player.currentPosition - delayMs) / 1000.0 }.getOrDefault(Double.NaN)
         runtime.pin(sec)
     }
 
@@ -161,7 +167,7 @@ private class DanmakuNode(
         val sample = if (!live && durationMs <= 0L) {
             Double.NaN
         } else {
-            runCatching { player.currentPosition / 1000.0 }.getOrDefault(0.0)
+            runCatching { (player.currentPosition - delayMs) / 1000.0 }.getOrDefault(0.0)
         }
         // 缓冲中即使 VLC 还报 isPlaying=true，也不能让弹幕按墙钟继续跑。
         val playing = runCatching { player.isPlaying }.getOrDefault(false) &&
@@ -183,7 +189,8 @@ private class DanmakuNode(
             measurer = measurer,
         )
         for (shot in runtime.shots) {
-            val fade = shot.alpha(videoSec)
+            // 全局不透明度乘进淡入淡出：文字与底衬整层一致变淡。
+            val fade = shot.alpha(videoSec) * runtime.opacity
             if (fade <= 0f) continue
             val x = shot.x(videoSec)
             if (runtime.pillBackground) {

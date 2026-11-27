@@ -2,88 +2,115 @@ package app.ailiaili.core.designsystem
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.ripple.RippleAlpha
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.ailiaili.core.designsystem.resources.Res
+import app.ailiaili.core.designsystem.resources.misans_regular
 import app.ailiaili.core.model.ThemeMode
+import org.jetbrains.compose.resources.Font
 
-private val Accent = Color(0xFFFB7299)
-private val Ink = Color(0xFF1A1A1A)
-private val InkMuted = Color(0xFF616161)
-private val InkFaint = Color(0xFF909090)
-private val InkDark = Color(0xFFF2F2F2)
-private val InkMutedDark = Color(0xFFB0B0B0)
-
-private val LightScheme = lightColorScheme(
-    primary = Accent,
+internal val LightScheme = lightColorScheme(
+    primary = AliColors.LightAccent,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFD9E4),
-    onPrimaryContainer = Color(0xFF5C1130),
-    secondary = Accent,
+    primaryContainer = Color(0xFFE0E9F3),
+    onPrimaryContainer = Color(0xFF334B63),
+    secondary = Color(0xFF555C65),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFFD9E4),
-    onSecondaryContainer = Color(0xFF5C1130),
-    background = Color(0xFFF3F3F3),
-    onBackground = Ink,
-    surface = Color.White,
-    onSurface = Ink,
-    surfaceVariant = Color(0xFFE8E8E8),
-    onSurfaceVariant = InkMuted,
+    secondaryContainer = Color(0xFFE9ECF0),
+    onSecondaryContainer = AliColors.Ink,
+    tertiary = Color(0xFF386744),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFDFEEE0),
+    onTertiaryContainer = Color(0xFF244F31),
+    background = Color(0xFFF4F6F8),
+    onBackground = AliColors.Ink,
+    surface = Color(0xFFFCFDFE),
+    onSurface = AliColors.Ink,
+    surfaceVariant = Color(0xFFE9ECF0),
+    onSurfaceVariant = Color(0xFF555C65),
+    surfaceBright = Color.White,
+    surfaceDim = Color(0xFFE1E4E9),
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color.White,
-    surfaceContainer = Color(0xFFF7F7F7),
-    surfaceContainerHigh = Color(0xFFECECEC),
-    surfaceContainerHighest = Color(0xFFE4E4E4),
-    outline = Color(0x22000000),
-    outlineVariant = Color(0x14000000),
-    scrim = Color(0x99000000),
-    tertiary = InkFaint,
-    onTertiary = Ink,
+    surfaceContainerLow = Color(0xFFEFF1F4),
+    surfaceContainer = Color(0xFFEBEEF2),
+    surfaceContainerHigh = Color(0xFFE8EBEF),
+    surfaceContainerHighest = Color(0xFFE4E7EC),
+    outline = Color(0xFF737C87),
+    outlineVariant = Color(0xFFD9DEE4),
+    inversePrimary = Color(0xFFA7B9CE),
+    inverseSurface = Color(0xFF2B2D31),
+    inverseOnSurface = Color(0xFFF2F4F6),
+    surfaceTint = Color.Transparent,
+    scrim = Color.Black,
 )
 
-private val DarkScheme = darkColorScheme(
-    primary = Accent,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF5C2438),
-    onPrimaryContainer = Color(0xFFFFD9E4),
-    secondary = Color(0xFFFF8FB0),
-    onSecondary = Color(0xFF3B1020),
-    secondaryContainer = Color(0xFF5C2438),
-    onSecondaryContainer = Color(0xFFFFD9E4),
-    background = Color(0xFF151517),
-    onBackground = InkDark,
-    surface = Color(0xFF1D1D20),
-    onSurface = InkDark,
-    surfaceVariant = Color(0xFF232327),
-    onSurfaceVariant = InkMutedDark,
-    surfaceContainerLowest = Color(0xFF101012),
-    surfaceContainerLow = Color(0xFF1D1D20),
-    surfaceContainer = Color(0xFF232327),
-    surfaceContainerHigh = Color(0xFF2B2B30),
-    surfaceContainerHighest = Color(0xFF34343A),
-    outline = Color(0x2EFFFFFF),
-    outlineVariant = Color(0x1AFFFFFF),
-    scrim = Color(0xCC000000),
-    tertiary = Color(0xFF8A8A8A),
-    onTertiary = InkDark,
+private val DarkCanvas = Color(0xFF1F1F1F)
+
+internal val DarkScheme = darkColorScheme(
+    primary = AliColors.DarkAccent,
+    onPrimary = Color(0xFF062E6F),
+    primaryContainer = AliColors.DarkAccent.copy(alpha = 60f / 255f).compositeOver(DarkCanvas),
+    onPrimaryContainer = Color(0xFFD3E3FD),
+    secondary = Color(0xFFC7C7C7),
+    onSecondary = Color(0xFF303030),
+    secondaryContainer = Color(0xFF353535),
+    onSecondaryContainer = Color(0xFFE3E3E3),
+    tertiary = Color(0xFFA6CAA9),
+    onTertiary = Color(0xFF1E3523),
+    tertiaryContainer = Color(0xFF2B3C2D),
+    onTertiaryContainer = Color(0xFFC9E4CA),
+    error = Color(0xFFF2AFA6),
+    onError = Color(0xFF411B17),
+    errorContainer = Color(0xFF49302B),
+    onErrorContainer = Color(0xFFFFCFC6),
+    background = DarkCanvas,
+    onBackground = AliColors.StageInk,
+    surface = Color(0xFF282828),
+    onSurface = AliColors.StageInk,
+    surfaceVariant = Color(0xFF353535),
+    onSurfaceVariant = AliColors.StageMuted,
+    surfaceBright = Color(0xFF3C3C3C),
+    surfaceDim = DarkCanvas,
+    surfaceContainerLowest = Color(0xFF181818),
+    surfaceContainerLow = Color(0xFF1F2020),
+    surfaceContainer = Color(0xFF303030),
+    surfaceContainerHigh = Color(0xFF3C3C3C),
+    surfaceContainerHighest = Color(0xFF474747),
+    outline = Color(0xFF8F8F8F),
+    outlineVariant = Color(0xFF474747),
+    inversePrimary = AliColors.LightAccent,
+    inverseSurface = Color(0xFFE9ECF0),
+    inverseOnSurface = AliColors.Ink,
+    surfaceTint = Color.Transparent,
+    scrim = Color.Black,
 )
 
-/** 当前界面字体（自定义时非默认）。弹幕文本跟随它。 */
-val LocalBiliFontFamily = androidx.compose.runtime.compositionLocalOf<androidx.compose.ui.text.font.FontFamily?> { null }
+const val SystemUiFontPath = ":system"
+
+val LocalBiliFontFamily = androidx.compose.runtime.compositionLocalOf<FontFamily?> { null }
+
+private val AliRippleConfiguration = RippleConfiguration(
+    rippleAlpha = RippleAlpha(draggedAlpha = .08f, focusedAlpha = .15f, hoveredAlpha = .05f, pressedAlpha = 0f),
+)
 
 @Composable
 fun BiliTheme(
@@ -91,6 +118,7 @@ fun BiliTheme(
     accentHex: String = "",
     followSystem: Boolean = false,
     fontPath: String = "",
+    reduceMotion: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val dark = when (mode) {
@@ -99,35 +127,32 @@ fun BiliTheme(
         ThemeMode.System -> isSystemInDarkTheme()
     }
     val accent = platformDynamicAccent(dark, followSystem) ?: accentColor(accentHex)
-    val light = if (!followSystem && accent == Accent) LightScheme else LightScheme.copy(
-        primary = accent,
-        onPrimary = Color.White,
-        primaryContainer = lerp(accent, Color.White, 0.78f),
-        onPrimaryContainer = lerp(accent, Color.Black, 0.72f),
-        inversePrimary = accent,
-    )
-    val night = if (!followSystem && accent == Accent) DarkScheme else DarkScheme.copy(
-        primary = accent,
-        onPrimary = Color.White,
-        primaryContainer = lerp(accent, Color.Black, 0.62f),
-        onPrimaryContainer = lerp(accent, Color.White, 0.82f),
-        inversePrimary = accent,
-    )
-    PlatformThemeEffects(dark)
-    // 深浅色/主题色切换：240ms 纯颜色渐变。不做窗口快照、不挖洞扩散——
-    // 快照方案要同步渲染整窗，又慢又费内存；这里只插值颜色，零额外位图。
-    val target = if (dark) night else light
-    val animated = animateBiliColorScheme(target)
-    val customFont = remember(fontPath) {
-        if (fontPath.isBlank()) null else loadFontFamily(fontPath)
+    val base = if (dark) DarkScheme else LightScheme
+    val target = remember(base, accent, dark) {
+        if (accent == null) base else themedWithAccent(base, accent, dark)
     }
-    val typography = remember(customFont) {
-        if (customFont == null) BiliTypography else BiliTypography.withFontFamily(customFont)
+    val fontFamily = if (fontPath == SystemUiFontPath) {
+        null
+    } else {
+        val importedFont = remember(fontPath) {
+            if (fontPath.isBlank()) null else loadFontFamily(fontPath)
+        }
+        importedFont ?: run {
+            val regular = Font(Res.font.misans_regular)
+            remember(regular) { FontFamily(regular) }
+        }
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalBiliFontFamily provides customFont) {
+    val typography = remember(fontFamily) {
+        fontFamily?.let { BiliTypography.withFontFamily(it) } ?: BiliTypography
+    }
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalBiliFontFamily provides fontFamily,
+        LocalAliReducedMotion provides reduceMotion,
+        LocalRippleConfiguration provides AliRippleConfiguration,
+    ) {
         MaterialExpressiveTheme(
-            colorScheme = animated,
-            motionScheme = MotionScheme.expressive(),
+            colorScheme = target,
+            motionScheme = if (reduceMotion) ReducedMotionScheme else MotionScheme.standard(),
             shapes = BiliShapes,
             typography = typography,
             content = content,
@@ -135,91 +160,79 @@ fun BiliTheme(
     }
 }
 
-private fun Typography.withFontFamily(family: androidx.compose.ui.text.font.FontFamily): Typography = copy(
-    displayLarge = displayLarge.copy(fontFamily = family),
-    displayMedium = displayMedium.copy(fontFamily = family),
-    displaySmall = displaySmall.copy(fontFamily = family),
-    headlineLarge = headlineLarge.copy(fontFamily = family),
-    headlineMedium = headlineMedium.copy(fontFamily = family),
-    headlineSmall = headlineSmall.copy(fontFamily = family),
-    titleLarge = titleLarge.copy(fontFamily = family),
-    titleMedium = titleMedium.copy(fontFamily = family),
-    titleSmall = titleSmall.copy(fontFamily = family),
-    bodyLarge = bodyLarge.copy(fontFamily = family),
-    bodyMedium = bodyMedium.copy(fontFamily = family),
-    bodySmall = bodySmall.copy(fontFamily = family),
-    labelLarge = labelLarge.copy(fontFamily = family),
-    labelMedium = labelMedium.copy(fontFamily = family),
-    labelSmall = labelSmall.copy(fontFamily = family),
-)
+internal fun themedWithAccent(base: ColorScheme, accent: Color, dark: Boolean): ColorScheme {
+    val seed = accent.convert(ColorSpaces.Srgb)
+    val softenedAccent = if (dark) lerp(seed, AliColors.StageInk, .36f) else seed
+    val textBackground = base.surfaceContainerHighest
+    val primary = readableAccent(softenedAccent, textBackground, dark)
+    val selection = base.primaryContainer.tonedBy(seed, if (dark) .20f else .16f)
+    return base.copy(
+        primary = primary,
+        onPrimary = if (contrastRatio(primary, Color.White) >= 4.5f) Color.White else Color.Black,
+        primaryContainer = selection,
+        onPrimaryContainer = readableAccent(base.onSurface, selection, dark),
+    )
+}
 
-@Composable
-private fun animateBiliColorScheme(target: androidx.compose.material3.ColorScheme): androidx.compose.material3.ColorScheme {
-    val progress = remember { androidx.compose.animation.core.Animatable(1f) }
-    var previous by remember { mutableStateOf(target) }
-    LaunchedEffect(target) {
-        if (target != previous) {
-            progress.snapTo(0f)
-            progress.animateTo(1f, androidx.compose.animation.core.tween(durationMillis = 240))
-            previous = target
-        }
-    }
-    if (progress.value >= 1f) return target
-    val t = progress.value
-    fun mix(a: Color, b: Color) = lerp(a, b, t)
-    return target.copy(
-        primary = mix(previous.primary, target.primary),
-        onPrimary = mix(previous.onPrimary, target.onPrimary),
-        primaryContainer = mix(previous.primaryContainer, target.primaryContainer),
-        onPrimaryContainer = mix(previous.onPrimaryContainer, target.onPrimaryContainer),
-        inversePrimary = mix(previous.inversePrimary, target.inversePrimary),
-        secondary = mix(previous.secondary, target.secondary),
-        onSecondary = mix(previous.onSecondary, target.onSecondary),
-        secondaryContainer = mix(previous.secondaryContainer, target.secondaryContainer),
-        onSecondaryContainer = mix(previous.onSecondaryContainer, target.onSecondaryContainer),
-        tertiary = mix(previous.tertiary, target.tertiary),
-        onTertiary = mix(previous.onTertiary, target.onTertiary),
-        tertiaryContainer = mix(previous.tertiaryContainer, target.tertiaryContainer),
-        onTertiaryContainer = mix(previous.onTertiaryContainer, target.onTertiaryContainer),
-        background = mix(previous.background, target.background),
-        onBackground = mix(previous.onBackground, target.onBackground),
-        surface = mix(previous.surface, target.surface),
-        onSurface = mix(previous.onSurface, target.onSurface),
-        surfaceVariant = mix(previous.surfaceVariant, target.surfaceVariant),
-        onSurfaceVariant = mix(previous.onSurfaceVariant, target.onSurfaceVariant),
-        surfaceTint = mix(previous.surfaceTint, target.surfaceTint),
-        inverseSurface = mix(previous.inverseSurface, target.inverseSurface),
-        inverseOnSurface = mix(previous.inverseOnSurface, target.inverseOnSurface),
-        error = mix(previous.error, target.error),
-        onError = mix(previous.onError, target.onError),
-        errorContainer = mix(previous.errorContainer, target.errorContainer),
-        onErrorContainer = mix(previous.onErrorContainer, target.onErrorContainer),
-        outline = mix(previous.outline, target.outline),
-        outlineVariant = mix(previous.outlineVariant, target.outlineVariant),
-        scrim = mix(previous.scrim, target.scrim),
-        surfaceBright = mix(previous.surfaceBright, target.surfaceBright),
-        surfaceDim = mix(previous.surfaceDim, target.surfaceDim),
-        surfaceContainer = mix(previous.surfaceContainer, target.surfaceContainer),
-        surfaceContainerHigh = mix(previous.surfaceContainerHigh, target.surfaceContainerHigh),
-        surfaceContainerHighest = mix(previous.surfaceContainerHighest, target.surfaceContainerHighest),
-        surfaceContainerLow = mix(previous.surfaceContainerLow, target.surfaceContainerLow),
-        surfaceContainerLowest = mix(previous.surfaceContainerLowest, target.surfaceContainerLowest),
+private fun Color.tonedBy(seed: Color, strength: Float): Color {
+    val level = (red + green + blue) / 3f
+    val mid = (seed.red + seed.green + seed.blue) / 3f
+    return Color(
+        (level + (seed.red - mid) * strength).coerceIn(0f, 1f),
+        (level + (seed.green - mid) * strength).coerceIn(0f, 1f),
+        (level + (seed.blue - mid) * strength).coerceIn(0f, 1f),
+    )
+}
+
+private fun Typography.withFontFamily(family: FontFamily): Typography {
+    fun TextStyle.withFamily() = copy(fontFamily = family)
+    return copy(
+        displayLarge = displayLarge.withFamily(),
+        displayMedium = displayMedium.withFamily(),
+        displaySmall = displaySmall.withFamily(),
+        headlineLarge = headlineLarge.withFamily(),
+        headlineMedium = headlineMedium.withFamily(),
+        headlineSmall = headlineSmall.withFamily(),
+        titleLarge = titleLarge.withFamily(),
+        titleMedium = titleMedium.withFamily(),
+        titleSmall = titleSmall.withFamily(),
+        bodyLarge = bodyLarge.withFamily(),
+        bodyMedium = bodyMedium.withFamily(),
+        bodySmall = bodySmall.withFamily(),
+        labelLarge = labelLarge.withFamily(),
+        labelMedium = labelMedium.withFamily(),
+        labelSmall = labelSmall.withFamily(),
+        displayLargeEmphasized = displayLargeEmphasized.withFamily(),
+        displayMediumEmphasized = displayMediumEmphasized.withFamily(),
+        displaySmallEmphasized = displaySmallEmphasized.withFamily(),
+        headlineLargeEmphasized = headlineLargeEmphasized.withFamily(),
+        headlineMediumEmphasized = headlineMediumEmphasized.withFamily(),
+        headlineSmallEmphasized = headlineSmallEmphasized.withFamily(),
+        titleLargeEmphasized = titleLargeEmphasized.withFamily(),
+        titleMediumEmphasized = titleMediumEmphasized.withFamily(),
+        titleSmallEmphasized = titleSmallEmphasized.withFamily(),
+        bodyLargeEmphasized = bodyLargeEmphasized.withFamily(),
+        bodyMediumEmphasized = bodyMediumEmphasized.withFamily(),
+        bodySmallEmphasized = bodySmallEmphasized.withFamily(),
+        labelLargeEmphasized = labelLargeEmphasized.withFamily(),
+        labelMediumEmphasized = labelMediumEmphasized.withFamily(),
+        labelSmallEmphasized = labelSmallEmphasized.withFamily(),
     )
 }
 
 private val BiliShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(18.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 private val BiliTypography = Typography().let { base ->
     base.copy(
         headlineMedium = base.headlineMedium.copy(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold),
         headlineSmall = base.headlineSmall.copy(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold),
-        titleLarge = base.titleLarge.copy(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold),
+        titleLarge = base.titleLarge.copy(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.35).sp),
         titleMedium = base.titleMedium.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
         titleSmall = base.titleSmall.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
         bodyLarge = base.bodyLarge.copy(fontSize = 15.sp, lineHeight = 22.sp),
@@ -231,9 +244,9 @@ private val BiliTypography = Typography().let { base ->
     )
 }
 
-private fun accentColor(hex: String): Color {
+private fun accentColor(hex: String): Color? {
     val raw = hex.trim().removePrefix("#")
-    if (raw.length != 6) return Accent
-    val value = raw.toLongOrNull(16) ?: return Accent
+    if (raw.length != 6) return null
+    val value = raw.toLongOrNull(16) ?: return null
     return Color(0xFF000000 or value)
 }

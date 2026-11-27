@@ -23,7 +23,7 @@ actual fun decodeImageBytes(bytes: ByteArray): ImageBitmap? = runCatching {
 private val fontCache = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.text.font.FontFamily?>()
 
 actual fun loadFontFamily(path: String): androidx.compose.ui.text.font.FontFamily? =
-    fontCache.getOrPut(path) {
+    fontCache.computeIfAbsent(path) {
         runCatching {
             if (!java.io.File(path).isFile) return@runCatching null
             val typeface = org.jetbrains.skia.FontMgr.default.makeFromFile(path)

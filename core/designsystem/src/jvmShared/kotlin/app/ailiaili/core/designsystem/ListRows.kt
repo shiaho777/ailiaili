@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,11 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.ailiaili.core.model.VideoItem
 import coil3.compose.AsyncImage
 
@@ -62,12 +58,18 @@ fun VideoListRow(
     extraMenuItems: (@Composable (closeMenu: () -> Unit) -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null,
     meta: (@Composable () -> Unit)? = null,
+    panel: Boolean = false,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     var menuOpen by remember(title, author) { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    val shape = MaterialTheme.shapes.medium
     val background by animateColorAsState(
-        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent,
+        when {
+            selected -> if (panel) colors.primaryContainer else colors.primary.copy(alpha = .10f)
+            else -> Color.Transparent
+        },
         label = "videoListRowBg",
     )
     Row(
@@ -75,7 +77,7 @@ fun VideoListRow(
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 3.dp)
             .biliPressScale(interaction, pressedScale = 0.985f)
-            .clip(RoundedCornerShape(14.dp))
+            .then(if (panel) Modifier.aliMaterial(AliMaterial.Panel, shape) else Modifier.clip(shape))
             .background(background)
             .combinedClickable(
                 interactionSource = interaction,
@@ -99,7 +101,7 @@ fun VideoListRow(
                 Modifier
                     .width(coverWidth)
                     .aspectRatio(16f / 10f)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(MaterialTheme.shapes.small)
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                     .coverShimmer(coverLoading),
             ) {
@@ -131,21 +133,19 @@ fun VideoListRow(
         }
         Column(
             Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
                 title.ifBlank { "未命名" },
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                lineHeight = 19.sp,
+                style = MaterialTheme.typography.titleSmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             meta?.invoke()
         }
         trailing?.invoke(this)
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+        AliStageMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
             extraMenuItems?.invoke { menuOpen = false }
             if (aid > 0) {
                 val inLater = aid in QuickActions.laterAids

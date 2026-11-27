@@ -9,10 +9,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 
 /**
  * 封面加载骨架：一层缓慢扫过的高光，替代死灰占位块。
@@ -22,7 +24,7 @@ import androidx.compose.ui.graphics.Color
  * 骨架数量有限（LazyGrid 虚拟化），离屏卡片不持有动画。
  */
 fun Modifier.coverShimmer(loading: Boolean): Modifier = composed {
-    if (!loading) return@composed this
+    if (!loading || LocalAliReducedMotion.current) return@composed this
     val transition = rememberInfiniteTransition(label = "coverShimmer")
     val progress by transition.animateFloat(
         initialValue = 0f,
@@ -33,22 +35,25 @@ fun Modifier.coverShimmer(loading: Boolean): Modifier = composed {
         ),
         label = "coverShimmerProgress",
     )
-    drawWithContent {
-        drawContent()
+    drawWithCache {
         val sweep = size.width * 0.6f
-        val start = -sweep + progress * (size.width + sweep * 2)
-        drawRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color.White.copy(alpha = 0.08f),
-                    Color.White.copy(alpha = 0.14f),
-                    Color.White.copy(alpha = 0.08f),
-                    Color.Transparent,
-                ),
-                start = Offset(start, 0f),
-                end = Offset(start + sweep, size.height),
+        val travel = size.width + sweep
+        val area = Size(sweep, size.height)
+        val brush = Brush.horizontalGradient(
+            colors = listOf(
+                Color.Transparent,
+                AliColors.StageInk.copy(alpha = 0.16f),
+                Color.Transparent,
             ),
+            endX = sweep,
         )
+        onDrawWithContent {
+            drawContent()
+            clipRect {
+                translate(left = -sweep + progress * travel) {
+                    drawRect(brush, size = area)
+                }
+            }
+        }
     }
 }

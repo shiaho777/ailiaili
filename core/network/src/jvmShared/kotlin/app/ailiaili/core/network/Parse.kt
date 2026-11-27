@@ -46,13 +46,17 @@ internal fun parseVideo(e: JSONObject): VideoItem? {
     )
 }
 
-/** 推荐流条目：过滤非视频卡片，并解析「已关注」标记。 */
+/** 推荐流条目：过滤非视频卡片，并解析「已关注」标记。保留负反馈所需的 goto/id。 */
 internal fun parseRecommend(e: JSONObject): VideoItem? {
     if (e.str("goto").isNotEmpty() && e.str("goto") != "av") return null
     val item = parseVideo(e) ?: return null
     val followed = e.int("is_followed") == 1 ||
         e.obj("rcmd_reason")?.int("reason_type") == 1
-    return if (followed) item.copy(authorFollowed = true) else item
+    return item.copy(
+        authorFollowed = followed,
+        feedbackGoto = "av",
+        feedbackId = e.str("id").ifBlank { item.bvid },
+    )
 }
 
 /** App 端推荐流：goto=av 的卡片，字段在 args / player_args 里。 */
@@ -76,6 +80,8 @@ internal fun parseAppRecommend(e: JSONObject): VideoItem? {
         durationSec = player?.int("duration") ?: 0,
         viewCount = parseCountText(e.str("cover_left_text_1")),
         danmakuCount = parseCountText(e.str("cover_left_text_2")),
+        feedbackGoto = "av",
+        feedbackId = e.str("param").ifBlank { aid.toString() },
     )
 }
 
@@ -180,6 +186,7 @@ internal fun parseDetail(bvid: String, d: JSONObject): VideoDetail {
         seasonTitle = season?.str("title").orEmpty(),
         pubdate = d.lng("pubdate"),
         coined = d.int("coin") == 1,
+        replyCount = stat?.lng("reply") ?: 0,
     )
 }
 
@@ -243,10 +250,15 @@ internal fun parseComment(e: JSONObject, upperMid: Long = 0, withReplies: Boolea
  * 多段切片不能只播第一段，否则播到一半就没了，所以直接判为不可用。
  */
 internal fun decodeDurl(data: JSONObject): PlayInfo? {
-    val segs = data.arr("durl")?.objects().orEmpty()
-        .map { it.str("url") }
-        .filter { it.isNotBlank() && app.ailiaili.core.model.isAllowedMediaUrl(it) }
-    if (segs.size != 1) return null
+    val segment = data.arr("durl")?.objects().orEmpty().singleOrNull() ?: return null
+    val urls = buildList {
+        add(segment.str("url"))
+        segment.arr("backup_url")?.let { backups ->
+            repeat(backups.length()) { add(backups.optString(it)) }
+        }
+    }.let { app.ailiaili.core.model.filterAllowedMediaUrls(it) }
+    if (urls.isEmpty()) return null
+    val ordered = CdnPicker.retryOrder(urls)
     val actual = data.int("quality")
     val qualities = data.arr("accept_quality")?.let { arr ->
         buildList {
@@ -255,9 +267,9 @@ internal fun decodeDurl(data: JSONObject): PlayInfo? {
     }.orEmpty().filter { it > 0 }.distinct().sortedDescending()
         .map { Quality(it, qnLabel(it)) }
     return PlayInfo(
-        videoUrl = segs[0],
+        videoUrl = ordered.first(),
         audioUrl = null,
-        backupUrls = emptyList(),
+        backupUrls = ordered.drop(1),
         durationMs = data.lng("timelength"),
         qualities = qualities,
         actualQn = actual,
@@ -266,7 +278,8 @@ internal fun decodeDurl(data: JSONObject): PlayInfo? {
 
 /**
  * 解析 `/xlive/web-ucenter/v1/xfetter/GetWebList` 的 data。
- * 只收 live_status == 1（直播中），0=未开播、2=轮播都不算。
+ * 保留全部状态（0 未开播 / 1 直播中 / 2 轮播）：看板分组展示，
+ * 开播提醒服务按 liveStatus 0→1 跳变触发通知。
  *
  * `hit_ab=true` 时接口把 online/live_time 置 0，头像用 face 比房间封面更像「人」。
  * rooms 与 list 内容相同，rooms 缺失时退回 list。
@@ -275,7 +288,7 @@ internal fun parseFollowingLive(data: JSONObject): List<VideoItem> {
     val rooms = data.arr("rooms") ?: data.arr("list") ?: return emptyList()
     val seenRooms = mutableSetOf<Long>()
     val items = rooms.objects().mapNotNull { e ->
-        if (e.int("live_status") != 1) return@mapNotNull null
+        val status = e.int("live_status")
         var roomId = e.lng("room_id")
         if (roomId <= 0) roomId = e.lng("roomid")
         if (roomId <= 0) roomId = e.lng("short_id")
@@ -290,12 +303,16 @@ internal fun parseFollowingLive(data: JSONObject): List<VideoItem> {
             author = e.str("uname").ifBlank { e.str("nickname") },
             ownerMid = e.lng("uid"),
             cover = normalizeUrl(cover),
-            durationText = "直播中",
+            durationText = if (status == 1) "直播中" else "未开播",
             viewCount = e.lng("online"),
+            liveStatus = status,
         )
     }
-    // hit_ab=true 时 online 恒为 0，此时保持接口原顺序。
-    return if (items.any { it.viewCount > 0 }) items.sortedByDescending { it.viewCount } else items
+    // 直播中的排前面（有人气按人气倒序），未开播/轮播保持接口原顺序垫后。
+    val living = items.filter { it.liveStatus == 1 }
+    val rest = items.filter { it.liveStatus != 1 }
+    val sortedLiving = if (living.any { it.viewCount > 0 }) living.sortedByDescending { it.viewCount } else living
+    return sortedLiving + rest
 }
 
 internal fun parseDynamic(e: JSONObject): VideoItem? {
@@ -384,6 +401,7 @@ internal fun parseDynamicEntry(e: JSONObject): app.ailiaili.core.model.DynamicEn
             authorFace = face,
             pubTs = pubTs,
             desc = descText.ifBlank { inner.desc },
+            forwarded = true,
         )
     }
 

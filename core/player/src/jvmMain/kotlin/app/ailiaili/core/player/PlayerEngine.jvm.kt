@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -19,6 +20,7 @@ import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.ailiaili.core.model.PlayInfo
+import app.ailiaili.core.model.PlayerScale
 import app.ailiaili.core.model.USER_AGENT
 import com.sun.jna.NativeLibrary
 import kotlinx.coroutines.Job
@@ -41,35 +43,51 @@ import uk.co.caprica.vlcj.player.embedded.videosurface.callback.format.RV32Buffe
 import java.awt.EventQueue
 import java.io.File
 import java.nio.ByteBuffer
+import java.nio.file.Path
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
-actual class PlayerEngine actual constructor() {
+actual class PlayerEngine actual constructor(private val preview: Boolean) {
     private val listeners = linkedSetOf<PlaybackListener>()
     private var backups: List<String> = emptyList()
     private var audioUrl: String? = null
     private var videoUrl: String? = null
-    private var audioOnly = false
-    private var live = false
+    @Volatile private var audioOnly = false
+    @Volatile private var live = false
     private var speed = 1f
     private var volumeLevel = 1f
 
     /** 已自然播完：此时对 input 发 seek 无效（只改 Time 不重建画面），必须重建 Media。 */
     @Volatile private var finished = false
 
-    /** seek 看门狗：目标位置、确认截止时间、已重试次数。 */
-    @Volatile private var pendingSeekMs = -1L
-    @Volatile private var seekDeadline = 0L
-    @Volatile private var seeking = false
-    @Volatile private var seekRetries = 0
-    private val seekToken = AtomicInteger(0)
+    private enum class SeekStage { Initial, Retried, Rebuilt, Failed }
+
+    private data class SeekAttempt(val target: Long, val stage: SeekStage, val confirmedPosition: Long)
+
+    private val pendingSeek = AtomicReference<SeekAttempt?>()
     private val seekWatchdog = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "vlc-seek-timeout").apply { isDaemon = true }
     }
 
+    private val windows = System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true)
+    private val frameProbe = AtomicInteger()
+    @Volatile private var pausedBefore = false
+    @Volatile private var softwareRecovery = false
+    @Volatile private var hardwareDecoding = true
+    @Volatile private var highQualityAudio = false
+
+    actual fun configureCompatibility(hardwareDecoding: Boolean, highQualityAudio: Boolean) {
+        this.hardwareDecoding = hardwareDecoding
+        this.highQualityAudio = highQualityAudio
+    }
+
     @Volatile var statusMessage: String? = null
     private val pump = FramePump()
+    private val firstFrameDelivered = AtomicBoolean(false)
+    @Volatile private var decodedAspectRatio: Float? = null
     private val clock = PlaybackClock()
     val frameGeneration: Int get() = pump.frameGeneration
 
@@ -88,8 +106,12 @@ actual class PlayerEngine actual constructor() {
 
     actual val currentPosition: Long get() = clock.positionMs
     actual val duration: Long get() = clock.durationMs
+    actual val videoAspectRatio: Float? get() = decodedAspectRatio
+    actual val bufferedPositionMs: Long?
+        get() = clock.durationMs.takeIf { videoUrl?.startsWith("file:") == true && it > 0L }
     actual val isPlaying: Boolean get() = clock.playing
-    actual val isBuffering: Boolean get() = clock.buffering || seeking
+    actual val isSeekPending: Boolean get() = pendingSeek.get() != null
+    actual val isBuffering: Boolean get() = clock.buffering || pendingSeek.get()?.let { it.stage != SeekStage.Failed } == true
     actual val playbackSpeed: Float get() = clock.speed
     actual var volume: Float
         get() = volumeLevel
@@ -111,7 +133,31 @@ actual class PlayerEngine actual constructor() {
         }
 
     actual fun setMediaInfo(title: String, artist: String) {
-        // 桌面无系统媒体会话（MPRIS 等待立项），元数据暂不消费。
+        if (preview) return
+        // Windows 全局媒体键：起播时把控制权登记给当前引擎。
+        // macOS/Linux 无系统媒体会话（MPRIS/Now Playing 待立项），start 内部直接跳过。
+        DesktopMediaKeys.start()
+        DesktopMediaKeys.handler = DesktopMediaKeys.Handler { action ->
+            when (action) {
+                0 -> if (isPlaying) pause() else play()
+                3 -> pause()
+                // 上一曲/下一曲由播放器层消费（队列/分P），引擎层只做暂停兜底。
+                else -> mediaKeyNav?.invoke(action)
+            }
+        }
+    }
+
+    /** 播放器登记的媒体键导航回调（1=下一条 2=上一条）；离开播放页置 null。 */
+    @Volatile
+    private var mediaKeyNav: ((Int) -> Unit)? = null
+
+    actual fun setMediaKeyNav(nav: ((Int) -> Unit)?) {
+        if (preview) return
+        mediaKeyNav = nav
+        if (nav == null && DesktopMediaKeys.handler != null) {
+            // 离开播放页：不再响应媒体键，避免误触已冻结的引擎。
+            DesktopMediaKeys.handler = null
+        }
     }
 
     actual fun play() {
@@ -119,34 +165,67 @@ actual class PlayerEngine actual constructor() {
     }
 
     actual fun pause() {
-        media?.controls()?.pause()
+        media?.controls()?.setPause(true)
     }
 
     actual fun seekTo(positionMs: Long) {
-        val target = positionMs.coerceAtLeast(0L)
-        clock.acceptSeek(target)
-        pendingSeekMs = target
-        seeking = true
-        seekDeadline = System.currentTimeMillis() + 2_500
-        seekRetries = 0
-        val token = seekToken.incrementAndGet()
-        if (finished && !live && !(if (audioOnly) audioUrl else videoUrl).isNullOrBlank()) {
-            // 已结束的 input 对 setTime 只改读数不出画面：用 :start-time 重建并自动起播。
-            // 听视频模式重建的必须是音频流：DASH 视频流没有音轨，重建它会变成无声画面。
-            runCatching { rebuildAt(target) }
-        } else {
-            runCatching { media?.controls()?.setTime(target) }
+        synchronized(gate) {
+            if (dead) return
+            val target = positionMs.coerceAtLeast(0L)
+            val confirmed = pendingSeek.get()?.confirmedPosition ?: clock.positionMs
+            frameProbe.incrementAndGet()
+            clock.acceptSeek(target)
+            if (finished && !live && !(if (audioOnly) audioUrl else videoUrl).isNullOrBlank()) {
+                runCatching { rebuildAt(target, SeekStage.Initial) }
+            } else {
+                val attempt = SeekAttempt(target, SeekStage.Initial, confirmed)
+                pendingSeek.set(attempt)
+                runCatching { media?.controls()?.setTime(target) }
+                scheduleSeekCheck(attempt, 2_500)
+            }
         }
         notify { it.onPositionJump() }
-        // 兜底：如果 VLC 卡死后连 timeChanged 都不再发，不能让弹幕永久冻结。
-        // 必须晚于 timeChanged 的完整升级链（首次 2.5s + 重发 2s），否则重发后的
-        // 确认窗口还没到期就被清掉，:start-time 重建分支永远走不到。
+    }
+
+    private fun scheduleSeekCheck(attempt: SeekAttempt, delayMs: Long) {
         runCatching {
-            seekWatchdog.schedule({
-                if (seekToken.get() == token && pendingSeekMs == target) {
-                    clearPendingSeek()
+            seekWatchdog.schedule({ recoverSeek(attempt, endedEarly = false) }, delayMs, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    private fun recoverSeek(attempt: SeekAttempt, endedEarly: Boolean) {
+        synchronized(gate) {
+            if (dead || pendingSeek.get() !== attempt || attempt.stage == SeekStage.Failed) return
+            if (!endedEarly) {
+                val actual = runCatching { media?.status()?.time() }.getOrNull()
+                if (actual != null && isSeekSettled(actual, attempt.target)) {
+                    if (pendingSeek.compareAndSet(attempt, null)) clock.acceptTime(actual)
+                    return
                 }
-            }, 6, TimeUnit.SECONDS)
+            }
+            if (attempt.stage == SeekStage.Initial && !endedEarly) {
+                val retry = attempt.copy(stage = SeekStage.Retried)
+                if (!pendingSeek.compareAndSet(attempt, retry)) return
+                runCatching { media?.controls()?.setTime(attempt.target) }
+                scheduleSeekCheck(retry, 2_000)
+                return
+            }
+            val url = if (audioOnly) audioUrl else videoUrl
+            if (attempt.stage != SeekStage.Rebuilt && !live && url?.startsWith("http") == true) {
+                if (pendingSeek.get() !== attempt) return
+                runCatching { rebuildAt(attempt.target, SeekStage.Rebuilt) }
+                    .onFailure { notify { listener -> listener.onError() } }
+                return
+            }
+            val requiresRecovery = endedEarly || !live && url?.startsWith("http") == true
+            val failed = if (requiresRecovery) attempt.copy(stage = SeekStage.Failed) else null
+            if (pendingSeek.compareAndSet(attempt, failed)) {
+                clock.acceptSeek(if (requiresRecovery) attempt.target else attempt.confirmedPosition)
+                if (requiresRecovery) {
+                    clock.acceptPlaying(false)
+                    notify { it.onError() }
+                }
+            }
         }
     }
 
@@ -179,7 +258,7 @@ actual class PlayerEngine actual constructor() {
     actual fun freeze() {
         clock.acceptPlaying(false)
         pump.halt()
-        runCatching { media?.controls()?.pause() }
+        runCatching { pause() }
     }
 
     actual fun play(info: PlayInfo, positionMs: Long, audioOnly: Boolean) {
@@ -187,9 +266,10 @@ actual class PlayerEngine actual constructor() {
         backups = info.backupUrls
         audioUrl = info.audioUrl
         videoUrl = info.videoUrl
+        loadedTag = info.videoUrl
         this.audioOnly = audioOnly && !info.audioUrl.isNullOrBlank()
         val url = if (this.audioOnly) info.audioUrl.orEmpty() else info.videoUrl
-        start(url, if (this.audioOnly) null else info.audioUrl, positionMs)
+        start(url, if (this.audioOnly) null else info.audioUrl, positionMs, expectedDuration = info.durationMs)
     }
 
     /**
@@ -205,15 +285,34 @@ actual class PlayerEngine actual constructor() {
         val audio = audioUrl?.takeIf { it.isNotBlank() } ?: return false
         live = false
         audioOnly = true
-        runCatching { switchExecutor.execute { runCatching { start(audio, null, positionMs) } } }
-        return true
+        val expectedTag = loadedTag
+        val knownLength = clock.durationMs
+        return runCatching {
+            switchExecutor.execute {
+                synchronized(gate) {
+                    if (dead || loadedTag != expectedTag || !audioOnly) return@execute
+                    runCatching { start(audio, null, positionMs, expectedDuration = knownLength) }
+                        .onFailure { notify { listener -> listener.onError() } }
+                }
+            }
+        }.isSuccess
     }
 
     actual fun restoreVideo(positionMs: Long) {
         val video = videoUrl?.takeIf { it.isNotBlank() } ?: return
         live = false
         audioOnly = false
-        runCatching { switchExecutor.execute { runCatching { start(video, audioUrl, positionMs) } } }
+        val expectedTag = loadedTag
+        val knownLength = clock.durationMs
+        runCatching {
+            switchExecutor.execute {
+                synchronized(gate) {
+                    if (dead || loadedTag != expectedTag || audioOnly) return@execute
+                    runCatching { start(video, audioUrl, positionMs, expectedDuration = knownLength) }
+                        .onFailure { notify { listener -> listener.onError() } }
+                }
+            }
+        }
     }
 
     actual fun failOver(positionMs: Long): Boolean {
@@ -221,7 +320,7 @@ actual class PlayerEngine actual constructor() {
         live = false
         backups = backups.drop(1)
         videoUrl = next
-        start(next, audioUrl, positionMs)
+        start(next, audioUrl, positionMs, expectedDuration = clock.durationMs)
         return true
     }
 
@@ -230,14 +329,17 @@ actual class PlayerEngine actual constructor() {
         audioOnly = false
         audioUrl = null
         videoUrl = url
+        loadedTag = url
         start(url, null, 0)
     }
 
     actual fun playFiles(videoPath: String, audioPath: String?, positionMs: Long) {
         live = false
         audioOnly = false
-        videoUrl = File(videoPath).toURI().toString()
-        audioUrl = audioPath?.let { File(it).toURI().toString() }
+        backups = emptyList()
+        videoUrl = localMediaUri(videoPath)
+        loadedTag = videoUrl.orEmpty()
+        audioUrl = audioPath?.let(::localMediaUri)
         start(videoUrl.orEmpty(), audioUrl, positionMs)
     }
 
@@ -280,19 +382,30 @@ actual class PlayerEngine actual constructor() {
 
     actual val mediaTag: String get() = loadedTag
 
-    private fun start(url: String, slave: String?, positionMs: Long) {
+    private fun start(
+        url: String,
+        slave: String?,
+        positionMs: Long,
+        seekStage: SeekStage = SeekStage.Initial,
+        expectedDuration: Long = 0,
+    ) = synchronized(gate) {
         val player = media ?: return
         if (url.isBlank()) return
-        loadedTag = url
-        pendingSeekMs = -1L
-        seekRetries = 0
-        seeking = false
+        frameProbe.incrementAndGet()
+        firstFrameDelivered.set(false)
+        decodedAspectRatio = null
+        pausedBefore = false
+        val confirmed = pendingSeek.get()?.confirmedPosition ?: clock.positionMs
+        val attempt = positionMs.takeIf { it > 0 && !live }?.let { SeekAttempt(it, seekStage, confirmed) }
+        pendingSeek.set(attempt)
         finished = false
         statusMessage = null
+        clock.resetLength(expectedDuration)
         val options = buildList {
             add(if (live) ":http-referrer=https://live.bilibili.com/" else ":http-referrer=https://www.bilibili.com/")
             add(":http-user-agent=${app.ailiaili.core.model.effectiveUserAgent()}")
             add(":network-caching=$networkCaching")
+            if (!hardwareDecoding || softwareRecovery) add(":avcodec-hw=none")
             // libvlc 自带的 mp4 解复用器读不出 B 站 fMP4 的最后一个分片，
             // 长视频片尾最后 1~2 秒会没有声音；avformat 能完整读到 sidx 末段。
             add(":demux=avformat")
@@ -301,9 +414,11 @@ actual class PlayerEngine actual constructor() {
         }
         clock.acceptSeek(positionMs.coerceAtLeast(0L))
         clock.acceptSpeed(speed)
-        player.media().play(url, *options.toTypedArray())
+        check(player.media().play(url, *options.toTypedArray())) { "VLC 无法打开这条媒体" }
         player.audio().setVolume((volumeLevel * 100).toInt())
         player.controls().setRate(speed)
+        if (attempt != null) scheduleSeekCheck(attempt, if (seekStage == SeekStage.Rebuilt) 6_000 else 4_000)
+        Unit
     }
 
     private fun notify(block: (PlaybackListener) -> Unit) {
@@ -312,10 +427,11 @@ actual class PlayerEngine actual constructor() {
     }
 
     private fun openPlayer(): Pair<MediaPlayerFactory, EmbeddedMediaPlayer> {
-        val created = openFactory()
+        val created = openFactory(highQualityAudio && windows)
         val player = created.mediaPlayers().newEmbeddedMediaPlayer()
         val formatCallback = object : BufferFormatCallback {
             override fun getBufferFormat(sourceWidth: Int, sourceHeight: Int): BufferFormat {
+                if (sourceWidth > 0 && sourceHeight > 0) decodedAspectRatio = sourceWidth.toFloat() / sourceHeight
                 val (width, height) = pump.sizeFor(sourceWidth, sourceHeight)
                 return RV32BufferFormat(width, height)
             }
@@ -330,6 +446,9 @@ actual class PlayerEngine actual constructor() {
                 if (width <= 0 || height <= 0) return
                 val pitch = bufferFormat.pitches.firstOrNull()?.takeIf { it >= width * 4 } ?: (width * 4)
                 pump.publish(source, width, height, pitch)
+                if (preview && !firstFrameDelivered.get() && firstFrameDelivered.compareAndSet(false, true)) {
+                    notify { it.onFirstFrame() }
+                }
             }
         }
         val surface = created.videoSurfaces().newVideoSurface(formatCallback, render, true)
@@ -341,14 +460,25 @@ actual class PlayerEngine actual constructor() {
             override fun error(mediaPlayer: MediaPlayer) {
                 finished = false
                 clock.acceptPlaying(false)
-                clearPendingSeek()
+                pendingSeek.get()?.let { attempt ->
+                    pendingSeek.compareAndSet(attempt, attempt.copy(stage = SeekStage.Failed))
+                    clock.acceptSeek(attempt.target)
+                }
                 notify { it.onError() }
             }
 
             override fun finished(mediaPlayer: MediaPlayer) {
-                clearPendingSeek()
-                finished = true
+                val attempt = pendingSeek.get()
+                if (attempt != null) {
+                    runCatching { seekWatchdog.execute { recoverSeek(attempt, endedEarly = true) } }
+                    return
+                }
                 clock.acceptPlaying(false)
+                if (!live && videoUrl?.startsWith("http") == true && !isCrediblePlaybackEnd(clock.positionMs, clock.durationMs)) {
+                    notify { it.onError() }
+                    return
+                }
+                finished = true
                 notify { it.onEnded(true) }
             }
 
@@ -356,8 +486,12 @@ actual class PlayerEngine actual constructor() {
                 finished = false
                 clock.acceptBuffering(false)
                 clock.acceptPlaying(true)
-                clock.acceptTime(mediaPlayer.status().time())
+                acceptTime(mediaPlayer.status().time())
                 clock.acceptLength(mediaPlayer.status().length())
+                if (pausedBefore) {
+                    pausedBefore = false
+                    watchForFrozenFrames()
+                }
                 notify {
                     it.onEnded(false)
                     it.onIsPlayingChanged(true)
@@ -369,6 +503,8 @@ actual class PlayerEngine actual constructor() {
             }
 
             override fun paused(mediaPlayer: MediaPlayer) {
+                frameProbe.incrementAndGet()
+                pausedBefore = true
                 clock.acceptPlaying(false)
                 notify { it.onIsPlayingChanged(false) }
             }
@@ -379,28 +515,7 @@ actual class PlayerEngine actual constructor() {
             }
 
             override fun timeChanged(mediaPlayer: MediaPlayer, newTime: Long) {
-                clock.acceptTime(newTime)
-                val target = pendingSeekMs
-                if (target < 0) return
-                if (isSeekSettled(newTime, target)) {
-                    clearPendingSeek()
-                    return
-                }
-                if (System.currentTimeMillis() < seekDeadline) return
-                if (seekRetries < 1) {
-                    seekRetries++
-                    seekDeadline = System.currentTimeMillis() + 2_000
-                    runCatching { mediaPlayer.controls().setTime(target) }
-                    return
-                }
-                // 重发一次仍不到位：用 :start-time 重建 Media，跳到目标位置。
-                // 只对网络流做；本地文件 seek 是可靠的，重建反而会闪一下。
-                // 重建会调 media().play()，libvlc 禁止在事件回调线程里改播放状态（会死锁），
-                // 必须丢给看门狗线程执行。
-                clearPendingSeek()
-                if (!live && (if (audioOnly) audioUrl else videoUrl)?.startsWith("http") == true) {
-                    runCatching { seekWatchdog.execute { runCatching { rebuildAt(target) } } }
-                }
+                acceptTime(newTime)
             }
 
             override fun lengthChanged(mediaPlayer: MediaPlayer, newLength: Long) {
@@ -420,28 +535,54 @@ actual class PlayerEngine actual constructor() {
         return created to player
     }
 
-    private fun clearPendingSeek() {
-        pendingSeekMs = -1L
-        seekRetries = 0
-        seeking = false
-    }
-
-    /** 用 :start-time 重建当前媒体并起播。听视频模式用音频流，否则视频流 + 音轨 slave。 */
-    private fun rebuildAt(positionMs: Long) {
-        if (audioOnly) {
-            start(audioUrl.orEmpty(), null, positionMs)
-        } else {
-            start(videoUrl.orEmpty(), audioUrl, positionMs)
+    private fun watchForFrozenFrames() {
+        val frame = pump.frameGeneration
+        if (!windows || !hardwareDecoding || softwareRecovery || audioOnly || live || frame == 0 || isSeekPending) return
+        val ticket = frameProbe.incrementAndGet()
+        val resumedAt = clock.positionMs
+        runCatching {
+            seekWatchdog.schedule({
+                synchronized(gate) {
+                    if (!dead && frameProbe.get() == ticket && clock.playing && !isBuffering &&
+                        pump.frameGeneration == frame && clock.positionMs - resumedAt >= 500
+                    ) {
+                        softwareRecovery = true
+                        runCatching { rebuildAt(clock.positionMs, SeekStage.Initial) }
+                            .onFailure { notify { listener -> listener.onError() } }
+                    }
+                }
+            }, 4_500, TimeUnit.MILLISECONDS)
         }
     }
+
+    private fun acceptTime(newTime: Long) {
+        val attempt = pendingSeek.get()
+        if (attempt != null) {
+            if (!isSeekSettled(newTime, attempt.target)) return
+            if (!pendingSeek.compareAndSet(attempt, null)) return
+        }
+        clock.acceptTime(newTime)
+    }
+
+    private fun rebuildAt(positionMs: Long, stage: SeekStage) {
+        if (audioOnly) {
+            start(audioUrl.orEmpty(), null, positionMs, stage, clock.durationMs)
+        } else {
+            start(videoUrl.orEmpty(), audioUrl, positionMs, stage, clock.durationMs)
+        }
+    }
+
 }
 
+internal fun localMediaUri(path: String): String = Path.of(path).toUri().toASCIIString()
+
 @Composable
-actual fun VideoSurface(engine: PlayerEngine, modifier: Modifier) {
+actual fun VideoSurface(engine: PlayerEngine, modifier: Modifier, scale: PlayerScale) {
     Box(
         modifier
+            .clipToBounds()
             .background(Color.Black)
-            .then(VideoFrameElement(engine)),
+            .then(VideoFrameElement(engine, scale)),
         contentAlignment = Alignment.Center,
     ) {
         engine.statusMessage?.let {
@@ -457,21 +598,25 @@ actual fun VideoSurface(engine: PlayerEngine, modifier: Modifier) {
 
 private class VideoFrameElement(
     private val engine: PlayerEngine,
+    private val scale: PlayerScale,
 ) : ModifierNodeElement<VideoFrameNode>() {
-    override fun create() = VideoFrameNode(engine)
+    override fun create() = VideoFrameNode(engine, scale)
 
     override fun update(node: VideoFrameNode) {
         node.rebind(engine)
+        node.scale = scale
+        node.invalidateDraw()
     }
 
     override fun equals(other: Any?): Boolean =
-        other is VideoFrameElement && other.engine === engine
+        other is VideoFrameElement && other.engine === engine && other.scale == scale
 
-    override fun hashCode(): Int = engine.hashCode()
+    override fun hashCode(): Int = 31 * engine.hashCode() + scale.hashCode()
 }
 
 private class VideoFrameNode(
     var engine: PlayerEngine,
+    var scale: PlayerScale,
 ) : Modifier.Node(), DrawModifierNode {
     private var clock: Job? = null
     private val sampling = FilterMipmap(FilterMode.LINEAR, MipmapMode.NONE)
@@ -507,9 +652,11 @@ private class VideoFrameNode(
         val srcW = image.width.toFloat()
         val srcH = image.height.toFloat()
         if (srcW < 1f || srcH < 1f) return
-        val scale = minOf(size.width / srcW, size.height / srcH)
-        val dw = srcW * scale
-        val dh = srcH * scale
+        val horizontal = size.width / srcW
+        val vertical = size.height / srcH
+        val factor = if (scale == PlayerScale.Crop) maxOf(horizontal, vertical) else minOf(horizontal, vertical)
+        val dw = if (scale == PlayerScale.Stretch) size.width else srcW * factor
+        val dh = if (scale == PlayerScale.Stretch) size.height else srcH * factor
         val left = (size.width - dw) / 2f
         val top = (size.height - dh) / 2f
         drawIntoCanvas { canvas ->
@@ -525,18 +672,19 @@ private class VideoFrameNode(
     }
 }
 
-private fun openFactory(): MediaPlayerFactory {
+private fun openFactory(highQualityAudio: Boolean): MediaPlayerFactory {
     prepareNativeVlc()
     val discovery = NativeDiscovery()
     val mac = System.getProperty("os.name").orEmpty().lowercase().contains("mac")
-    val args = arrayOf(
-        if (mac) "--avcodec-hw=videotoolbox" else "--avcodec-hw=any",
-        "--no-osd",
-        "--drop-late-frames",
-        "--skip-frames",
-        "--no-video-title-show",
-    )
-    return runCatching { MediaPlayerFactory(discovery, *args) }
+    val args = buildList {
+        add(if (mac) "--avcodec-hw=videotoolbox" else "--avcodec-hw=any")
+        add("--no-osd")
+        add("--drop-late-frames")
+        add("--skip-frames")
+        add("--no-video-title-show")
+        if (highQualityAudio) add("--audio-resampler=speex")
+    }
+    return runCatching { MediaPlayerFactory(discovery, *args.toTypedArray()) }
         .getOrElse { MediaPlayerFactory(NativeDiscovery()) }
 }
 
