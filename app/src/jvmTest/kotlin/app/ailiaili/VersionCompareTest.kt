@@ -1,5 +1,6 @@
 package app.ailiaili
 
+import app.ailiaili.core.model.isNewerVersion
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue

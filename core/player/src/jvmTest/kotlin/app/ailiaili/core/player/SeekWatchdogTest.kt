@@ -27,4 +27,17 @@ class SeekWatchdogTest {
     fun negativeTargetIsSettled() {
         assertTrue(isSeekSettled(0, -1))
     }
+    @Test
+    fun oldPositionAfterBackwardSeekIsNotConfirmation() {
+        assertFalse(isSeekSettled(60_000, 12_000))
+        assertTrue(isSeekSettled(12_600, 12_000))
+    }
+
+    @Test
+    fun earlyEndRequiresRecovery() {
+        assertFalse(isCrediblePlaybackEnd(18_000, 120_000))
+        assertTrue(isCrediblePlaybackEnd(117_000, 120_000))
+        assertTrue(isCrediblePlaybackEnd(1_000, 0))
+    }
+
 }

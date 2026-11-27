@@ -1,23 +1,30 @@
 package app.ailiaili.core.network
 
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import app.ailiaili.core.model.USER_AGENT
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.Inflater
 
 /** 一条直播间弹幕。 */
@@ -33,11 +40,9 @@ data class LiveDanmaku(
     val medalLevel: Int = 0,
 )
 
-data class LiveDanmakuInfo(
-    val host: String,
-    val port: Int,
-    val token: String,
-)
+data class LiveDanmakuEndpoint(val host: String, val port: Int)
+
+data class LiveDanmakuInfo(val endpoints: List<LiveDanmakuEndpoint>, val token: String)
 
 /**
  * B 站直播弹幕 WebSocket。
@@ -47,40 +52,75 @@ data class LiveDanmakuInfo(
  * Inflater 解压，避免为了 brotli 再引一个原生库。
  */
 internal class LiveDanmakuConnection(
-    private val host: String,
-    private val port: Int,
+    private val endpoints: List<LiveDanmakuEndpoint>,
     private val token: String,
     private val roomId: Long,
     private val uid: Long,
     private val cookie: String,
 ) {
-    fun messages(): Flow<LiveDanmaku> = callbackFlow {
-        val scope = this
+    fun messages(): Flow<LiveDanmaku> = channelFlow {
+        val selected = CompletableDeferred<Int>()
+        val winner = AtomicInteger(-1)
         val client = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .pingInterval(30, TimeUnit.SECONDS)
             .apply {
-                // 与 API 同一份代理设置；非法地址按直连兜底。
-                runCatching { app.ailiaili.core.model.parseProxyAddress(app.ailiaili.core.model.effectiveProxy()) }
-                    .getOrNull()?.let { addr ->
-                        proxy(java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress(addr.host, addr.port)))
-                    }
+                app.ailiaili.core.model.parseProxyAddress(app.ailiaili.core.model.effectiveProxy())?.let { addr ->
+                    proxy(java.net.Proxy(java.net.Proxy.Type.HTTP, java.net.InetSocketAddress(addr.host, addr.port)))
+                }
             }
             .build()
+        try {
+            val attempts = endpoints.take(4).mapIndexed { index, endpoint ->
+                launch {
+                    delay(index * 600L)
+                    try {
+                        endpointMessages(client, endpoint) {
+                            winner.compareAndSet(-1, index).also { accepted ->
+                                if (accepted) selected.complete(index)
+                            }
+                        }.collect { send(it) }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        if (winner.get() == index) throw failure
+                    }
+                }
+            }
+            val cancelAlternatives = launch {
+                val index = selected.await()
+                attempts.forEachIndexed { other, job -> if (index != other) job.cancel() }
+            }
+            try {
+                attempts.joinAll()
+                if (winner.get() < 0) throw IOException("直播弹幕服务器连接失败")
+            } finally {
+                cancelAlternatives.cancel()
+            }
+        } finally {
+            client.dispatcher.executorService.shutdown()
+            client.connectionPool.evictAll()
+        }
+    }
+
+    private fun endpointMessages(
+        client: OkHttpClient,
+        endpoint: LiveDanmakuEndpoint,
+        select: () -> Boolean,
+    ): Flow<LiveDanmaku> = callbackFlow {
         val request = Request.Builder()
-            .url("wss://$host:$port/sub")
+            .url(HttpUrl.Builder().scheme("https").host(endpoint.host).port(endpoint.port).addPathSegment("sub").build())
             .header("User-Agent", app.ailiaili.core.model.effectiveUserAgent())
             .header("Origin", "https://live.bilibili.com")
             .header("Referer", "https://live.bilibili.com/$roomId")
-            .apply { if (cookie.isNotBlank()) header("Cookie", cookie) }
+            .apply { if (cookie.isNotBlank() && endpoint.host.endsWith(".bilibili.com", true)) header("Cookie", cookie) }
             .build()
-        var heartbeat: Job? = null
-        // 静默断连看门狗：B 站长连接会半开（PiliPlus #2809，官方端同样复现），
-        // ping/pong 与心跳都探不出来。直播中服务端每隔几秒必有人气/弹幕包，
-        // 150 秒没有任何消息就主动断开，交给上层 3 秒重连循环重建。
-        val lastMessageAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+        val authenticated = CompletableDeferred<Boolean>()
+        val lastMessageAt = AtomicLong(System.currentTimeMillis())
         val socket = client.newWebSocket(request, object : WebSocketListener() {
+            private var accepted = false
+
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 val auth = JSONObject()
                     .put("uid", uid)
@@ -90,49 +130,65 @@ internal class LiveDanmakuConnection(
                     .put("type", 2)
                     .put("key", token)
                     .toString()
-                webSocket.send(ByteString.of(*packet(7, auth.toByteArray())))
-                heartbeat = scope.launch {
-                    while (isActive) {
-                        delay(30_000)
-                        webSocket.send(ByteString.of(*packet(2, "[object Object]".toByteArray())))
-                        if (System.currentTimeMillis() - lastMessageAt.get() > 150_000) {
-                            close(java.io.IOException("直播弹幕连接静默超时，主动重连"))
-                            break
-                        }
-                    }
-                }
+                if (!webSocket.send(ByteString.of(*packet(7, auth.toByteArray())))) close()
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 lastMessageAt.set(System.currentTimeMillis())
                 val found = ArrayList<LiveDanmaku>(4)
-                runCatching { parseFrames(bytes.toByteArray(), found) }
-                found.forEach { trySend(it) }
+                runCatching {
+                    parseFrames(bytes.toByteArray(), found) { code ->
+                        if (!authenticated.isCompleted) {
+                            accepted = code == 0 && select()
+                            authenticated.complete(accepted)
+                        }
+                    }
+                }
+                if (accepted) found.forEach { trySend(it) }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 close(t)
             }
 
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(code, null)
+            }
+
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 close()
             }
         })
+        val heartbeat = launch {
+            when (withTimeoutOrNull(6_000) { authenticated.await() }) {
+                null -> close(IOException("直播弹幕认证超时"))
+                false -> close()
+                true -> {
+                    val frame = ByteString.of(*packet(2, "[object Object]".toByteArray()))
+                    while (isActive) {
+                        if (!socket.send(frame) || System.currentTimeMillis() - lastMessageAt.get() > 150_000) {
+                            close(IOException("直播弹幕连接已断开，正在重连"))
+                            break
+                        }
+                        delay(30_000)
+                    }
+                }
+            }
+        }
         awaitClose {
-            heartbeat?.cancel()
-            runCatching { socket.cancel() }
-            client.dispatcher.executorService.shutdown()
+            heartbeat.cancel()
+            socket.cancel()
         }
     }
 
-    private fun parseFrames(data: ByteArray, out: MutableList<LiveDanmaku>) {
+    private fun parseFrames(data: ByteArray, out: MutableList<LiveDanmaku>, auth: (Int) -> Unit) {
         var offset = 0
         while (offset + 16 <= data.size) {
             val head = ByteBuffer.wrap(data, offset, 16).order(ByteOrder.BIG_ENDIAN)
             val total = head.int
             val headerLen = head.short.toInt()
             val version = head.short.toInt()
-            head.int // op
+            val op = head.int
             head.int // sequence
             // total/headerLen 必须有 16 字节协议头的下界：total=0 的畸形帧会让
             // offset 永不前进（读线程死循环），headerLen>total 会构造非法区间。
@@ -141,9 +197,12 @@ internal class LiveDanmakuConnection(
             when (version) {
                 2 -> {
                     val inflated = runCatching { inflate(body) }.getOrNull()
-                    if (inflated != null) parseFrames(inflated, out)
+                    if (inflated != null) parseFrames(inflated, out, auth)
                 }
-                0, 1 -> parseJson(body, out)
+                0, 1 -> when (op) {
+                    5 -> parseJson(body, out)
+                    8 -> auth(runCatching { JSONObject(body.decodeToString()).optInt("code", -1) }.getOrDefault(-1))
+                }
             }
             offset += total
         }

@@ -6,6 +6,8 @@ import app.ailiaili.core.model.CdnMode
 import app.ailiaili.core.model.ContentKind
 import app.ailiaili.core.model.RecommendSource
 import app.ailiaili.core.model.ShellLayout
+import app.ailiaili.core.model.StartupPage
+import app.ailiaili.core.model.PlayerScale
 import app.ailiaili.core.model.ThemeMode
 import app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS
 import app.ailiaili.core.model.NETWORK_CACHING_MAX_MS
@@ -17,10 +19,13 @@ import kotlin.test.assertTrue
 class SettingsCodecTest {
     @Test
     fun roundTripsVolumeAndSearchKind() {
-        val src = decodeAppSettings(JSONObject()).copy(playerVolume = 0f, lastSearchKind = ContentKind.Bangumi)
+        val src = decodeAppSettings(JSONObject()).copy(
+            playerVolume = 0f, lastAudiblePlayerVolume = .32f, lastSearchKind = ContentKind.Bangumi,
+        )
         val json = encodeAppSettings(src)
         val out = decodeAppSettings(json)
         assertEquals(0f, out.playerVolume)
+        assertEquals(.32f, out.lastAudiblePlayerVolume)
         assertEquals(ContentKind.Bangumi, out.lastSearchKind)
     }
 
@@ -29,6 +34,12 @@ class SettingsCodecTest {
         val out = decodeAppSettings(JSONObject())
         assertEquals(0.8f, out.playerVolume)
         assertEquals(ContentKind.Video, out.lastSearchKind)
+    }
+
+    @Test
+    fun readsTheLastAudibleVolumeFromOlderSettings() {
+        assertEquals(.35f, decodeAppSettings(JSONObject().put("playerVolume", .35)).lastAudiblePlayerVolume)
+        assertEquals(.8f, decodeAppSettings(JSONObject().put("playerVolume", 0)).lastAudiblePlayerVolume)
     }
 
     @Test
@@ -136,7 +147,17 @@ class SettingsCodecTest {
         val src = AppSettings(
             theme = ThemeMode.Dark,
             shellLayout = ShellLayout.Rail,
+            startupPage = StartupPage.Mine,
+            favoriteGrid = false,
             recommendSource = RecommendSource.App,
+            downloadQuality = 64,
+            backgroundDownloads = false,
+            unmeteredDownloads = true,
+            downloadDanmaku = true,
+            downloadSubtitles = false,
+            playerScale = PlayerScale.Crop,
+            seekStepSeconds = 15,
+            danmakuDelayMs = -1500,
             danmakuEnabled = false,
             danmakuAreaPercent = 50,
             danmakuSmartFilter = false,
@@ -161,6 +182,9 @@ class SettingsCodecTest {
             httpProxy = "127.0.0.1:7890",
             playbackSpeed = 1.75f,
             autoPlayNext = false,
+            autoPlayRelated = true,
+            desktopHardwareDecoding = false,
+            desktopHighQualityAudio = true,
             sponsorBlock = true,
             sponsorCategories = "sponsor,selfpromo",
             cdnMode = CdnMode.Auto,
@@ -172,6 +196,7 @@ class SettingsCodecTest {
             fontPath = "fonts/x.ttf",
             accentFollowSystem = true,
             autoCheckUpdate = false,
+            reduceMotion = true,
             skippedVersion = "9.9.9",
             acceptedDisclaimerVersion = 2,
             closeToTray = false,

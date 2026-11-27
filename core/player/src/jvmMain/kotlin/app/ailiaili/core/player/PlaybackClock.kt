@@ -23,6 +23,15 @@ internal class PlaybackClock {
         if (ms > 0) durationMs = ms
     }
 
+    /**
+     * 强制写入时长（含 0）：换媒体时旧时长必须先清掉。
+     * 听视频切音频流后 lengthChanged 可能迟迟不来，不清零的话进度条
+     * 会一直按上一条媒体的时长画。
+     */
+    fun resetLength(ms: Long) {
+        durationMs = ms.coerceAtLeast(0L)
+    }
+
     fun acceptPlaying(value: Boolean) {
         playing = value
         if (!value) buffering = false

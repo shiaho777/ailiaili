@@ -12,8 +12,15 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.FileDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.analytics.PlayerId
+import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.TrackGroupArray
+import androidx.media3.exoplayer.trackselection.ExoTrackSelection
+import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -21,27 +28,25 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import app.ailiaili.core.data.AndroidHost
 import app.ailiaili.core.model.PlayInfo
+import app.ailiaili.core.model.PlayerScale
+import androidx.media3.ui.AspectRatioFrameLayout
 import app.ailiaili.core.model.USER_AGENT
 import kotlin.coroutines.resume
 
-actual class PlayerEngine actual constructor() {
-    /**
-     * ExoPlayer 的 LoadControl 构造后不可替换；用委托包一层，
-     * 换片时按 BufferPolicy 的输出重建内层 DefaultLoadControl。
-     * 未换片期间行为与直接持有完全一致（全部调用透传）。
-     */
-    private val loadControl = SwitchableLoadControl()
+actual class PlayerEngine actual constructor(private val preview: Boolean) {
+    private val loadControl = SwitchableLoadControl(
+        BufferPolicy.androidDurations(app.ailiaili.core.model.NETWORK_CACHING_DEFAULT_MS, live = false),
+    )
+
+    private val audioAttributes = androidx.media3.common.AudioAttributes.Builder()
+        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+        .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+        .build()
 
     val player: ExoPlayer = ExoPlayer.Builder(AndroidHost.context)
         .setLoadControl(loadControl)
         // 音频焦点交给 Media3：来电/其他应用出声自动暂停，焦点恢复自动续播。
-        .setAudioAttributes(
-            androidx.media3.common.AudioAttributes.Builder()
-                .setUsage(androidx.media3.common.C.USAGE_MEDIA)
-                .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
-                .build(),
-            /* handleAudioFocus= */ true,
-        )
+        .setAudioAttributes(audioAttributes, !preview)
         .build()
 
     private val http = DefaultHttpDataSource.Factory()
@@ -53,18 +58,26 @@ actual class PlayerEngine actual constructor() {
             ),
         )
     private val progressive = ProgressiveMediaSource.Factory(http)
+    private val localProgressive = ProgressiveMediaSource.Factory(FileDataSource.Factory())
     private var backups: List<String> = emptyList()
     private var audioUrl: String? = null
     private var videoUrl: String? = null
     private val listeners = linkedSetOf<PlaybackListener>()
+    private var previewAudioFocus = false
+    private var seeking = false
     private val bridge = object : Player.Listener {
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             listeners.toList().forEach { it.onError() }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState != Player.STATE_BUFFERING) seeking = false
             val ended = playbackState == Player.STATE_ENDED
             listeners.toList().forEach { it.onEnded(ended) }
+        }
+
+        override fun onRenderedFirstFrame() {
+            listeners.toList().forEach { it.onFirstFrame() }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -86,12 +99,22 @@ actual class PlayerEngine actual constructor() {
 
     actual val currentPosition: Long get() = player.currentPosition
     actual val duration: Long get() = player.duration
+    actual val videoAspectRatio: Float?
+        get() = player.videoSize.let { size ->
+            if (size.width > 0 && size.height > 0) size.width * size.pixelWidthHeightRatio / size.height else null
+        }
+    actual val bufferedPositionMs: Long? get() = player.bufferedPosition.takeIf { it >= 0L }
     actual val isPlaying: Boolean get() = player.isPlaying
     actual val isBuffering: Boolean get() = player.playbackState == Player.STATE_BUFFERING
+    actual val isSeekPending: Boolean get() = seeking
     actual val playbackSpeed: Float get() = player.playbackParameters.speed
     actual var volume: Float
         get() = player.volume
         set(value) {
+            if (preview && (value > 0f) != previewAudioFocus) {
+                previewAudioFocus = value > 0f
+                player.setAudioAttributes(audioAttributes, previewAudioFocus)
+            }
             player.volume = value
         }
 
@@ -114,7 +137,7 @@ actual class PlayerEngine actual constructor() {
     actual fun setMediaKeyNav(nav: ((Int) -> Unit)?) = Unit
 
     private fun startMediaSession() {
-        AndroidMediaIntegration.onPlayStarted(AndroidHost.context, player, mediaTitle, mediaArtist)
+        if (!preview) AndroidMediaIntegration.onPlayStarted(AndroidHost.context, player, mediaTitle, mediaArtist)
     }
 
     /**
@@ -130,13 +153,8 @@ actual class PlayerEngine actual constructor() {
         }
 
     private fun applyBufferPolicy() {
-        val spec = app.ailiaili.core.player.BufferPolicy.androidDurations(networkCachingMs, live)
-        loadControl.swap(
-            DefaultLoadControl.Builder()
-                .setBufferDurationsMs(spec.minBufferMs, spec.maxBufferMs, spec.playbackMs, spec.rebufferMs)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build(),
-        )
+        val spec = BufferPolicy.androidDurations(networkCachingMs, live)
+        if (loadControl.configure(spec)) player.stop()
     }
 
     actual fun play() {
@@ -148,7 +166,9 @@ actual class PlayerEngine actual constructor() {
     }
 
     actual fun seekTo(positionMs: Long) {
+        seeking = true
         player.seekTo(positionMs)
+        if (player.playbackState != Player.STATE_BUFFERING) seeking = false
     }
 
     actual fun setPlaybackSpeed(speed: Float) {
@@ -165,6 +185,8 @@ actual class PlayerEngine actual constructor() {
 
     actual fun prepare() = Unit
 
+    actual fun configureCompatibility(hardwareDecoding: Boolean, highQualityAudio: Boolean) = Unit
+
     actual fun freeze() {
         player.pause()
     }
@@ -174,6 +196,7 @@ actual class PlayerEngine actual constructor() {
         val audio = info.audioUrl
         audioUrl = audio
         videoUrl = info.videoUrl
+        loadedTag = info.videoUrl
         if (audioOnly && !audio.isNullOrBlank()) attachSingle(audio, positionMs) else attach(info.videoUrl, positionMs)
     }
 
@@ -191,6 +214,7 @@ actual class PlayerEngine actual constructor() {
     actual fun failOver(positionMs: Long): Boolean {
         val next = backups.firstOrNull() ?: return false
         backups = backups.drop(1)
+        videoUrl = next
         attach(next, positionMs)
         return true
     }
@@ -225,13 +249,15 @@ actual class PlayerEngine actual constructor() {
 
     actual fun playFiles(videoPath: String, audioPath: String?, positionMs: Long) {
         loadedTag = videoPath
-        val video = progressive.createMediaSource(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(videoPath))))
+        live = false
+        applyBufferPolicy()
+        val video = localProgressive.createMediaSource(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(videoPath))))
         val source = if (audioPath.isNullOrBlank()) {
             video
         } else {
             MergingMediaSource(
                 video,
-                progressive.createMediaSource(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(audioPath)))),
+                localProgressive.createMediaSource(MediaItem.fromUri(android.net.Uri.fromFile(java.io.File(audioPath)))),
             )
         }
         player.setMediaSource(source, positionMs)
@@ -245,11 +271,11 @@ actual class PlayerEngine actual constructor() {
         // 调用方即使从 IO 线程进来，也切回主线程，避免 “Player is accessed on the wrong thread” 崩溃。
         if (Looper.myLooper() == Looper.getMainLooper()) {
             runCatching { player.release() }
-            AndroidMediaIntegration.onReleased(AndroidHost.context)
+            if (!preview) AndroidMediaIntegration.onReleased(AndroidHost.context)
         } else {
             Handler(Looper.getMainLooper()).post {
                 runCatching { player.release() }
-                AndroidMediaIntegration.onReleased(AndroidHost.context)
+                if (!preview) AndroidMediaIntegration.onReleased(AndroidHost.context)
             }
         }
     }
@@ -288,7 +314,6 @@ actual class PlayerEngine actual constructor() {
 
     private fun attach(videoUrl: String, positionMs: Long) {
         live = false
-        loadedTag = videoUrl
         applyBufferPolicy()
         val video = progressive.createMediaSource(MediaItem.fromUri(videoUrl))
         val audio = audioUrl
@@ -306,8 +331,6 @@ actual class PlayerEngine actual constructor() {
 
     private fun attachSingle(url: String, positionMs: Long) {
         live = false
-        // 听视频只是同一条视频换了流，媒体身份沿用视频 URL，进度归属不变。
-        loadedTag = videoUrl?.takeIf { it.isNotBlank() } ?: url
         applyBufferPolicy()
         player.setMediaSource(progressive.createMediaSource(MediaItem.fromUri(url)))
         player.prepare()
@@ -317,65 +340,66 @@ actual class PlayerEngine actual constructor() {
     }
 }
 
-/**
- * LoadControl 委托：ExoPlayer 构造后不能换 LoadControl，
- * 但换片（setMediaSource + prepare）之间可以安全替换内层实现。
- * 所有回调透传；swap 只应在换片前调用。
- */
-private class SwitchableLoadControl : androidx.media3.exoplayer.LoadControl {
-    @Volatile
-    private var delegate: androidx.media3.exoplayer.LoadControl = DefaultLoadControl.Builder()
-        .setBufferDurationsMs(15_000, 50_000, 1_500, 5_000)
-        .setPrioritizeTimeOverSizeThresholds(true)
-        .build()
+private class SwitchableLoadControl(initial: AndroidBufferSpec) : LoadControl {
+    private val allocator = DefaultAllocator(true, androidx.media3.common.C.DEFAULT_BUFFER_SEGMENT_SIZE)
+    @Volatile private var requested = initial
+    private var applied = initial
+    @Volatile private var delegate = makeDelegate(initial)
 
-    fun swap(next: androidx.media3.exoplayer.LoadControl) {
-        val old = delegate
-        if (old === next) return
-        delegate = next
-        runCatching { old.onReleased() }
+    fun configure(spec: AndroidBufferSpec): Boolean {
+        if (spec == requested) return false
+        requested = spec
+        return true
     }
 
-    override fun onPrepared() = delegate.onPrepared()
+    override fun onPrepared(playerId: PlayerId) {
+        val spec = requested
+        if (spec != applied) {
+            delegate.onReleased(playerId)
+            delegate = makeDelegate(spec)
+            applied = spec
+        }
+        delegate.onPrepared(playerId)
+    }
 
     override fun onTracksSelected(
-        renderers: Array<androidx.media3.exoplayer.Renderer>,
-        trackGroups: androidx.media3.exoplayer.source.TrackGroupArray,
-        trackSelections: Array<androidx.media3.exoplayer.trackselection.ExoTrackSelection>,
-    ) = delegate.onTracksSelected(renderers, trackGroups, trackSelections)
+        parameters: LoadControl.Parameters,
+        trackGroups: TrackGroupArray,
+        trackSelections: Array<ExoTrackSelection?>,
+    ) = delegate.onTracksSelected(parameters, trackGroups, trackSelections)
 
-    override fun onStopped() = delegate.onStopped()
+    override fun onStopped(playerId: PlayerId) = delegate.onStopped(playerId)
 
-    override fun onReleased() = delegate.onReleased()
+    override fun onReleased(playerId: PlayerId) = delegate.onReleased(playerId)
 
-    override fun getAllocator(): androidx.media3.exoplayer.upstream.Allocator = delegate.allocator
+    override fun getAllocator() = allocator
 
-    override fun getBackBufferDurationUs(): Long = delegate.backBufferDurationUs
+    override fun getBackBufferDurationUs(playerId: PlayerId): Long = delegate.getBackBufferDurationUs(playerId)
 
-    override fun retainBackBufferFromKeyframe(): Boolean = delegate.retainBackBufferFromKeyframe()
+    override fun retainBackBufferFromKeyframe(playerId: PlayerId): Boolean = delegate.retainBackBufferFromKeyframe(playerId)
 
-    override fun shouldContinueLoading(
-        playbackPositionUs: Long,
-        bufferedDurationUs: Long,
-        playbackSpeed: Float,
-    ): Boolean = delegate.shouldContinueLoading(playbackPositionUs, bufferedDurationUs, playbackSpeed)
+    override fun shouldContinueLoading(parameters: LoadControl.Parameters): Boolean =
+        delegate.shouldContinueLoading(parameters)
 
-    override fun shouldStartPlayback(
-        bufferedDurationUs: Long,
-        playbackSpeed: Float,
-        rebuffering: Boolean,
-        targetLiveOffsetUs: Long,
-    ): Boolean = delegate.shouldStartPlayback(bufferedDurationUs, playbackSpeed, rebuffering, targetLiveOffsetUs)
+    override fun shouldStartPlayback(parameters: LoadControl.Parameters): Boolean =
+        delegate.shouldStartPlayback(parameters)
 
     override fun shouldContinuePreloading(
         timeline: androidx.media3.common.Timeline,
-        mediaPeriodId: androidx.media3.exoplayer.source.MediaSource.MediaPeriodId,
+        mediaPeriodId: MediaSource.MediaPeriodId,
         bufferedDurationUs: Long,
     ): Boolean = delegate.shouldContinuePreloading(timeline, mediaPeriodId, bufferedDurationUs)
+
+    private fun makeDelegate(spec: AndroidBufferSpec): DefaultLoadControl =
+        DefaultLoadControl.Builder()
+            .setAllocator(allocator)
+            .setBufferDurationsMs(spec.minBufferMs, spec.maxBufferMs, spec.playbackMs, spec.rebufferMs)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
 }
 
 @Composable
-actual fun VideoSurface(engine: PlayerEngine, modifier: Modifier) {
+actual fun VideoSurface(engine: PlayerEngine, modifier: Modifier, scale: PlayerScale) {
     androidx.compose.runtime.DisposableEffect(engine) {
         onDispose { engine.attachedView = null }
     }
@@ -395,6 +419,12 @@ actual fun VideoSurface(engine: PlayerEngine, modifier: Modifier) {
         },
         update = { view ->
             if (view.player !== engine.player) view.player = engine.player
+            val resize = when (scale) {
+                PlayerScale.Fit -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                PlayerScale.Crop -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                PlayerScale.Stretch -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            }
+            if (view.resizeMode != resize) view.resizeMode = resize
             clearSubtitleBackdrop(view)
             engine.attachedView = view
         },

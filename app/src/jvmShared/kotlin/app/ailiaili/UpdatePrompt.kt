@@ -1,9 +1,13 @@
 package app.ailiaili
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.AlertDialog
+import app.ailiaili.core.designsystem.AliStageDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -13,34 +17,41 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.data.AppRelease
+import app.ailiaili.core.data.latestAppRelease
 import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
-import app.ailiaili.core.network.JSONObject
-import app.ailiaili.core.network.SharedHttp
-import app.ailiaili.core.network.get
-import app.ailiaili.core.model.ioDispatcher
+import app.ailiaili.core.model.isNewerVersion
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 
 /** 版本号由 Gradle 从 gradle.properties 生成，与安装包版本永远一致。 */
 private const val CURRENT_VERSION = app.ailiaili.core.model.APP_VERSION
 
-private data class UpdateNote(val tag: String, val page: String)
-
 @Composable
 fun UpdatePrompt(enabled: Boolean, skippedVersion: String) {
-    var note by remember { mutableStateOf<UpdateNote?>(null) }
+    var note by remember { mutableStateOf<AppRelease?>(null) }
     LaunchedEffect(enabled, skippedVersion) {
         if (!enabled) return@LaunchedEffect
         delay(6_000)
-        note = newerRelease(skippedVersion)
+        note = latestAppRelease().getOrNull()?.takeIf {
+            isNewerVersion(it.tag, CURRENT_VERSION) && !it.tag.equals(skippedVersion.removePrefix("v"), ignoreCase = true)
+        }
     }
     val message = note ?: return
-    AlertDialog(
+    AliStageDialog(
         onDismissRequest = { note = null },
         title = { Text("发现新版本") },
         text = {
@@ -57,11 +68,10 @@ fun UpdatePrompt(enabled: Boolean, skippedVersion: String) {
                     Text("→")
                     BiliBadge(
                         text = message.tag,
-                        tone = BiliBadgeTone.Accent,
                         style = BiliBadgeStyle.Solid,
                     )
                 }
-                Text("新版本已经发布，可以前往下载页查看更新内容。")
+                if (message.notes.isNotBlank()) ReleaseNotes(message.notes)
             }
         },
         confirmButton = {
@@ -84,37 +94,39 @@ fun UpdatePrompt(enabled: Boolean, skippedVersion: String) {
     )
 }
 
-private suspend fun newerRelease(skipped: String): UpdateNote? = withContext(ioDispatcher) {
-    runCatching {
-        val json = JSONObject(
-            SharedHttp.api.get(
-                "https://api.github.com/repos/shiaho777/ailiaili/releases/latest",
-                mapOf(
-                    "Accept" to "application/vnd.github+json",
-                    "User-Agent" to "ailiaili",
-                ),
-            ).bodyText,
-        )
-        val tag = json.optString("tag_name").removePrefix("v")
-        val page = json.optString("html_url")
-        // 只比「不相等」会把旧版本当新版本：开发版比 latest 新、或 release
-        // 被回滚时，会弹窗推荐降级。必须做语义化比较，严格更新才提示。
-        if (tag.isBlank() || !isNewerVersion(tag, CURRENT_VERSION)) return@runCatching null
-        if (tag.equals(skipped.removePrefix("v"), ignoreCase = true)) return@runCatching null
-        UpdateNote(tag, page)
-    }.getOrNull()
-}
+private val inlineReleaseFormat = Regex("""\[([^\]]+)]\((https://[^)\s]+)\)|\*\*([^*]+)\*\*""")
 
-/** 语义化版本比较：candidate 严格大于 current 才算新版本。解析不了按段补 0。 */
-internal fun isNewerVersion(candidate: String, current: String): Boolean {
-    fun parts(v: String): List<Int> = v.trim().removePrefix("v").substringBefore('-')
-        .split('.').map { it.trim().toIntOrNull() ?: 0 }
-    val a = parts(candidate)
-    val b = parts(current)
-    for (i in 0 until maxOf(a.size, b.size)) {
-        val x = a.getOrElse(i) { 0 }
-        val y = b.getOrElse(i) { 0 }
-        if (x != y) return x > y
+@Composable
+private fun ReleaseNotes(notes: String) {
+    val color = MaterialTheme.colorScheme.primary
+    val lines = remember(notes) { notes.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.take(120).toList() }
+    LazyColumn(Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(lines) { line ->
+            val heading = line.startsWith("#")
+            val text = when {
+                heading -> line.trimStart('#').trimStart()
+                line.startsWith("- ") || line.startsWith("* ") -> "• " + line.drop(2)
+                else -> line
+            }
+            Text(
+                buildAnnotatedString {
+                    var cursor = 0
+                    for (match in inlineReleaseFormat.findAll(text)) {
+                        append(text.substring(cursor, match.range.first))
+                        val link = match.groups[2]?.value
+                        if (link != null) {
+                            withLink(LinkAnnotation.Url(link, TextLinkStyles(style = SpanStyle(color = color, textDecoration = TextDecoration.Underline)))) {
+                                append(match.groupValues[1])
+                            }
+                        } else {
+                            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(match.groupValues[3]) }
+                        }
+                        cursor = match.range.last + 1
+                    }
+                    append(text.substring(cursor))
+                },
+                style = if (heading) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
-    return false
 }

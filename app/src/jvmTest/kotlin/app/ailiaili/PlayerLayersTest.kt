@@ -1,5 +1,6 @@
 package app.ailiaili
 
+import androidx.lifecycle.SavedStateHandle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,6 +9,31 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class PlayerLayersTest {
+    @Test
+    fun feedHandoffPositionSurvivesNavigationRestore() {
+        val saved = SavedStateHandle()
+        val destination = Dest.Play(bvid = "BV1", cid = 42, startAtMs = 18_350L)
+        ShellViewModel(saved).push(destination)
+
+        assertEquals(destination, ShellViewModel(saved).current)
+    }
+
+    @Test
+    fun olderSavedPlayerRoutesHaveNoHandoffPosition() {
+        val saved = SavedStateHandle(mapOf("stack" to "home\nplay3\tBV1\t42"))
+
+        assertEquals(Dest.Play(bvid = "BV1", cid = 42), ShellViewModel(saved).current)
+    }
+
+    @Test
+    fun startOfSharedPartSurvivesNavigationRestore() {
+        val saved = SavedStateHandle()
+        val destination = Dest.Play(bvid = "BV1", startAtMs = 0, startPage = 3)
+        ShellViewModel(saved).push(destination)
+
+        assertEquals(destination, ShellViewModel(saved).current)
+    }
+
     @Test
     fun tabStaysOnBase() {
         val (base, overlay) = playerLayers(listOf(Dest.Home))

@@ -89,8 +89,10 @@ object CdnPicker {
         val pool = poolOf(candidates, settings)
         when (settings.cdnMode) {
             CdnMode.Server -> {
-                CdnStatus.report.value = "跟随服务端：${hostOf(pool.first())}"
-                return pool.first()
+                val selected = pool.first()
+                val prefix = if (selected == candidates.firstOrNull()) "跟随服务端" else "可用线路"
+                CdnStatus.report.value = "$prefix：${hostOf(selected)}"
+                return selected
             }
             CdnMode.Manual -> {
                 val line = CdnLine.byId(settings.cdnManualId)
@@ -100,7 +102,8 @@ object CdnPicker {
             }
             CdnMode.Auto -> {
                 val cached = freshHost()
-                val swapped = cached?.let { swap(pool, it) }
+                val swapped = cached?.takeUnless { usesLibVlc && isConditionalRangeHost(it) && pool.any { url -> !isConditionalRangeHost(hostOf(url)) } }
+                    ?.let { swap(pool, it) }
                 if (swapped != null) {
                     CdnStatus.report.value = "沿用 ${labelOf(cached)} 的测速结果"
                     return swapped
@@ -172,7 +175,8 @@ object CdnPicker {
         if (template != null) {
             CdnLine.all.forEach { line -> seen += replaceHost(template, line.host) }
         }
-        return seen.toList()
+        val candidates = seen.toList()
+        return if (usesLibVlc) candidates.filterNot { isConditionalRangeHost(hostOf(it)) }.ifEmpty { candidates } else candidates
     }
 
     private fun probeOf(url: String): Triple<Boolean, Long, Long> {
@@ -197,9 +201,12 @@ object CdnPicker {
     private fun poolOf(candidates: List<String>, settings: AppSettings): List<String> {
         val raw = candidates.filter { it.isNotBlank() }.distinct()
         if (raw.isEmpty()) return raw
-        if (!settings.blockPcdn) return raw
-        return raw.filter { !isPcdn(it) }.ifEmpty { raw }
+        val allowed = if (settings.blockPcdn) raw.filterNot(::isPcdn).ifEmpty { raw } else raw
+        return retryOrder(allowed)
     }
+
+    internal fun retryOrder(urls: List<String>): List<String> =
+        if (usesLibVlc) urls.sortedBy { isConditionalRangeHost(hostOf(it)) } else urls
 
     private fun swap(pool: List<String>, host: String): String? {
         val template = pool.firstOrNull { swappable(it) } ?: return null
@@ -245,3 +252,14 @@ object CdnPicker {
         }
     }
 }
+
+
+private val conditionalRangeHosts = setOf(
+    "upos-sz-mirrorhw.bilivideo.com",
+    "upos-sz-mirrorhwb.bilivideo.com",
+    "upos-sz-mirrorhwo1.bilivideo.com",
+    "upos-sz-mirror08c.bilivideo.com",
+    "upos-tf-all-hw.bilivideo.com",
+)
+
+internal fun isConditionalRangeHost(host: String): Boolean = host.lowercase() in conditionalRangeHosts

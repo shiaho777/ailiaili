@@ -1,6 +1,10 @@
 package app.ailiaili.feature.space
 
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,15 +37,13 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.Button
+import app.ailiaili.core.designsystem.BiliPrimaryButton
 import app.ailiaili.core.designsystem.BiliFilterChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -49,14 +51,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -69,7 +72,7 @@ import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.AvatarPreviewDialog
 import app.ailiaili.core.designsystem.smoothWheelScroll
-import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.AliStagePageHeader
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
@@ -78,9 +81,12 @@ import app.ailiaili.core.designsystem.FilterAutoLoad
 import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliErrorState
 import app.ailiaili.core.designsystem.BiliLoadingState
-import app.ailiaili.core.designsystem.BiliPillTabs
+import app.ailiaili.core.designsystem.AliStageTabs
+import app.ailiaili.core.designsystem.QuickActions
+import app.ailiaili.core.designsystem.AliStageBody
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.AliStageIconButton
 import app.ailiaili.core.designsystem.BiliSectionHeader
-import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.MetaRow
 import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricStat
@@ -443,11 +449,12 @@ fun SpaceRoute(
     onVideo: (VideoItem) -> Unit,
     onOpenFolder: (FavFolder) -> Unit,
     onPlayAll: (List<VideoItem>) -> Unit = {},
+    onRelations: (Long, Boolean) -> Unit = { _, _ -> },
+    onPost: (String) -> Unit = {},
     vm: SpaceViewModel = appViewModel(key = "space-$mid") { SpaceViewModel(mid) },
 ) {
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
-    val snackbar = remember { SnackbarHostState() }
-    val gridState = rememberLazyGridState()
+    val gridState = key(vm.section, vm.opened?.id) { rememberLazyGridState() }
     val session by AppGraph.repo.session.collectAsState()
     val self = session.dedeUserId?.toLongOrNull() == mid
     var avatarPreview by remember { mutableStateOf<String?>(null) }
@@ -461,7 +468,7 @@ fun SpaceRoute(
     }
     LaunchedEffect(vm.toast) {
         val message = vm.toast ?: return@LaunchedEffect
-        snackbar.showSnackbar(message)
+        QuickActions.showToast(message)
         if (vm.toast == message) vm.dismissToast()
     }
     FilterAutoLoad(
@@ -485,59 +492,70 @@ fun SpaceRoute(
             }
     }
     Scaffold(
-        topBar = { BiliBackHeader(vm.info?.name ?: "UP 主", onBack) },
-        snackbarHost = { SnackbarHost(snackbar) },
+        topBar = {
+            Column {
+                AliStagePageHeader(vm.info?.name ?: "UP 主空间", onBack = onBack) {
+                    AliStageIconButton(Icons.Filled.Refresh, "刷新空间", vm::reload, enabled = !vm.refreshing)
+                }
+                if (vm.info != null || vm.items.isNotEmpty()) {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        AliStageTabs(
+                            labels = SpaceSection.entries.map { it.label },
+                            selected = vm.section.ordinal,
+                            onSelect = { vm.select(SpaceSection.entries[it]) },
+                            modifier = Modifier.widthIn(max = 620.dp).fillMaxWidth().padding(horizontal = 8.dp),
+                        )
+                    }
+                }
+            }
+        },
     ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = vm.refreshing,
-            onRefresh = vm::reload,
-            modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
-            when {
-                vm.loading && vm.info == null -> {
-                    BiliLoadingState(Modifier.align(Alignment.Center), label = "正在加载空间")
-                }
-                vm.info == null && vm.items.isEmpty() && !vm.loading -> {
-                    BiliErrorState(
-                        message = vm.error ?: "空间信息获取失败",
-                        onRetry = vm::reload,
-                        modifier = Modifier.align(Alignment.Center),
-                    )
-                }
-                else -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(168.dp),
-                        state = gridState,
-                        modifier = Modifier.fillMaxSize()
-                            .smoothWheelScroll(gridState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
-                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 28.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        item(key = "profile", span = { GridItemSpan(maxLineSpan) }) {
-                            ProfileHeader(
-                                info = vm.info,
-                                videoCount = vm.info?.videoCount?.takeIf { it > 0 } ?: vm.items.size.toLong(),
-                                followed = vm.followed,
-                                followBusy = vm.followBusy,
-                                showFollow = !self,
-                                onFollow = vm::toggleFollow,
-                                onAvatar = { avatarPreview = it },
-                            )
-                        }
-                        item(key = "tabs", span = { GridItemSpan(maxLineSpan) }) {
-                            BiliPillTabs(
-                                labels = SpaceSection.entries.map { it.label },
-                                selected = vm.section.ordinal,
-                                onSelect = { vm.select(SpaceSection.entries[it]) },
-                            )
-                        }
-                        when (vm.section) {
-                            SpaceSection.Home -> homeSections(vm, onVideo, onOpenFolder)
-                            SpaceSection.Dynamic -> dynamicSections(vm, onVideo)
-                            SpaceSection.Videos -> videoSections(vm, onVideo)
-                            SpaceSection.Collections -> collectionSections(vm, onVideo, onPlayAll)
-                            SpaceSection.Favs -> folderSections(vm, onOpenFolder)
+        AliStageBody(Modifier.padding(padding), maxWidth = 1120.dp) {
+            PullToRefreshBox(
+                isRefreshing = vm.refreshing,
+                onRefresh = vm::reload,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                when {
+                    vm.loading && vm.info == null -> {
+                        BiliLoadingState(Modifier.align(Alignment.Center), label = "正在加载空间")
+                    }
+                    vm.info == null && vm.items.isEmpty() && !vm.loading -> {
+                        BiliErrorState(
+                            message = vm.error ?: "空间信息获取失败",
+                            onRetry = vm::reload,
+                            modifier = Modifier.align(Alignment.Center),
+                        )
+                    }
+                    else -> {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(168.dp),
+                            state = gridState,
+                            modifier = Modifier.fillMaxSize()
+                                .smoothWheelScroll(gridState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 28.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            item(key = "profile", span = { GridItemSpan(maxLineSpan) }) {
+                                ProfileHeader(
+                                    info = vm.info,
+                                    videoCount = vm.info?.videoCount?.takeIf { it > 0 } ?: vm.items.size.toLong(),
+                                    followed = vm.followed,
+                                    followBusy = vm.followBusy,
+                                    showFollow = !self,
+                                    onFollow = vm::toggleFollow,
+                                    onAvatar = { avatarPreview = it },
+                                    onRelations = { followers -> onRelations(mid, followers) },
+                                )
+                            }
+                            when (vm.section) {
+                                SpaceSection.Home -> homeSections(vm, onVideo, onOpenFolder, onPost)
+                                SpaceSection.Dynamic -> dynamicSections(vm, onVideo, onPost)
+                                SpaceSection.Videos -> videoSections(vm, onVideo)
+                                SpaceSection.Collections -> collectionSections(vm, onVideo, onPlayAll)
+                                SpaceSection.Favs -> folderSections(vm, onOpenFolder)
+                            }
                         }
                     }
                 }
@@ -550,6 +568,7 @@ private fun LazyGridScope.homeSections(
     vm: SpaceViewModel,
     onVideo: (VideoItem) -> Unit,
     onOpenFolder: (FavFolder) -> Unit,
+    onPost: (String) -> Unit,
 ) {
     val posts = vm.posts
     val collections = vm.collections.orEmpty()
@@ -559,7 +578,7 @@ private fun LazyGridScope.homeSections(
             BiliSectionHeader("最近动态", "全部") { vm.select(SpaceSection.Dynamic) }
         }
         item(key = "home-post", span = { GridItemSpan(maxLineSpan) }) {
-            PostCard(posts.first(), vm.ownerName(), onVideo)
+            PostCard(posts.first(), vm.ownerName(), onVideo, onPost)
         }
     }
     if (collections.isNotEmpty()) {
@@ -608,7 +627,7 @@ private fun LazyGridScope.homeSections(
     }
 }
 
-private fun LazyGridScope.dynamicSections(vm: SpaceViewModel, onVideo: (VideoItem) -> Unit) {
+private fun LazyGridScope.dynamicSections(vm: SpaceViewModel, onVideo: (VideoItem) -> Unit, onPost: (String) -> Unit) {
     val posts = vm.posts
     when {
         posts == null -> item(key = "dyn-loading", span = { GridItemSpan(maxLineSpan) }) { CenterProgress() }
@@ -618,7 +637,7 @@ private fun LazyGridScope.dynamicSections(vm: SpaceViewModel, onVideo: (VideoIte
         else -> {
             posts.forEach { post ->
                 item(key = "dyn-${post.id}", span = { GridItemSpan(maxLineSpan) }) {
-                    PostCard(post, vm.ownerName(), onVideo)
+                    PostCard(post, vm.ownerName(), onVideo, onPost)
                 }
             }
             if (vm.postLoadingMore) {
@@ -755,41 +774,30 @@ private fun VideoItem.withOwner(name: String): VideoItem =
     if (author.isBlank() && name.isNotBlank()) copy(author = name) else this
 
 @Composable
-private fun PostCard(post: SpacePost, ownerName: String, onVideo: (VideoItem) -> Unit) {
+private fun PostCard(post: SpacePost, ownerName: String, onVideo: (VideoItem) -> Unit, onPost: (String) -> Unit) {
     val video = post.video?.withOwner(ownerName)
     val body = post.text.trim()
     val showText = body.isNotBlank() && body != video?.title
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (post.timeText.isNotBlank()) {
-            MetaRow(
-                items = listOf(
-                    MetaSpec(Icons.Filled.Schedule, post.timeText, MetricTone.Neutral),
-                ),
-                maxItems = 1,
-            )
-        }
-        if (showText && video == null) {
-            BiliSurfaceCard(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.large,
-            ) {
+    AliStagePanel(Modifier.fillMaxWidth(), contentPadding = PaddingValues(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (post.timeText.isNotBlank()) {
+                MetaRow(listOf(MetaSpec(Icons.Filled.Schedule, post.timeText, MetricTone.Neutral)))
+            }
+            if (showText) {
                 Text(
                     body,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 15.sp,
-                    lineHeight = 22.sp,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-        } else if (showText) {
-            Text(
-                body,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 15.sp,
-                lineHeight = 22.sp,
-            )
-        }
-        if (video != null) {
-            VideoCard(video, onVideo, onAuthor = {})
+            if (video != null) VideoCard(video, onVideo, onAuthor = {})
+            if (post.id.isNotBlank()) {
+                TextButton(onClick = { onPost(post.id) }, modifier = Modifier.align(Alignment.End)) {
+                    Text("查看动态")
+                }
+            }
         }
     }
 }
@@ -797,12 +805,11 @@ private fun PostCard(post: SpacePost, ownerName: String, onVideo: (VideoItem) ->
 @Composable
 private fun CollectionCard(item: SpaceCollection, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    BiliSurfaceCard(
+    AliStagePanel(
         modifier = modifier.clickable {
             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             onClick()
         },
-        shape = MaterialTheme.shapes.large,
         contentPadding = PaddingValues(0.dp),
     ) {
         if (item.cover.isBlank()) {
@@ -838,12 +845,11 @@ private fun CollectionCard(item: SpaceCollection, modifier: Modifier = Modifier,
 @Composable
 private fun FolderRow(folder: FavFolder, onClick: () -> Unit) {
     val haptic = LocalHapticFeedback.current
-    BiliSurfaceCard(
+    AliStagePanel(
         modifier = Modifier.fillMaxWidth().clickable {
             haptic.performHapticFeedback(HapticFeedbackType.Confirm)
             onClick()
         },
-        shape = MaterialTheme.shapes.large,
         contentPadding = PaddingValues(10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -932,28 +938,13 @@ private fun ProfileHeader(
     showFollow: Boolean,
     onFollow: () -> Unit,
     onAvatar: (String) -> Unit,
+    onRelations: (Boolean) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
-    val sign = info?.sign?.takeIf { it.isNotBlank() } ?: "这个 UP 主很懒，什么都没写"
+    val sign = info?.sign.orEmpty()
     val level = info?.level ?: 0
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
-        Column(
-            Modifier
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                            MaterialTheme.colorScheme.surfaceContainerLow,
-                        ),
-                    ),
-                )
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
+    AliStagePanel(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (info?.face.isNullOrBlank()) {
                     Box(
@@ -968,11 +959,12 @@ private fun ProfileHeader(
                 } else {
                     AsyncImage(
                         app.ailiaili.core.model.cdnThumb(info.face, 150),
-                        info.name,
+                        "预览头像",
                         Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
-                            .clickable { onAvatar(info.face) },
+                            .size(68.dp).clip(CircleShape)
+                            .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                            .clickable(role = Role.Button) { onAvatar(info.face) }
+                            .padding(4.dp).clip(CircleShape),
                         contentScale = ContentScale.Crop,
                     )
                 }
@@ -991,25 +983,25 @@ private fun ProfileHeader(
                             BiliBadge(
                                 text = "LV$level",
                                 modifier = Modifier.padding(start = 8.dp),
-                                tone = BiliBadgeTone.Accent,
                                 style = BiliBadgeStyle.Soft,
                             )
                         }
                     }
-                    Text(
-                        sign,
-                        modifier = Modifier.padding(top = 6.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (sign.isNotBlank()) {
+                        Text(
+                            sign,
+                            modifier = Modifier.padding(top = 5.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
             Row(Modifier.fillMaxWidth()) {
-                MetricStat(formatCount(info?.follower ?: 0).ifBlank { "0" }, "粉丝", Modifier.weight(1f))
-                MetricStat(formatCount(info?.following ?: 0).ifBlank { "0" }, "关注", Modifier.weight(1f))
+                MetricStat(formatCount(info?.follower ?: 0).ifBlank { "0" }, "粉丝", Modifier.weight(1f)) { onRelations(true) }
+                MetricStat(formatCount(info?.following ?: 0).ifBlank { "0" }, "关注", Modifier.weight(1f)) { onRelations(false) }
                 MetricStat(formatCount(videoCount).ifBlank { "0" }, "投稿", Modifier.weight(1f))
             }
             if (showFollow && followed) {
@@ -1025,7 +1017,7 @@ private fun ProfileHeader(
                     Text("已关注", Modifier.padding(start = 6.dp))
                 }
             } else if (showFollow) {
-                Button(
+                BiliPrimaryButton(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.Confirm)
                         onFollow()

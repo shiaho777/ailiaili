@@ -2,6 +2,8 @@ package app.ailiaili.core.data
 
 import app.ailiaili.core.model.AppSettings
 import app.ailiaili.core.model.BangumiDetail
+import app.ailiaili.core.model.BangumiItem
+import app.ailiaili.core.model.BlockedUp
 import app.ailiaili.core.model.Comment
 import app.ailiaili.core.model.CommentPage
 import app.ailiaili.core.model.ContentKind
@@ -9,6 +11,8 @@ import app.ailiaili.core.model.Danmaku
 import app.ailiaili.core.model.DynamicPage
 import app.ailiaili.core.model.FavFolder
 import app.ailiaili.core.model.FollowUser
+import app.ailiaili.core.model.HistoryCursor
+import app.ailiaili.core.model.HistoryPage
 import app.ailiaili.core.model.ItemPage
 import app.ailiaili.core.model.MsgItem
 import app.ailiaili.core.model.NavStat
@@ -57,6 +61,9 @@ interface BiliRepository {
     suspend fun feedDislike(goto: String, id: String): Result<Unit>
     suspend fun search(keyword: String, page: Int, kind: ContentKind = ContentKind.Video, order: String = ""): Result<SearchPage>
     suspend fun bangumiDetail(seasonId: Long): Result<BangumiDetail>
+    suspend fun followedBangumi(page: Int, type: Int, fresh: Boolean = false): Result<ItemPage<BangumiItem>>
+    suspend fun bangumiFollowed(seasonId: Long, type: Int): Result<Boolean>
+    suspend fun setBangumiFollow(seasonId: Long, followed: Boolean): Result<Unit>
     suspend fun hotSearch(): Result<List<String>>
     suspend fun video(bvid: String): Result<VideoDetail>
     suspend fun description(bvid: String): Result<String>
@@ -92,15 +99,19 @@ interface BiliRepository {
     suspend fun spaceCollectionVideos(mid: Long, id: Long, series: Boolean, page: Int): Result<List<VideoItem>>
     suspend fun spaceFolders(mid: Long, page: Int = 1): Result<ItemPage<FavFolder>>
     suspend fun followings(mid: Long, page: Int): Result<ItemPage<FollowUser>>
+    suspend fun followers(mid: Long, page: Int): Result<ItemPage<FollowUser>>
+    suspend fun blockedUsers(): Result<List<BlockedUp>>
     suspend fun followingLive(): Result<List<VideoItem>>
-    suspend fun history(page: Int): Result<List<VideoItem>>
-    suspend fun liveHistory(page: Int): Result<List<VideoItem>>
+    suspend fun history(page: Int): Result<HistoryPage>
+    suspend fun liveHistory(position: HistoryCursor?): Result<HistoryPage>
     suspend fun deleteHistory(id: Long, live: Boolean = false): Result<Unit>
     suspend fun clearHistory(): Result<Unit>
     suspend fun favFolders(): Result<List<FavFolder>>
     suspend fun favFolderCards(): Result<List<FavFolder>>
     suspend fun videoFavFolders(aid: Long): Result<List<FavFolder>>
-    suspend fun favVideos(mediaId: Long, page: Int): Result<List<VideoItem>>
+    suspend fun favVideos(mediaId: Long, page: Int, keyword: String = ""): Result<ItemPage<VideoItem>>
+    suspend fun createFavFolder(title: String, privateFolder: Boolean): Result<FavFolder?>
+    suspend fun deleteFavFolder(mediaId: Long): Result<Unit>
     suspend fun dealFavorite(aid: Long, add: Collection<Long>, remove: Collection<Long>): Result<Unit>
     suspend fun watchLater(): Result<List<VideoItem>>
     suspend fun inWatchLater(aid: Long): Result<Boolean>
@@ -113,6 +124,8 @@ interface BiliRepository {
     suspend fun ackMsg(talkerId: Long, ackSeqno: Long): Result<Unit>
     suspend fun sendMsg(receiverId: Long, text: String): Result<Unit>
     suspend fun msgEmotes(): Result<List<Pair<String, String>>>
+    suspend fun commentEmotes(): Result<List<Pair<String, String>>>
+    suspend fun unreadMessages(): Result<Int>
     suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String): Result<Unit>
     suspend fun liveList(page: Int, parentAreaId: Int = -1): Result<List<VideoItem>>
     suspend fun liveAreas(): Result<List<app.ailiaili.core.model.LiveArea>>
@@ -174,6 +187,9 @@ class BiliRepositoryImpl(
     override suspend fun search(keyword: String, page: Int, kind: ContentKind, order: String) =
         client.search(keyword, page, kind, order)
     override suspend fun bangumiDetail(seasonId: Long) = client.bangumiDetail(seasonId)
+    override suspend fun followedBangumi(page: Int, type: Int, fresh: Boolean) = client.followedBangumi(page, type, fresh)
+    override suspend fun bangumiFollowed(seasonId: Long, type: Int) = client.bangumiFollowed(seasonId, type)
+    override suspend fun setBangumiFollow(seasonId: Long, followed: Boolean) = client.setBangumiFollow(seasonId, followed)
     override suspend fun hotSearch() = client.hotSearch()
     override suspend fun video(bvid: String) = videoCache.get(bvid) { client.video(bvid) }
     override suspend fun description(bvid: String) = descriptionCache.get(bvid) { client.description(bvid) }
@@ -216,15 +232,19 @@ class BiliRepositoryImpl(
         client.spaceCollectionVideos(mid, id, series, page)
     override suspend fun spaceFolders(mid: Long, page: Int) = client.spaceFolders(mid, page)
     override suspend fun followings(mid: Long, page: Int) = client.followings(mid, page)
+    override suspend fun followers(mid: Long, page: Int) = client.followers(mid, page)
+    override suspend fun blockedUsers() = client.blockedUsers()
     override suspend fun followingLive() = client.followingLive()
     override suspend fun history(page: Int) = client.history(page)
-    override suspend fun liveHistory(page: Int) = client.liveHistory(page)
+    override suspend fun liveHistory(position: HistoryCursor?) = client.liveHistory(position)
     override suspend fun deleteHistory(id: Long, live: Boolean) = client.deleteHistory(id, live)
     override suspend fun clearHistory() = client.clearHistory()
     override suspend fun favFolders() = client.favFolders()
     override suspend fun favFolderCards() = client.favFolderCards()
     override suspend fun videoFavFolders(aid: Long) = client.videoFavFolders(aid)
-    override suspend fun favVideos(mediaId: Long, page: Int) = client.favVideos(mediaId, page)
+    override suspend fun favVideos(mediaId: Long, page: Int, keyword: String) = client.favVideos(mediaId, page, keyword)
+    override suspend fun createFavFolder(title: String, privateFolder: Boolean) = client.createFavFolder(title, privateFolder)
+    override suspend fun deleteFavFolder(mediaId: Long) = client.deleteFavFolder(mediaId)
     override suspend fun dealFavorite(aid: Long, add: Collection<Long>, remove: Collection<Long>) =
         client.dealFavorite(aid, add, remove)
     override suspend fun watchLater() = client.watchLater()
@@ -238,6 +258,8 @@ class BiliRepositoryImpl(
     override suspend fun ackMsg(talkerId: Long, ackSeqno: Long) = client.ackMsg(talkerId, ackSeqno)
     override suspend fun sendMsg(receiverId: Long, text: String) = client.sendMsg(receiverId, text)
     override suspend fun msgEmotes() = client.msgEmotes()
+    override suspend fun commentEmotes() = client.commentEmotes()
+    override suspend fun unreadMessages() = client.unreadMessages()
     override suspend fun sendMsgImage(receiverId: Long, bytes: ByteArray, fileName: String) =
         client.sendMsgImage(receiverId, bytes, fileName)
     override suspend fun liveList(page: Int, parentAreaId: Int) = client.liveList(page, parentAreaId)

@@ -9,16 +9,27 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import app.ailiaili.core.data.AndroidHost
 import app.ailiaili.core.data.AppGraph
+import app.ailiaili.core.data.DownloadNetwork
+import app.ailiaili.core.data.DownloadPhase
 import app.ailiaili.core.data.PickedImage
 import app.ailiaili.core.designsystem.BiliTheme
 import app.ailiaili.core.designsystem.InstallBiliImages
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlin.coroutines.resume
 
 class MainActivity : ComponentActivity() {
+    private var showDownloads by mutableStateOf(false)
     private var pendingPick: CancellableContinuation<PickedImage?>? = null
 
     private val pickImage = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -87,6 +98,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        showDownloads = intent.action == DownloadService.SHOW_DOWNLOADS
+        if (showDownloads) intent.action = null
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                combine(AppGraph.downloads.tasks, AppGraph.downloads.network, AppGraph.repo.settings) { tasks, network, settings ->
+                    settings.backgroundDownloads && tasks.any {
+                        it.phase.isWorking || it.phase == DownloadPhase.Queued && network == DownloadNetwork.Available
+                    }
+                }.distinctUntilChanged().collect { active ->
+                    if (active) DownloadService.start(this@MainActivity)
+                }
+            }
+        }
         AndroidHost.activity = this
         AndroidHost.directoryPicker = {
             suspendCancellableCoroutine { continuation ->
@@ -136,8 +160,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             InstallBiliImages()
             val settings by AppGraph.repo.settings.collectAsState()
-            BiliTheme(settings.theme, settings.accentHex, settings.accentFollowSystem, settings.fontPath) {
-                AppRoot()
+            BiliTheme(settings.theme, settings.accentHex, settings.accentFollowSystem, settings.fontPath, settings.reduceMotion) {
+                AppRoot(openDownloads = showDownloads, onDownloadsOpened = { showDownloads = false })
                 UpdatePrompt(settings.autoCheckUpdate, settings.skippedVersion)
             }
         }
@@ -146,6 +170,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         AndroidHost.activity = this
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == DownloadService.SHOW_DOWNLOADS) showDownloads = true
     }
 
     override fun onUserLeaveHint() {

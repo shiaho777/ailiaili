@@ -368,6 +368,7 @@ data class VideoDetail(
     val pubdate: Long = 0,
     /** 当前登录用户是否已经给这个稿件投过币。详情接口顶层 coin==1。 */
     val coined: Boolean = false,
+    val replyCount: Long = 0,
 )
 
 data class Quality(val qn: Int, val label: String)
@@ -594,6 +595,14 @@ data class ItemPage<T>(
     val total: Long = 0,
 )
 
+data class HistoryCursor(val max: Long, val viewAt: Long, val business: String = "")
+
+data class HistoryPage(
+    val items: List<VideoItem>,
+    val hasMore: Boolean,
+    val next: HistoryCursor? = null,
+)
+
 data class NavStat(
     val following: Long,
     val follower: Long,
@@ -644,7 +653,9 @@ data class FavFolder(
     val cover: String = "",
     /** attr 的第二位。true 表示私密收藏夹。 */
     val privateFolder: Boolean = false,
-)
+) {
+    val isDefault: Boolean get() = title == "默认收藏夹" || title == "默認收藏夾"
+}
 
 data class MsgSession(
     val talkerId: Long,
@@ -757,6 +768,7 @@ data class BangumiDetail(
     val cover: String,
     val evaluate: String = "",
     val episodes: List<BangumiEpisode>,
+    val followType: Int = 1,
 )
 
 fun bangumiEpisodeDisplayTitle(title: String, longTitle: String): String =
@@ -817,6 +829,7 @@ data class DynamicEntry(
     val desc: String = "",
     val video: VideoItem? = null,
     val post: DynamicPost? = null,
+    val forwarded: Boolean = false,
 ) {
     val isVideo: Boolean get() = video != null
 }
@@ -890,6 +903,14 @@ data class CdnLine(val id: String, val name: String, val host: String) {
 /** 壳层导航。Auto 按窗口宽高在底栏和侧栏之间切换。 */
 enum class ShellLayout { Auto, Bottom, Rail }
 
+enum class StartupPage(val label: String) {
+    Home("首页"), Regions("分区"), Dynamic("动态"), Mine("我的");
+}
+
+enum class PlayerScale(val label: String) {
+    Fit("适应画面"), Crop("裁切填满"), Stretch("拉伸填满");
+}
+
 /** 首页推荐来源。Web = 网页版推荐，App = 客户端推荐流。 */
 enum class RecommendSource { Web, App }
 
@@ -902,6 +923,8 @@ data class BlockedUp(
 data class AppSettings(
     val theme: ThemeMode = ThemeMode.System,
     val shellLayout: ShellLayout = ShellLayout.Auto,
+    val startupPage: StartupPage = StartupPage.Home,
+    val favoriteGrid: Boolean = true,
     val recommendSource: RecommendSource = RecommendSource.Web,
     val danmakuEnabled: Boolean = true,
     val danmakuAreaPercent: Int = 25,
@@ -947,6 +970,9 @@ data class AppSettings(
     val playbackSpeed: Float = 1f,
     /** 多 P 视频播完自动播下一 P（番剧/课程/教程场景）。 */
     val autoPlayNext: Boolean = true,
+    val autoPlayRelated: Boolean = false,
+    val desktopHardwareDecoding: Boolean = true,
+    val desktopHighQualityAudio: Boolean = false,
     val sponsorBlock: Boolean = false,
     /** 逗号分隔的 SponsorBlock category。默认只跳赞助广告。 */
     val sponsorCategories: String = SponsorCategories.DEFAULT,
@@ -963,6 +989,7 @@ data class AppSettings(
     /** 自定义界面字体文件路径（应用字体目录内）。空 = 默认字体。 */
     val fontPath: String = "",
     val accentFollowSystem: Boolean = false,
+    val reduceMotion: Boolean = false,
     val autoCheckUpdate: Boolean = true,
     /** 用户点过「跳过此版本」的 tag。自动检查对这个版本不再弹。 */
     val skippedVersion: String = "",
@@ -973,6 +1000,15 @@ data class AppSettings(
     /** 关注主播开播提醒：应用运行期间轮询，0→1 跳变时通知。默认开。 */
     val liveStartNotify: Boolean = true,
     val playerVolume: Float = 0.8f,
+    val lastAudiblePlayerVolume: Float = 0.8f,
+    val seekStepSeconds: Int = 0,
+    val playerScale: PlayerScale = PlayerScale.Fit,
+    val danmakuDelayMs: Int = 0,
+    val downloadQuality: Int = 0,
+    val backgroundDownloads: Boolean = true,
+    val unmeteredDownloads: Boolean = false,
+    val downloadDanmaku: Boolean = false,
+    val downloadSubtitles: Boolean = true,
     val lastSearchKind: ContentKind = ContentKind.Video,
     /** 桌面端下载保存目录；空字符串表示应用缓存。 */
     val downloadDir: String = "",
@@ -1045,7 +1081,12 @@ data class CacheEntry(
     val qn: Int,
     /** 下载时的分P cid：离线续播按 bvid+cid 对齐在线进度。旧缓存缺省 0。 */
     val cid: Long = 0L,
-)
+    val storedAtMs: Long = 0L,
+    val storedBytes: Long = 0L,
+    val episodeId: Long = 0L,
+) {
+    val key: String get() = "$bvid/$cid"
+}
 
 object PartitionCatalog {
     val all: List<Partition> = listOf(

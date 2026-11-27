@@ -56,7 +56,7 @@ actual suspend fun chooseDirectory(): String? = withContext(Dispatchers.Main) {
 }
 
 /** 桌面下载直接写目标目录（java.io.File 路径语义），无需搬运。 */
-actual suspend fun exportCacheFiles(files: List<String>, dest: String): Int = 0
+actual suspend fun exportCacheFiles(files: List<CacheExportFile>, dest: String): Int = 0
 
 /** 托盘通知钩子：由 desktopApp/Main.kt 用 TrayState.sendNotification 安装。 */
 object DesktopNotify {

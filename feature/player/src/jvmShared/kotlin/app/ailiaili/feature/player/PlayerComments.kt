@@ -1,5 +1,7 @@
 package app.ailiaili.feature.player
 
+import app.ailiaili.core.designsystem.AliStagePanel
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -38,6 +41,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +52,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,7 +62,8 @@ import app.ailiaili.core.designsystem.BiliActionItem
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
-import androidx.compose.material3.LoadingIndicator
+import app.ailiaili.core.designsystem.CommentEmoteButton
+import app.ailiaili.core.designsystem.insertAtSelection
 import app.ailiaili.core.designsystem.MetaRow
 import app.ailiaili.core.designsystem.MetaSpec
 import app.ailiaili.core.designsystem.MetricTone
@@ -103,11 +112,11 @@ internal fun CommentBlock(
                     .padding(top = 2.dp)
                     .size(if (nested) 28.dp else 36.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .clickable(enabled = comment.mid > 0) { onSpace(comment.mid) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(comment.name.take(1).ifBlank { "用" }, color = accent, fontSize = 12.sp)
+                Text(comment.name.take(1).ifBlank { "用" }, color = ink, fontSize = 12.sp)
             }
         }
         Column(Modifier.padding(start = 10.dp).weight(1f)) {
@@ -119,7 +128,7 @@ internal fun CommentBlock(
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
-                            .background(accent)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                             .padding(horizontal = 7.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
@@ -127,10 +136,10 @@ internal fun CommentBlock(
                         Icon(
                             Icons.Filled.PushPin,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = ink,
                             modifier = Modifier.size(10.dp),
                         )
-                        Text("置顶", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        Text("置顶", color = ink, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Text(
@@ -138,7 +147,7 @@ internal fun CommentBlock(
                     modifier = Modifier
                         .weight(1f, fill = false)
                         .clickable(enabled = comment.mid > 0) { onSpace(comment.mid) },
-                    color = if (comment.up) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (comment.up) ink else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = if (nested) 13.sp else 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -154,7 +163,6 @@ internal fun CommentBlock(
                 if (comment.up) {
                     BiliBadge(
                         text = "UP",
-                        tone = BiliBadgeTone.Accent,
                         style = BiliBadgeStyle.Solid,
                     )
                 }
@@ -363,87 +371,89 @@ internal fun CommentComposer(
     onSend: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.large)
-            .background(scheme.surfaceContainerHigh)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        AnimatedVisibility(visible = replyingTo != null) {
-            Row(
-                Modifier
-                    .clip(CircleShape)
-                    .background(scheme.primaryContainer)
-                    .padding(start = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Reply,
-                    contentDescription = null,
-                    tint = scheme.onPrimaryContainer,
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    "回复 @${replyingTo.orEmpty()}",
-                    modifier = Modifier.padding(start = 6.dp),
-                    color = scheme.onPrimaryContainer,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                IconButton(onClick = onCancelReply, modifier = Modifier.size(32.dp)) {
+    var input by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    val field = if (input.text == draft) input else TextFieldValue(draft, TextRange(draft.length))
+    fun edit(value: TextFieldValue) {
+        input = value
+        if (value.text != draft) onDraft(value.text)
+    }
+    AliStagePanel(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AnimatedVisibility(visible = replyingTo != null) {
+                Row(
+                    Modifier
+                        .clip(CircleShape)
+                        .background(scheme.primaryContainer)
+                        .padding(start = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "取消回复",
+                        Icons.AutoMirrored.Filled.Reply,
+                        contentDescription = null,
                         tint = scheme.onPrimaryContainer,
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(14.dp),
                     )
+                    Text(
+                        "回复 @${replyingTo.orEmpty()}",
+                        modifier = Modifier.padding(start = 6.dp),
+                        color = scheme.onPrimaryContainer,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    IconButton(onClick = onCancelReply, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "取消回复",
+                            tint = scheme.onPrimaryContainer,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
                 }
             }
-        }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = onDraft,
-                modifier = Modifier
-                    .weight(1f)
-                    .onFocusChanged { onFocus(it.isFocused) },
-                placeholder = { Text(if (replyingTo == null) "发一条友善的评论" else "回复 @$replyingTo") },
-                shape = MaterialTheme.shapes.medium,
-                minLines = if (expanded) 5 else 1,
-                maxLines = if (expanded) 12 else 4,
-            )
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Bottom,
             ) {
-                IconButton(onClick = onToggleExpand, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        if (expanded) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
-                        contentDescription = if (expanded) "收起输入框" else "展开输入框",
-                        tint = scheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                FilledIconButton(
-                    onClick = onSend,
-                    enabled = draft.isNotBlank() && !sending,
-                    modifier = Modifier.size(44.dp),
+                OutlinedTextField(
+                    value = field,
+                    onValueChange = ::edit,
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { onFocus(it.isFocused) },
+                    placeholder = { Text(if (replyingTo == null) "发一条友善的评论" else "回复 @$replyingTo") },
+                    shape = MaterialTheme.shapes.medium,
+                    minLines = if (expanded) 5 else 1,
+                    maxLines = if (expanded) 12 else 4,
+                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    if (sending) {
-                        LoadingIndicator(Modifier.size(22.dp))
-                    } else {
+                    CommentEmoteButton(onInsert = { edit(field.insertAtSelection(it)) }, modifier = Modifier.size(36.dp))
+                    IconButton(onClick = onToggleExpand, modifier = Modifier.size(36.dp)) {
                         Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = if (replyingTo == null) "发送" else "回复",
+                            if (expanded) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
+                            contentDescription = if (expanded) "收起输入框" else "展开输入框",
+                            tint = scheme.onSurfaceVariant,
                             modifier = Modifier.size(20.dp),
                         )
+                    }
+                    FilledIconButton(
+                        onClick = onSend,
+                        enabled = draft.isNotBlank() && !sending,
+                        modifier = Modifier.size(44.dp),
+                    ) {
+                        if (sending) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = if (replyingTo == null) "发送" else "回复",
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 }
             }

@@ -2,16 +2,18 @@ package app.ailiaili.feature.mine
 
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.ui.graphics.Color
 import app.ailiaili.core.designsystem.BiliErrorState
 import app.ailiaili.core.designsystem.smoothWheelScroll
-import app.ailiaili.core.designsystem.BiliHeaderAction
-import app.ailiaili.core.designsystem.BiliSurfaceCard
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStagePageHeader
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.BiliSectionHeader
 import app.ailiaili.core.designsystem.biliPressScale
-import app.ailiaili.core.designsystem.metricToneColor
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,6 +36,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
@@ -41,9 +46,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
-import androidx.compose.material3.Button
+import app.ailiaili.core.designsystem.BiliPrimaryButton
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
+import app.ailiaili.core.designsystem.AliStageMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -77,15 +82,13 @@ import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
 import app.ailiaili.core.designsystem.BiliBadgeTone
-import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliLoadingState
-import app.ailiaili.core.designsystem.BiliPageHeader
 import app.ailiaili.core.designsystem.MetricChip
 import app.ailiaili.core.designsystem.MetricChipSize
 import app.ailiaili.core.designsystem.MetricSpec
 import app.ailiaili.core.designsystem.MetricStat
 import app.ailiaili.core.designsystem.MetricTone
-import app.ailiaili.core.designsystem.shellBottomPadding
+import app.ailiaili.core.designsystem.shellBottomClearance
 import app.ailiaili.core.model.FavFolder
 import app.ailiaili.core.model.UserState
 import coil3.compose.AsyncImage
@@ -102,6 +105,8 @@ fun MineRoute(
     onSpace: (Long) -> Unit,
     onOpenFolder: (FavFolder) -> Unit,
     onOpenDynamic: () -> Unit = {},
+    onRelations: (Long, Boolean) -> Unit = { _, _ -> },
+    onFollowedSeasons: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -114,6 +119,7 @@ fun MineRoute(
     var folders by remember { mutableStateOf<List<FavFolder>>(emptyList()) }
     var folderLoading by remember { mutableStateOf(false) }
     var folderError by remember { mutableStateOf<String?>(null) }
+    var createFolder by remember(session.dedeUserId) { mutableStateOf(false) }
     var refreshTick by remember { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
     var awaitingProfile by remember(session.sessData) { mutableStateOf(session.loggedIn) }
@@ -170,29 +176,64 @@ fun MineRoute(
         refreshing = false
     }
 
-    Column(Modifier.fillMaxSize().shellBottomPadding()) {
-        BiliPageHeader("我的")
+    if (createFolder) {
+        app.ailiaili.core.designsystem.CreateFavoriteFolderDialog(onDismiss = { createFolder = false }) {
+            createFolder = false
+            refreshTick++
+        }
+    }
+    val navBottom = shellBottomClearance()
+    Column(Modifier.fillMaxSize()) {
+        AliStagePageHeader("我的")
         val profile = user
         if (awaitingProfile && profile == null) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 BiliLoadingState(label = "正在加载个人信息…")
             }
         } else if (profile == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                BiliEmptyState(
-                    title = if (session.loggedIn) "登录状态已过期" else "登录后查看你的主页",
-                    message = if (session.loggedIn) {
-                        "重新登录后即可同步收藏、历史与硬币经验"
-                    } else {
-                        "收藏、历史、硬币和经验会同步到这里"
-                    },
-                    icon = Icons.Filled.Person,
-                    action = {
-                        Button(onClick = onLogin, modifier = Modifier.padding(top = 6.dp)) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                val scroll = rememberScrollState()
+                Column(
+                    Modifier.widthIn(max = 720.dp).fillMaxWidth().verticalScroll(scroll)
+                        .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 14.dp + navBottom),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    AliStagePanel(Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Box(
+                                Modifier.size(54.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(Icons.Filled.Person, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    if (session.loggedIn) "登录状态已过期" else "你的账号",
+                                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                                )
+                                Text(
+                                    "登录后同步收藏、观看历史和稍后再看。",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        BiliPrimaryButton(onClick = onLogin, modifier = Modifier.align(Alignment.End).padding(top = 14.dp)) {
                             Text(if (session.loggedIn) "重新登录" else "登录哔哩哔哩")
                         }
-                    },
-                )
+                    }
+                    AliStagePanel(Modifier.fillMaxWidth(), contentPadding = PaddingValues(12.dp)) {
+                        BiliSectionHeader("资料库")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Shortcut(Icons.Filled.History, "观看历史", Modifier.weight(1f), onClick = onHistory)
+                            Shortcut(Icons.Filled.Star, "收藏", Modifier.weight(1f), onClick = onFavorites)
+                            Shortcut(Icons.Filled.Download, "离线缓存", Modifier.weight(1f), onClick = onCache)
+                        }
+                    }
+                }
             }
         } else {
             PullToRefreshBox(
@@ -200,18 +241,19 @@ fun MineRoute(
                 onRefresh = { refreshTick++ },
                 modifier = Modifier.fillMaxSize(),
             ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             val mineScroll = rememberScrollState()
             Column(
                 Modifier
+                    .widthIn(max = 940.dp)
                     .fillMaxSize()
                     .verticalScroll(mineScroll)
                     .smoothWheelScroll(mineScroll, app.ailiaili.core.designsystem.LocalWheelSpeed.current)
-                    .padding(horizontal = 20.dp),
+                    .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 12.dp + navBottom),
             ) {
+                AliStagePanel(Modifier.fillMaxWidth()) {
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
+                    Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                 Row(
@@ -229,7 +271,8 @@ fun MineRoute(
                         AsyncImage(
                             app.ailiaili.core.model.cdnThumb(profile.face, 130),
                             profile.name,
-                            Modifier.size(64.dp).clip(CircleShape),
+                            Modifier.size(64.dp).border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                                .padding(4.dp).clip(CircleShape),
                             contentScale = ContentScale.Crop,
                         )
                     } else {
@@ -257,7 +300,6 @@ fun MineRoute(
                                 BiliBadge(
                                     text = "LV${profile.level}",
                                     modifier = Modifier.padding(start = 8.dp),
-                                    tone = BiliBadgeTone.Accent,
                                     style = BiliBadgeStyle.Soft,
                                 )
                             }
@@ -283,7 +325,7 @@ fun MineRoute(
                                         Icons.AutoMirrored.Filled.TrendingUp,
                                         exp,
                                         "经验",
-                                        MetricTone.Accent,
+                                        MetricTone.Neutral,
                                     ),
                                     size = MetricChipSize.Compact,
                                 )
@@ -324,7 +366,7 @@ fun MineRoute(
                             )
                         }
                     }
-                    DropdownMenu(expanded = accountMenuOpen, onDismissRequest = { accountMenuOpen = false }) {
+                    AliStageMenu(expanded = accountMenuOpen, onDismissRequest = { accountMenuOpen = false }) {
                         savedAccounts.forEach { account ->
                             val isCurrent = account.uid == session.dedeUserId
                             DropdownMenuItem(
@@ -400,38 +442,39 @@ fun MineRoute(
                 }
                 }
 
-                BiliSurfaceCard(
-                    Modifier.fillMaxWidth().padding(top = 20.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                ) {
-                    Row(Modifier.fillMaxWidth()) {
-                        MetricStat(counts.dynamic, "动态", Modifier.weight(1f)) {
-                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                            onOpenDynamic()
-                        }
-                        MetricStat(counts.following, "关注", Modifier.weight(1f))
-                        MetricStat(counts.follower, "粉丝", Modifier.weight(1f))
+                HorizontalDivider(Modifier.padding(top = 14.dp, bottom = 6.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                Row(Modifier.fillMaxWidth()) {
+                    MetricStat(counts.dynamic, "动态", Modifier.weight(1f)) {
+                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                        onOpenDynamic()
                     }
+                    MetricStat(counts.following, "关注", Modifier.weight(1f)) { onRelations(profile.mid, false) }
+                    MetricStat(counts.follower, "粉丝", Modifier.weight(1f)) { onRelations(profile.mid, true) }
+                }
                 }
 
-                BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-                    val columns = if (maxWidth >= 520.dp) 4 else 2
-                    val entries = listOf(
-                        ShortcutSpec(Icons.Filled.Download, "离线缓存", MetricTone.Online, onCache),
-                        ShortcutSpec(Icons.Filled.History, "观看记录", MetricTone.Danmaku, onHistory),
-                        ShortcutSpec(Icons.Filled.Star, "我的收藏", MetricTone.Coin, onFavorites),
-                        ShortcutSpec(Icons.Filled.Schedule, "稍后再看", MetricTone.Accent, onWatchLater),
-                    )
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        entries.chunked(columns).forEach { row ->
-                            Row(Modifier.fillMaxWidth()) {
-                                row.forEach { spec ->
-                                    Shortcut(spec.icon, spec.label, metricToneColor(spec.tone), Modifier.weight(1f)) {
-                                        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-                                        spec.action()
+                AliStagePanel(Modifier.fillMaxWidth().padding(top = 14.dp), contentPadding = PaddingValues(12.dp)) {
+                    BiliSectionHeader("常用")
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val columns = if (maxWidth >= 530.dp) 5 else if (maxWidth >= 270.dp) 3 else 2
+                        val entries = listOf(
+                            ShortcutSpec(Icons.Filled.Download, "离线缓存", onCache),
+                            ShortcutSpec(Icons.Filled.History, "观看记录", onHistory),
+                            ShortcutSpec(Icons.Filled.Star, "我的收藏", onFavorites),
+                            ShortcutSpec(Icons.Filled.Schedule, "稍后再看", onWatchLater),
+                            ShortcutSpec(Icons.Filled.Star, "我的追番", onFollowedSeasons),
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            entries.chunked(columns).forEach { row ->
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    row.forEach { spec ->
+                                        Shortcut(spec.icon, spec.label, Modifier.weight(1f)) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+                                            spec.action()
+                                        }
                                     }
+                                    repeat(columns - row.size) { Box(Modifier.weight(1f)) }
                                 }
-                                repeat(columns - row.size) { Box(Modifier.weight(1f)) }
                             }
                         }
                     }
@@ -459,7 +502,7 @@ fun MineRoute(
                             fontWeight = FontWeight.SemiBold,
                         )
                         if (folders.isNotEmpty()) {
-                            BiliBadge(folders.size.toString(), tone = BiliBadgeTone.Accent)
+                            BiliBadge(folders.size.toString())
                         }
                         Icon(
                             Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -469,10 +512,11 @@ fun MineRoute(
                         )
                     }
                     Box(Modifier.weight(1f))
+                    AliStageIconButton(Icons.Filled.Add, "新建收藏夹", onClick = { createFolder = true })
                     if (folderLoading && folders.isNotEmpty()) {
                         CircularProgressIndicator(Modifier.padding(end = 12.dp).size(18.dp), strokeWidth = 2.dp)
                     } else {
-                        BiliHeaderAction(Icons.Filled.Refresh, "刷新收藏夹", onClick = { refreshTick++ })
+                        AliStageIconButton(Icons.Filled.Refresh, "刷新收藏夹", onClick = { refreshTick++ })
                     }
                 }
 
@@ -506,6 +550,7 @@ fun MineRoute(
                 }
             }
             }
+            }
         }
     }
 }
@@ -519,7 +564,6 @@ private data class MineCounts(
 private data class ShortcutSpec(
     val icon: ImageVector,
     val label: String,
-    val tone: MetricTone,
     val action: () -> Unit,
 )
 
@@ -527,46 +571,28 @@ private data class ShortcutSpec(
 private fun Shortcut(
     icon: ImageVector,
     label: String,
-    tint: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    Row(
-        modifier
-            .padding(horizontal = 4.dp)
-            .biliPressScale(interaction)
-            .height(64.dp)
-            .clip(MaterialTheme.shapes.large)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier.biliPressScale(interaction).heightIn(min = 72.dp).clip(RoundedCornerShape(12.dp))
+            .background(colors.surfaceContainer).border(1.dp, colors.outlineVariant.copy(alpha = .64f), RoundedCornerShape(12.dp))
             .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = 5.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
     ) {
         Box(
-            Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(tint.copy(alpha = 0.16f)),
+            Modifier.size(32.dp).background(colors.primaryContainer, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = tint)
+            Icon(icon, null, Modifier.size(18.dp), tint = colors.onPrimaryContainer)
         }
         Text(
-            label,
-            modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            label, color = colors.onSurface, style = MaterialTheme.typography.labelMedium,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
         )
     }
 }

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,17 +25,22 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -50,6 +56,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+@Composable
+fun BiliPrimaryButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Button(
+        onClick = onClick,
+        modifier = modifier,
+        enabled = enabled,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = colors.primaryContainer,
+            contentColor = colors.onPrimaryContainer,
+        ),
+        content = content,
+    )
+}
 
 /**
  * 播放器/详情页的操作按钮：点赞、投币、收藏、稍后、分享、缓存。
@@ -82,7 +108,7 @@ fun BiliActionPill(
                 onClick = onClick,
             )
             .biliPressScale(interaction),
-        shape = RoundedCornerShape(12.dp),
+        shape = CircleShape,
         color = container,
         contentColor = content,
         border = border,
@@ -172,7 +198,7 @@ fun BiliActionItem(
     Column(
         modifier = modifier
             .biliPressScale(interaction, pressedScale = 0.92f)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(MaterialTheme.shapes.medium)
             .then(
                 if (onLongClick != null) {
                     Modifier.combinedClickable(
@@ -195,7 +221,11 @@ fun BiliActionItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(38.dp)
+                .aliMaterial(AliMaterial.Floating, CircleShape, tinted = active),
+            contentAlignment = Alignment.Center,
+        ) {
             if (onLongClick != null && ring.value > 0f) {
                 val stroke = 2.5.dp
                 Canvas(Modifier.matchParentSize()) {
@@ -216,7 +246,7 @@ fun BiliActionItem(
                 contentDescription = null,
                 tint = tint,
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(20.dp)
                     .graphicsLayer {
                         scaleX = pop.value
                         scaleY = pop.value

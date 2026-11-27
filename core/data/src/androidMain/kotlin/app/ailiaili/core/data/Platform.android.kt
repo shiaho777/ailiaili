@@ -86,7 +86,7 @@ actual fun shareText(title: String, text: String): String {
 
 actual suspend fun chooseDirectory(): String? = AndroidHost.directoryPicker?.invoke()
 
-actual suspend fun exportCacheFiles(files: List<String>, dest: String): Int {
+actual suspend fun exportCacheFiles(files: List<CacheExportFile>, dest: String): Int {
     if (files.isEmpty() || !dest.startsWith("content://")) return 0
     return kotlinx.coroutines.withContext(app.ailiaili.core.model.ioDispatcher) {
         runCatching {
@@ -96,12 +96,10 @@ actual suspend fun exportCacheFiles(files: List<String>, dest: String): Int {
                 Uri.parse(dest),
             ) ?: return@runCatching 0
             var copied = 0
-            for (path in files) {
-                val src = File(path)
+            for (file in files) {
+                val src = File(file.path)
                 if (!src.isFile || src.length() <= 0) continue
-                // 同名旧导出先删再建，避免系统自动改名成 "video (1).mp4"。
-                tree.findFile(src.name)?.delete()
-                val target = tree.createFile("video/mp4", src.name) ?: continue
+                val target = tree.createFile(file.mimeType, file.name) ?: continue
                 val ok = runCatching {
                     resolver.openOutputStream(target.uri)?.use { out ->
                         src.inputStream().use { it.copyTo(out, 1 shl 20) }

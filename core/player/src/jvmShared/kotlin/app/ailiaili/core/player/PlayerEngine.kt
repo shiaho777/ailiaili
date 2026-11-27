@@ -3,22 +3,27 @@ package app.ailiaili.core.player
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import app.ailiaili.core.model.PlayInfo
+import app.ailiaili.core.model.PlayerScale
 
 interface PlaybackListener {
     fun onError() {}
     fun onEnded(ended: Boolean) {}
     fun onIsPlayingChanged(isPlaying: Boolean) {}
+    fun onFirstFrame() {}
     fun onPositionJump() {}
 }
 
 /**
  * 播放器。Android 用 Media3，桌面用系统里的 VLC。界面只看见这一层。
  */
-expect class PlayerEngine() {
+expect class PlayerEngine(preview: Boolean = false) {
     val currentPosition: Long
     val duration: Long
+    val videoAspectRatio: Float?
+    val bufferedPositionMs: Long?
     val isPlaying: Boolean
     val isBuffering: Boolean
+    val isSeekPending: Boolean
     val playbackSpeed: Float
     var volume: Float
 
@@ -39,6 +44,7 @@ expect class PlayerEngine() {
     fun addListener(listener: PlaybackListener)
     fun removeListener(listener: PlaybackListener)
     fun prepare()
+    fun configureCompatibility(hardwareDecoding: Boolean, highQualityAudio: Boolean)
     fun freeze()
 
     /**
@@ -71,4 +77,4 @@ expect class PlayerEngine() {
 }
 
 @Composable
-expect fun VideoSurface(engine: PlayerEngine, modifier: Modifier = Modifier)
+expect fun VideoSurface(engine: PlayerEngine, modifier: Modifier = Modifier, scale: PlayerScale = PlayerScale.Fit)

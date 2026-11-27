@@ -1,6 +1,13 @@
 package app.ailiaili.feature.settings
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.draw.clipToBounds
+import app.ailiaili.core.designsystem.AliNavigationMotion
+import app.ailiaili.core.designsystem.LocalAliReducedMotion
+import app.ailiaili.core.designsystem.aliScreenTransition
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -9,6 +16,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -33,59 +41,58 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import app.ailiaili.core.data.AppGraph
 import app.ailiaili.core.data.AppFile
-import app.ailiaili.core.data.canFollowSystemAccent
+import app.ailiaili.core.data.AppRelease
 import app.ailiaili.core.data.hideAppWindow
 import app.ailiaili.core.data.imageCacheDirs
 import app.ailiaili.core.data.chooseDirectory
 import app.ailiaili.core.data.isDesktopHost
+import app.ailiaili.core.data.latestAppRelease
 import app.ailiaili.core.data.saveTextFile
 import app.ailiaili.core.data.readTextFile
 import app.ailiaili.core.data.SETTINGS_BACKUP_NAME
-import app.ailiaili.core.data.openUrl
 import app.ailiaili.core.data.traySupported
 import app.ailiaili.core.model.SponsorCategories
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.automirrored.filled.Comment
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ViewList
-import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.ClosedCaption
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HighQuality
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VisibilityOff
 import app.ailiaili.core.designsystem.BiliSettingsLabel
 import app.ailiaili.core.designsystem.BiliSettingsNote
 import app.ailiaili.core.designsystem.BiliSettingsRow
 import app.ailiaili.core.designsystem.BiliSwitchRow
-import app.ailiaili.core.designsystem.BiliPageHeader
-import app.ailiaili.core.designsystem.BiliPillTabs
-import app.ailiaili.core.designsystem.BiliSectionTitle
+import app.ailiaili.core.designsystem.AliStageBody
+import app.ailiaili.core.designsystem.AliStagePageHeader
+import app.ailiaili.core.designsystem.AliStagePanel
+import app.ailiaili.core.designsystem.AliStageTabs
+import app.ailiaili.core.designsystem.SystemUiFontPath
+import app.ailiaili.core.designsystem.loadFontFamily
 import app.ailiaili.core.designsystem.LocalWheelSpeed
 import app.ailiaili.core.designsystem.smoothWheelScroll
-import app.ailiaili.core.designsystem.BiliSurfaceCard
 import app.ailiaili.core.designsystem.MetricChip
 import app.ailiaili.core.designsystem.MetricChipSize
 import app.ailiaili.core.designsystem.MetricSpec
 import app.ailiaili.core.designsystem.MetricTone
-import app.ailiaili.core.designsystem.shellBottomPadding
+import app.ailiaili.core.designsystem.shellBottomClearance
 import app.ailiaili.core.model.CdnLine
 import app.ailiaili.core.model.CdnMode
 import app.ailiaili.core.model.RecommendSource
@@ -96,9 +103,6 @@ import app.ailiaili.core.model.ioDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import app.ailiaili.core.network.JSONObject
-import app.ailiaili.core.network.SharedHttp
-import app.ailiaili.core.network.get
 
 private val qualities = listOf(16, 32, 64, 80, 112, 116, 120)
 
@@ -120,49 +124,97 @@ fun SettingsRoute(
     val settings by AppGraph.repo.settings.collectAsState()
     val session by AppGraph.repo.session.collectAsState()
     val scope = rememberCoroutineScope()
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val platformContext = coil3.compose.LocalPlatformContext.current
-    val pageScroll = rememberScrollState()
-    var updateText by remember { mutableStateOf<String?>(null) }
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateResult by remember { mutableStateOf<Result<AppRelease?>?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val tabState = rememberSaveableStateHolder()
+    var settingsSearch by remember { mutableStateOf(false) }
+    var jumpTo by remember { mutableStateOf<SettingsSearchTarget?>(null) }
+    val reached: () -> Unit = { jumpTo = null }
+    val anchor: @Composable (SettingsItem) -> Modifier = { settingsJumpAnchor(jumpTo?.item == it, reached) }
+    val downloadsRevision by AppGraph.downloads.completedRevision.collectAsState()
+    val reducedMotion = LocalAliReducedMotion.current
     var area by remember(settings.danmakuAreaPercent) { mutableFloatStateOf(settings.danmakuAreaPercent.toFloat()) }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .shellBottomPadding()
-            .smoothWheelScroll(pageScroll, LocalWheelSpeed.current)
-            .verticalScroll(pageScroll)
-            .padding(bottom = 24.dp),
-    ) {
-        BiliPageHeader("应用设置")
-        Box(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 8.dp), contentAlignment = Alignment.Center) {
-            BiliPillTabs(settingsTabs, tab, onSelect = { tab = it })
+    var tabsHeight by remember { mutableIntStateOf(0) }
+    val tabsClearance = with(LocalDensity.current) { tabsHeight.toDp() }
+    val navBottom = shellBottomClearance()
+    Column(Modifier.fillMaxSize()) {
+        AliStagePageHeader("设置") {
+            app.ailiaili.core.designsystem.AliStageIconButton(
+                androidx.compose.material.icons.Icons.Filled.Search,
+                "查找设置",
+                onClick = { settingsSearch = true },
+            )
         }
-        when (tab) {
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            AliStageBody(maxWidth = 850.dp) {
+                AnimatedContent(
+                    targetState = tab,
+                    modifier = Modifier.fillMaxSize().clipToBounds(),
+                    transitionSpec = { aliScreenTransition(AliNavigationMotion.Tab, reducedMotion) },
+                    label = "settings-tab",
+                ) { section ->
+                    tabState.SaveableStateProvider(section) {
+                        val pageScroll = rememberScrollState()
+                        Column(
+                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+                                .then(if (section != tab) Modifier.clearAndSetSemantics {} else Modifier)
+                                .smoothWheelScroll(pageScroll, LocalWheelSpeed.current)
+                                .verticalScroll(pageScroll).padding(top = tabsClearance + 6.dp, bottom = navBottom + 24.dp),
+                        ) {
+        when (section) {
             0 -> {
-                BiliSectionTitle("交互", Modifier.padding(horizontal = 20.dp))
-                SettingsCard {
-                    var wheelSpeed by remember(settings.wheelSpeedPercent) {
-                        mutableFloatStateOf(settings.wheelSpeedPercent.toFloat())
+                if (isDesktopHost()) {
+                    SettingsSectionHeading(SettingsSection.Interaction, jumpTo, reached)
+                    SettingsCard {
+                        var wheelSpeed by remember(settings.wheelSpeedPercent) {
+                            mutableFloatStateOf(settings.wheelSpeedPercent.toFloat())
+                        }
+                        BiliSettingsLabel(
+                            "滚轮速度 ${wheelSpeed.toInt()}%",
+                            supporting = "默认 250%，数值越大滚得越快。",
+                        )
+                        Slider(
+                            value = wheelSpeed,
+                            onValueChange = { wheelSpeed = it },
+                            onValueChangeFinished = {
+                                AppGraph.repo.updateSettings {
+                                    it.copy(wheelSpeedPercent = wheelSpeed.toInt().coerceIn(100, 500))
+                                }
+                            },
+                            valueRange = 100f..500f,
+                            steps = 7,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
                     }
-                    BiliSettingsLabel(
-                        "滚轮速度 ${wheelSpeed.toInt()}%",
-                        supporting = "仅桌面端生效。默认 250%，数值越大滚得越快。",
-                    )
-                    Slider(
-                        value = wheelSpeed,
-                        onValueChange = { wheelSpeed = it },
-                        onValueChangeFinished = {
-                            AppGraph.repo.updateSettings {
-                                it.copy(wheelSpeedPercent = wheelSpeed.toInt().coerceIn(100, 500))
-                            }
-                        },
-                        valueRange = 100f..500f,
-                        steps = 7,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
                 }
-                BiliSectionTitle("内容", Modifier.padding(horizontal = 20.dp))
+                SettingsSectionHeading(SettingsSection.Content, jumpTo, reached)
+                SettingsCard {
+                    BiliSettingsLabel("启动页面", supporting = "下次全新启动时打开所选页面。")
+                    RowChips {
+                        app.ailiaili.core.model.StartupPage.entries.forEach { page ->
+                            BiliFilterChip(
+                                selected = settings.startupPage == page,
+                                onClick = { AppGraph.repo.updateSettings { it.copy(startupPage = page) } },
+                                label = { Text(page.label) },
+                            )
+                        }
+                    }
+                    BiliSettingsLabel("收藏显示", supporting = "可在收藏夹中随时切换，并记住上次选择。")
+                    RowChips {
+                        BiliFilterChip(
+                            selected = settings.favoriteGrid,
+                            onClick = { AppGraph.repo.updateSettings { it.copy(favoriteGrid = true) } },
+                            label = { Text("封面") },
+                        )
+                        BiliFilterChip(
+                            selected = !settings.favoriteGrid,
+                            onClick = { AppGraph.repo.updateSettings { it.copy(favoriteGrid = false) } },
+                            label = { Text("列表") },
+                        )
+                    }
+                }
                 SettingsCard {
                     BiliSettingsLabel(
                         "推荐来源",
@@ -183,7 +235,7 @@ fun SettingsRoute(
                         }
                     }
                 }
-                BiliSectionTitle("外观", Modifier.padding(horizontal = 20.dp))
+                SettingsSectionHeading(SettingsSection.Appearance, jumpTo, reached)
                 SettingsCard {
                     BiliSettingsLabel("标签栏", supporting = "自动：手机竖屏用底部，平板和电脑窗口用左侧。也可以固定某一种。")
                     RowChips {
@@ -203,7 +255,7 @@ fun SettingsRoute(
                             label = { Text("左侧导航") },
                         )
                     }
-                    BiliSettingsLabel("应用主题")
+                    BiliSettingsLabel("应用主题", modifier = anchor(SettingsItem.Theme))
                     RowChips {
                         ThemeMode.entries.forEach { mode ->
                             BiliFilterChip(
@@ -219,48 +271,22 @@ fun SettingsRoute(
                             )
                         }
                     }
-                    BiliSettingsLabel(
-                        "主题色",
-                        supporting = if (canFollowSystemAccent()) {
-                            "默认是 B 站粉。跟随系统用设备强调色，也可以自己填一个 6 位色值。"
-                        } else {
-                            "默认是 B 站粉。也可以自己填一个 6 位色值。"
+                    BiliSwitchRow(
+                        title = "减少界面动效",
+                        modifier = anchor(SettingsItem.Motion),
+                        checked = settings.reduceMotion,
+                        onCheckedChange = { enabled -> AppGraph.repo.updateSettings { it.copy(reduceMotion = enabled) } },
+                        supporting = "减少页面、按钮和播放控制栏的过渡效果",
+                    )
+                    ThemeAccentSettings(
+                        current = settings.accentHex,
+                        followSystem = settings.accentFollowSystem,
+                        modifier = anchor(SettingsItem.ThemeColor),
+                        onSelect = { hex, system ->
+                            AppGraph.repo.updateSettings { it.copy(accentFollowSystem = system, accentHex = hex) }
                         },
                     )
-                    RowChips {
-                        if (canFollowSystemAccent()) {
-                            BiliFilterChip(
-                                selected = settings.accentFollowSystem,
-                                onClick = { AppGraph.repo.updateSettings { it.copy(accentFollowSystem = !it.accentFollowSystem) } },
-                                label = { Text("跟随系统") },
-                            )
-                        }
-                        listOf("" to "默认粉", "3B82F6" to "蓝", "10B981" to "绿", "F59E0B" to "琥珀").forEach { (hex, label) ->
-                            BiliFilterChip(
-                                selected = !settings.accentFollowSystem && settings.accentHex.equals(hex, ignoreCase = true),
-                                onClick = {
-                                    AppGraph.repo.updateSettings { it.copy(accentFollowSystem = false, accentHex = hex) }
-                                },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
-                    var accentDraft by remember(settings.accentHex) { mutableStateOf(settings.accentHex) }
-                    OutlinedTextField(
-                        value = accentDraft,
-                        onValueChange = { accentDraft = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        singleLine = true,
-                        label = { Text("自定义色值，例如 FB7299") },
-                        trailingIcon = {
-                            TextButton(onClick = {
-                                AppGraph.repo.updateSettings {
-                                    it.copy(accentFollowSystem = false, accentHex = accentDraft.trim().removePrefix("#"))
-                                }
-                            }) { Text("使用") }
-                        },
-                    )
-                    FontPickerSection(settings.fontPath)
+                    FontPickerSection(settings.fontPath, modifier = anchor(SettingsItem.Font))
                     if (isDesktopHost() && traySupported()) {
                         BiliSwitchRow(
                             title = "关闭时最小化到托盘",
@@ -309,7 +335,7 @@ fun SettingsRoute(
                 }
             }
             1 -> {
-                BiliSectionTitle("赞助片段", Modifier.padding(horizontal = 20.dp))
+                SettingsSectionHeading(SettingsSection.Sponsor, jumpTo, reached)
                 SettingsCard {
                     BiliSwitchRow(
                         title = "跳过赞助片段",
@@ -340,19 +366,47 @@ fun SettingsRoute(
                     }
                 }
                 if (isDesktopHost()) {
-                    BiliSectionTitle("电脑快捷键", Modifier.padding(horizontal = 20.dp))
+                    SettingsSectionHeading(SettingsSection.Shortcuts, jumpTo, reached)
                     SettingsCard {
-                        Text(
-                            "空格播放或暂停。左右方向键快进快退 5 秒，上下方向键调音量。F 全屏，D 开关弹幕，L 点赞，U 打开 UP 主页，Esc 退出全屏。滚轮调音量，双击画面全屏。",
-                            modifier = Modifier.padding(16.dp),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            style = MaterialTheme.typography.bodySmall,
+                        BiliSettingsLabel(
+                            "播放与音量",
+                            supporting = "空格 播放或暂停 · ← / → 快退或快进 · ↑ / ↓ 调音量 · M 静音或恢复音量",
+                        )
+                        BiliSettingsLabel(
+                            "画面与弹幕",
+                            supporting = "F 全屏 · Esc 退出 · G 清屏 · D 开关弹幕 · C 开关字幕",
+                        )
+                        BiliSettingsLabel(
+                            "搜索与互动",
+                            supporting = "Ctrl / ⌘ + K 打开搜索 · L 点赞 · U 打开 UP 主页",
                         )
                     }
                 }
-                BiliSectionTitle("画质与线路", Modifier.padding(horizontal = 20.dp))
+                SettingsSectionHeading(SettingsSection.Quality, jumpTo, reached)
                 SettingsCard {
-                    BiliSettingsLabel("画质")
+                    BiliSettingsLabel("默认画面比例", modifier = anchor(SettingsItem.Aspect), supporting = "可在播放器更多选项中随时调整。")
+                    RowChips {
+                        app.ailiaili.core.model.PlayerScale.entries.forEach { mode ->
+                            BiliFilterChip(
+                                selected = settings.playerScale == mode,
+                                onClick = { AppGraph.repo.updateSettings { it.copy(playerScale = mode) } },
+                                label = { Text(mode.label) },
+                            )
+                        }
+                    }
+                    BiliSettingsLabel("快进和快退步长", modifier = anchor(SettingsItem.Seek), supporting = "适用于桌面左右方向键与手机两侧双击。")
+                    RowChips {
+                        listOf(0, 3, 5, 10, 15, 30, 60).forEach { seconds ->
+                            BiliFilterChip(
+                                selected = settings.seekStepSeconds == seconds,
+                                onClick = { AppGraph.repo.updateSettings { it.copy(seekStepSeconds = seconds) } },
+                                label = { Text(if (seconds == 0) "设备默认" else "$seconds 秒") },
+                            )
+                        }
+                    }
+                }
+                SettingsCard {
+                    BiliSettingsLabel("画质", modifier = anchor(SettingsItem.Quality))
                     RowChips {
                         qualities.forEach { qn ->
                             BiliFilterChip(
@@ -373,17 +427,44 @@ fun SettingsRoute(
                         title = "显示相关视频",
                         checked = settings.showRelated,
                         onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(showRelated = on) } },
-                        supporting = "播放页简介下方的「相关推荐」。关掉后不请求也不展示",
+                        supporting = "在播放页简介下方展示相关推荐",
                         icon = Icons.AutoMirrored.Filled.ViewList,
                     )
                     BiliSwitchRow(
-                        title = "自动连播下一 P",
+                        title = "自动连播",
                         checked = settings.autoPlayNext,
                         onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(autoPlayNext = on) } },
-                        supporting = "多 P 视频播完自动播下一 P，倍速与画质偏好沿用",
+                        supporting = "续播下一 P、队列或合集。播完后有 5 秒可以取消",
                         icon = Icons.Filled.FastForward,
                         tone = MetricTone.Online,
                     )
+                    if (settings.autoPlayNext) {
+                        BiliSwitchRow(
+                            title = "连播相关视频",
+                            checked = settings.autoPlayRelated,
+                            onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(autoPlayRelated = on) } },
+                            supporting = "分 P、队列和合集播完后，接着播放最初视频的相关推荐",
+                            icon = Icons.Filled.FastForward,
+                        )
+                    }
+                    if (isDesktopHost()) {
+                        BiliSwitchRow(
+                            title = "视频硬件解码",
+                            checked = settings.desktopHardwareDecoding,
+                            onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(desktopHardwareDecoding = on) } },
+                            supporting = "出现有声无画面时可以关闭，下次打开视频生效",
+                            icon = Icons.Filled.HighQuality,
+                        )
+                        if (System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true)) {
+                            BiliSwitchRow(
+                                title = "高质量音频重采样",
+                                checked = settings.desktopHighQualityAudio,
+                                onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(desktopHighQualityAudio = on) } },
+                                supporting = "直连音响可尝试开启。蓝牙输出建议使用默认设置，下次打开播放器生效",
+                                icon = Icons.Filled.HighQuality,
+                            )
+                        }
+                    }
                     BiliSettingsLabel("网络线路")
                     RowChips {
                         listOf(CdnMode.Auto to "自动测速", CdnMode.Server to "跟随服务端", CdnMode.Manual to "指定线路").forEach { (mode, label) ->
@@ -470,7 +551,7 @@ fun SettingsRoute(
                     )
                     BiliSettingsNote("代理作用于接口、图片、下载与直播弹幕，下一次请求即生效；视频流走系统播放器，不受此代理影响。")
                 }
-                BiliSectionTitle("缓冲", Modifier.padding(horizontal = 20.dp))
+                SettingsSectionHeading(SettingsSection.Buffer, jumpTo, reached)
                 SettingsCard {
                     BiliSettingsLabel(
                         "缓冲策略",
@@ -503,11 +584,11 @@ fun SettingsRoute(
                     }
                     BiliSettingsNote("双端生效：桌面映射 VLC 网络缓冲，Android 映射 Media3 缓冲参数。")
                 }
-                BiliSectionTitle("字幕", Modifier.padding(horizontal = 20.dp))
+                SettingsSectionHeading(SettingsSection.Subtitle, jumpTo, reached)
                 SettingsCard {
                     BiliSettingsNote("字幕开关、语言与延迟在播放器字幕菜单里调；这里管外观。")
                     var subFont by remember(settings.subtitleFontSp) { mutableFloatStateOf(settings.subtitleFontSp.toFloat()) }
-                    BiliSettingsLabel("字幕字号 ${subFont.toInt()}sp")
+                    BiliSettingsLabel("字幕字号 ${subFont.toInt()}sp", modifier = anchor(SettingsItem.SubtitleSize))
                     Slider(
                         value = subFont,
                         onValueChange = { subFont = it },
@@ -529,7 +610,15 @@ fun SettingsRoute(
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
                 }
-                BiliSectionTitle("弹幕", Modifier.padding(horizontal = 20.dp))
+                SettingsSectionHeading(SettingsSection.Danmaku, jumpTo, reached)
+                SettingsCard {
+                    BiliSettingsLabel("弹幕时间偏移", modifier = anchor(SettingsItem.DanmakuTiming), supporting = "随视频播放的弹幕可提前或延后，直播使用实时弹幕。")
+                    app.ailiaili.core.designsystem.DanmakuDelayControl(
+                        settings.danmakuDelayMs,
+                        onChange = { value -> AppGraph.repo.updateSettings { it.copy(danmakuDelayMs = value) } },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
                 SettingsCard {
                     BiliSettingsLabel("显示与过滤")
                     BiliSwitchRow(
@@ -631,7 +720,7 @@ fun SettingsRoute(
                     var opacity by remember(settings.danmakuOpacityPercent) {
                         mutableFloatStateOf(settings.danmakuOpacityPercent.toFloat())
                     }
-                    BiliSettingsLabel("弹幕不透明度 ${opacity.toInt()}%")
+                    BiliSettingsLabel("弹幕不透明度 ${opacity.toInt()}%", modifier = anchor(SettingsItem.DanmakuOpacity))
                     Slider(
                         value = opacity,
                         onValueChange = { opacity = it },
@@ -660,11 +749,52 @@ fun SettingsRoute(
                 }
             }
             2 -> {
-                BiliSectionTitle("离线缓存", Modifier.padding(horizontal = 20.dp))
+                SettingsSectionHeading(SettingsSection.Data, jumpTo, reached)
+                SettingsCard {
+                    BiliSettingsLabel("默认下载画质", modifier = anchor(SettingsItem.DownloadQuality), supporting = "添加任务时可改选，保存的规格以实际可用画质为准。")
+                    RowChips {
+                        (listOf(0) + qualities).forEach { qn ->
+                            BiliFilterChip(
+                                selected = settings.downloadQuality == qn,
+                                onClick = { AppGraph.repo.updateSettings { it.copy(downloadQuality = qn) } },
+                                label = { Text(if (qn == 0) "当前播放画质" else app.ailiaili.core.model.qnLabel(qn)) },
+                            )
+                        }
+                    }
+                    if (!isDesktopHost()) {
+                        BiliSwitchRow(
+                            title = "在后台继续下载",
+                            supporting = "下载时在系统通知中显示进度，也可以暂停全部。关闭应用后可重新打开继续任务。",
+                            checked = settings.backgroundDownloads,
+                            onCheckedChange = { AppGraph.repo.updateSettings { value -> value.copy(backgroundDownloads = it) } },
+                        )
+                        BiliSwitchRow(
+                            title = "仅在非计费网络下载",
+                            modifier = anchor(SettingsItem.DownloadNetwork),
+                            supporting = "切到移动数据等计费网络时等待，连接合适的网络后继续。",
+                            checked = settings.unmeteredDownloads,
+                            onCheckedChange = { AppGraph.repo.updateSettings { value -> value.copy(unmeteredDownloads = it) } },
+                        )
+                    }
+                    BiliSwitchRow(
+                        title = "同时缓存字幕",
+                        modifier = anchor(SettingsItem.DownloadSubtitles),
+                        supporting = "保存当前视频可用的字幕轨道。",
+                        checked = settings.downloadSubtitles,
+                        onCheckedChange = { AppGraph.repo.updateSettings { value -> value.copy(downloadSubtitles = it) } },
+                    )
+                    BiliSwitchRow(
+                        title = "同时缓存弹幕",
+                        modifier = anchor(SettingsItem.DownloadDanmaku),
+                        supporting = "保存已获取的点播弹幕，离线播放时可打开。",
+                        checked = settings.downloadDanmaku,
+                        onCheckedChange = { AppGraph.repo.updateSettings { value -> value.copy(downloadDanmaku = it) } },
+                    )
+                }
                 SettingsCard {
                     var cacheCount by remember { mutableStateOf<Int?>(null) }
                     var coverCache by remember { mutableStateOf("计算中…") }
-                    LaunchedEffect(Unit) {
+                    LaunchedEffect(downloadsRevision, settings.downloadDir) {
                         coverCache = withContext(ioDispatcher) { coverCacheSize() }
                         cacheCount = withContext(ioDispatcher) { AppGraph.cache.list().size }
                     }
@@ -678,7 +808,7 @@ fun SettingsRoute(
                                 Icons.Filled.Download,
                                 cacheCount?.toString() ?: "…",
                                 "已下载",
-                                MetricTone.Accent,
+                                MetricTone.Neutral,
                             ),
                             size = MetricChipSize.Compact,
                         )
@@ -744,6 +874,7 @@ fun SettingsRoute(
                     )
                     BiliSettingsRow(
                         title = "下载保存位置",
+                        modifier = anchor(SettingsItem.DownloadFolder),
                         supporting = when {
                             settings.downloadDir.startsWith("content://") ->
                                 "已选导出目录：下载完成后自动复制视频文件过去，应用内仍保留缓存"
@@ -802,93 +933,61 @@ fun SettingsRoute(
                     BiliSettingsNote("短视频由播放器直接合流，不另存一份缓存。要腾出空间，清上面的封面，或打开已下载的视频删掉离线文件。")
                 }
             }
-            else -> {
-                BiliSectionTitle("关于", Modifier.padding(horizontal = 20.dp))
-                SettingsCard {
-                    BiliSettingsRow(
-                        title = "ailiaili",
-                        supporting = "版本 ${app.ailiaili.core.model.APP_VERSION} · Android、Windows、macOS、Linux 共用这一套界面",
-                        icon = Icons.Filled.Apps,
-                    )
-                    BiliSwitchRow(
-                        title = "启动时检查更新",
-                        checked = settings.autoCheckUpdate,
-                        onCheckedChange = { on -> AppGraph.repo.updateSettings { it.copy(autoCheckUpdate = on) } },
-                        supporting = "打开应用大约 6 秒后查一次。关掉后仍可手动检查",
-                        icon = Icons.Filled.SystemUpdate,
-                        tone = MetricTone.Online,
-                    )
-                    BiliSettingsRow(
-                        title = "检查更新",
-                        supporting = updateText ?: "当前版本 ${app.ailiaili.core.model.APP_VERSION}",
-                        icon = Icons.Filled.Refresh,
-                        tone = MetricTone.Danmaku,
-                        onClick = {
-                            scope.launch {
-                                updateText = "正在检查…"
-                                updateText = checkUpdate()
+            else -> AboutSettings(
+                autoCheckUpdate = settings.autoCheckUpdate,
+                onAutoCheckUpdateChange = { enabled ->
+                    AppGraph.repo.updateSettings { it.copy(autoCheckUpdate = enabled) }
+                },
+                checkingUpdate = checkingUpdate,
+                updateResult = updateResult,
+                onCheckUpdate = {
+                    if (!checkingUpdate) {
+                        checkingUpdate = true
+                        scope.launch {
+                            try {
+                                updateResult = latestAppRelease()
+                            } finally {
+                                checkingUpdate = false
                             }
-                        },
-                        trailing = {
-                            Text(
-                                "检查",
-                                color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                        },
-                    )
-                    updateText?.lineSequence()?.firstOrNull { it.startsWith("http") }?.let { page ->
-                        BiliSettingsRow(
-                            title = "打开发布页",
-                            supporting = page,
-                            icon = Icons.Filled.OpenInNew,
-                            tone = MetricTone.Accent,
-                            onClick = { openUrl(page) },
-                        )
+                        }
                     }
-                    BiliSettingsRow(
-                        title = "复制诊断信息",
-                        supporting = "反馈播放/风控问题时贴上它（已脱敏，不含凭据）",
-                        icon = Icons.Filled.Info,
-                        tone = MetricTone.Neutral,
-                        onClick = {
-                            val text = app.ailiaili.core.data.Diagnostics.build(app.ailiaili.core.model.APP_VERSION)
-                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
-                            app.ailiaili.core.designsystem.QuickActions.showToast("诊断信息已复制到剪贴板")
-                        },
-                    )
-                    BiliSettingsRow(
-                        title = "原作者 ABing",
-                        supporting = "打开 B 站主页",
-                        icon = Icons.Filled.Person,
-                        tone = MetricTone.Like,
-                        onClick = onOpenAuthor,
-                    )
-                    BiliSettingsRow(
-                        title = "项目维护 shiaho777",
-                        supporting = "github.com/shiaho777/ailiaili",
-                        icon = Icons.Filled.Code,
-                        tone = MetricTone.Neutral,
-                        onClick = { openUrl("https://github.com/shiaho777/ailiaili") },
-                    )
-                    BiliSettingsRow(
-                        title = "非官方声明",
-                        supporting = "首次启动时已确认，可以再看一遍",
-                        icon = Icons.Filled.Info,
-                        tone = MetricTone.Coin,
-                        onClick = onOpenDisclaimer,
-                    )
-                    BiliSettingsNote("非官方客户端。视频版权归哔哩哔哩所有。")
+                },
+                onOpenAuthor = onOpenAuthor,
+                onOpenDisclaimer = onOpenDisclaimer,
+            )
+        }
+                        }
+                    }
                 }
             }
+            AliStageTabs(
+                labels = settingsTabs,
+                selected = tab,
+                onSelect = { tab = it },
+                modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 640.dp).fillMaxWidth()
+                    .padding(horizontal = 10.dp).onSizeChanged { tabsHeight = it.height },
+                floating = true,
+            )
         }
+    }
+    if (settingsSearch) {
+        SettingsSectionSearch(
+            desktop = isDesktopHost(),
+            onSelect = { target ->
+                settingsSearch = false
+                tab = target.section.tab
+                jumpTo = target.takeUnless { it.section == SettingsSection.About }
+            },
+            onDismiss = { settingsSearch = false },
+        )
     }
 }
 
+
 @Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
-    BiliSurfaceCard(
-        modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+    AliStagePanel(
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 3.dp).fillMaxWidth(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp),
         content = content,
     )
@@ -903,18 +1002,21 @@ private fun RowChips(content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/**
- * 界面字体：默认 / 系统字体（桌面）/ 导入字体文件。
- * 选中的字体复制进应用字体目录，设置只存路径；弹幕跟随同一字体。
- */
 @Composable
-private fun FontPickerSection(currentPath: String) {
+private fun FontPickerSection(currentPath: String, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     var systemFonts by remember { mutableStateOf<List<String>>(emptyList()) }
     var showSystem by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
-    val currentName = if (currentPath.isBlank()) "默认" else java.io.File(currentPath).name
+    val selectedPath = remember(currentPath) {
+        currentPath.takeIf { it.isBlank() || it == SystemUiFontPath || loadFontFamily(it) != null }.orEmpty()
+    }
+    val currentName = when {
+        selectedPath.isBlank() -> "MiSans"
+        selectedPath == SystemUiFontPath -> "系统默认"
+        else -> java.io.File(selectedPath).name
+    }
 
     fun useFontFile(name: String, bytes: ByteArray) {
         scope.launch {
@@ -930,11 +1032,11 @@ private fun FontPickerSection(currentPath: String) {
             }
             result.onSuccess { path ->
                 // 先验证能加载，再写设置；坏字体不让整个界面变成豆腐块。
-                if (app.ailiaili.core.designsystem.loadFontFamily(path) != null) {
+                if (loadFontFamily(path) != null) {
                     AppGraph.repo.updateSettings { it.copy(fontPath = path) }
                     note = null
                 } else {
-                    note = "这个字体文件加载失败，换一个是试试"
+                    note = "这个字体文件加载失败，请换一个试试"
                 }
             }.onFailure { note = it.message ?: "字体导入失败" }
             busy = false
@@ -943,13 +1045,19 @@ private fun FontPickerSection(currentPath: String) {
 
     BiliSettingsLabel(
         "界面字体",
-        supporting = "当前：$currentName。全应用与弹幕跟随；导入 ttf/otf 文件。",
+        modifier = modifier,
+        supporting = "当前使用 $currentName，弹幕也会跟随。",
     )
     RowChips {
         BiliFilterChip(
-            selected = currentPath.isBlank(),
+            selected = selectedPath.isBlank(),
             onClick = { AppGraph.repo.updateSettings { it.copy(fontPath = "") } },
-            label = { Text("默认") },
+            label = { Text("MiSans") },
+        )
+        BiliFilterChip(
+            selected = selectedPath == SystemUiFontPath,
+            onClick = { AppGraph.repo.updateSettings { it.copy(fontPath = SystemUiFontPath) } },
+            label = { Text("系统默认") },
         )
         if (isDesktopHost()) {
             BiliFilterChip(
@@ -962,7 +1070,7 @@ private fun FontPickerSection(currentPath: String) {
                         }
                     }
                 },
-                label = { Text("系统字体") },
+                label = { Text("选择系统字体") },
             )
         }
         BiliFilterChip(
@@ -995,14 +1103,13 @@ private fun FontPickerSection(currentPath: String) {
         }.take(24)
         RowChips {
             shown.forEach { path ->
-                val name = java.io.File(path).nameWithoutExtension
+                val file = java.io.File(path)
                 BiliFilterChip(
-                    selected = currentPath == path || java.io.File(currentPath).name == java.io.File(path).name,
+                    selected = selectedPath == path || java.io.File(selectedPath).name == file.name,
                     onClick = {
-                        val file = java.io.File(path)
                         runCatching { useFontFile(file.name, file.readBytes()) }
                     },
-                    label = { Text(name) },
+                    label = { Text(file.nameWithoutExtension) },
                 )
             }
         }
@@ -1031,21 +1138,4 @@ private fun clearCoverCache(context: coil3.PlatformContext) {
         loader.diskCache?.clear()
     }
     imageCacheDirs().forEach { it.deleteRecursively() }
-}
-
-private suspend fun checkUpdate(): String = withContext(ioDispatcher) {
-    runCatching {
-        val json = JSONObject(
-            SharedHttp.api.get(
-                "https://api.github.com/repos/shiaho777/ailiaili/releases/latest",
-                mapOf(
-                    "Accept" to "application/vnd.github+json",
-                    "User-Agent" to "ailiaili",
-                ),
-            ).bodyText,
-        )
-        val tag = json.optString("tag_name")
-        val page = json.optString("html_url")
-        if (tag.isBlank()) "没有读到版本信息" else "最新发布 $tag\n$page"
-    }.getOrElse { "检查失败：${it.message}" }
 }

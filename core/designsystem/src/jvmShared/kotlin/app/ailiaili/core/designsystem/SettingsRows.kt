@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
@@ -22,7 +21,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -41,7 +39,7 @@ fun BiliSettingsRow(
     modifier: Modifier = Modifier,
     supporting: String? = null,
     icon: ImageVector? = null,
-    tone: MetricTone = MetricTone.Accent,
+    tone: MetricTone = MetricTone.Neutral,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
@@ -75,7 +73,7 @@ fun BiliSwitchRow(
     modifier: Modifier = Modifier,
     supporting: String? = null,
     icon: ImageVector? = null,
-    tone: MetricTone = MetricTone.Accent,
+    tone: MetricTone = MetricTone.Neutral,
     enabled: Boolean = true,
 ) {
     SettingsRowLayout(
@@ -152,9 +150,8 @@ private fun SettingsRowLayout(
             val tint = metricToneColor(tone)
             Box(
                 Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(tint.copy(alpha = 0.14f)),
+                    .size(32.dp)
+                    .background(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.shapes.small),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
@@ -164,9 +161,9 @@ private fun SettingsRowLayout(
             Text(
                 title,
                 color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 15.sp,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Medium,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             if (!supporting.isNullOrBlank()) {

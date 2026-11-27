@@ -53,12 +53,46 @@ expect class HttpEngine(connectTimeoutMs: Long, readTimeoutMs: Long) {
         url: String,
         headers: Map<String, String>,
         filePath: String,
+        cancellation: DownloadCancellation? = null,
         onProgress: (downloaded: Long, total: Long) -> Unit,
     )
 
     /** 打开一个流式响应。调用方负责 close；关闭流会同时释放底层响应。 */
     fun openStream(url: String, headers: Map<String, String>): java.io.InputStream
 }
+
+class DownloadCancellation {
+    @Volatile
+    private var cancelled = false
+    private var abort: (() -> Unit)? = null
+    val isCancelled: Boolean get() = cancelled
+
+    fun cancel() {
+        val request = synchronized(this) {
+            cancelled = true
+            abort
+        }
+        request?.invoke()
+    }
+
+    fun check() {
+        if (cancelled) throw java.util.concurrent.CancellationException("Download paused")
+    }
+
+    internal fun <T> withRequest(cancelRequest: () -> Unit, block: () -> T): T {
+        synchronized(this) {
+            check()
+            abort = cancelRequest
+        }
+        return try {
+            block()
+        } finally {
+            synchronized(this) { abort = null }
+        }
+    }
+}
+
+class DownloadStorageException : java.io.IOException("Insufficient download space")
 
 fun HttpEngine.get(
     url: String,

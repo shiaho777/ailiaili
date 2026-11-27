@@ -14,3 +14,5 @@ internal data class StreamProbe(
  * Android 按 MediaCodecList 的实际解码能力判断，不一刀切。
  */
 internal expect fun unsupportedStreamQns(streams: List<StreamProbe>): Set<Int>
+
+internal expect val usesLibVlc: Boolean

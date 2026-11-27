@@ -41,7 +41,7 @@ actual fun decodeImageBytes(bytes: ByteArray): ImageBitmap? =
 private val fontCache = java.util.concurrent.ConcurrentHashMap<String, androidx.compose.ui.text.font.FontFamily?>()
 
 actual fun loadFontFamily(path: String): androidx.compose.ui.text.font.FontFamily? =
-    fontCache.getOrPut(path) {
+    fontCache.computeIfAbsent(path) {
         runCatching {
             val typeface = android.graphics.Typeface.createFromFile(java.io.File(path))
                 ?: return@runCatching null

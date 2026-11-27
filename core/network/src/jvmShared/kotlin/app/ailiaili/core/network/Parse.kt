@@ -186,6 +186,7 @@ internal fun parseDetail(bvid: String, d: JSONObject): VideoDetail {
         seasonTitle = season?.str("title").orEmpty(),
         pubdate = d.lng("pubdate"),
         coined = d.int("coin") == 1,
+        replyCount = stat?.lng("reply") ?: 0,
     )
 }
 
@@ -249,10 +250,15 @@ internal fun parseComment(e: JSONObject, upperMid: Long = 0, withReplies: Boolea
  * 多段切片不能只播第一段，否则播到一半就没了，所以直接判为不可用。
  */
 internal fun decodeDurl(data: JSONObject): PlayInfo? {
-    val segs = data.arr("durl")?.objects().orEmpty()
-        .map { it.str("url") }
-        .filter { it.isNotBlank() && app.ailiaili.core.model.isAllowedMediaUrl(it) }
-    if (segs.size != 1) return null
+    val segment = data.arr("durl")?.objects().orEmpty().singleOrNull() ?: return null
+    val urls = buildList {
+        add(segment.str("url"))
+        segment.arr("backup_url")?.let { backups ->
+            repeat(backups.length()) { add(backups.optString(it)) }
+        }
+    }.let { app.ailiaili.core.model.filterAllowedMediaUrls(it) }
+    if (urls.isEmpty()) return null
+    val ordered = CdnPicker.retryOrder(urls)
     val actual = data.int("quality")
     val qualities = data.arr("accept_quality")?.let { arr ->
         buildList {
@@ -261,9 +267,9 @@ internal fun decodeDurl(data: JSONObject): PlayInfo? {
     }.orEmpty().filter { it > 0 }.distinct().sortedDescending()
         .map { Quality(it, qnLabel(it)) }
     return PlayInfo(
-        videoUrl = segs[0],
+        videoUrl = ordered.first(),
         audioUrl = null,
-        backupUrls = emptyList(),
+        backupUrls = ordered.drop(1),
         durationMs = data.lng("timelength"),
         qualities = qualities,
         actualQn = actual,
@@ -395,6 +401,7 @@ internal fun parseDynamicEntry(e: JSONObject): app.ailiaili.core.model.DynamicEn
             authorFace = face,
             pubTs = pubTs,
             desc = descText.ifBlank { inner.desc },
+            forwarded = true,
         )
     }
 

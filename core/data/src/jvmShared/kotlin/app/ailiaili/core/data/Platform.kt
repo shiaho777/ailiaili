@@ -34,7 +34,9 @@ expect suspend fun chooseDirectory(): String?
  * Android：dest 是 SAF tree Uri，逐个复制并返回成功个数；
  * 桌面端下载直接写目标目录，无需搬运，恒返回 0。
  */
-expect suspend fun exportCacheFiles(files: List<String>, dest: String): Int
+data class CacheExportFile(val path: String, val name: String, val mimeType: String)
+
+expect suspend fun exportCacheFiles(files: List<CacheExportFile>, dest: String): Int
 
 /** 选一张本地图片（私信发图用）。返回文件名与字节；取消返回 null。 */
 expect suspend fun pickImage(): PickedImage?

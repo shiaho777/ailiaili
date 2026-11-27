@@ -57,4 +57,35 @@ class DurlDecodeTest {
         assertNull(decodeDurl(JSONObject("""{"durl":[{"url":"https://u:p@upos.bilivideo.com/v.mp4"}]}""")))
         assertNull(decodeDurl(JSONObject("""{"durl":[{"url":"http://upos.bilivideo.com/v.mp4"}]}""")))
     }
+    @Test
+    fun retainsSafeBackupAndPrefersItForDesktopSeeking() {
+        val json = JSONObject(
+            """
+            {
+              "quality": 64,
+              "durl": [{
+                "url": "https://upos-sz-mirrorhw.bilivideo.com/video.mp4",
+                "backup_url": ["https://upos-sz-mirrorcos.bilivideo.com/video.mp4", "https://example.org/file.mp4"]
+              }]
+            }
+            """.trimIndent(),
+        )
+        val info = decodeDurl(json)
+        assertEquals("https://upos-sz-mirrorcos.bilivideo.com/video.mp4", info?.videoUrl)
+        assertEquals(listOf("https://upos-sz-mirrorhw.bilivideo.com/video.mp4"), info?.backupUrls)
+    }
+
+    @Test
+    fun rejectsPartialMultiSegmentMediaWhenOneSegmentHasAnInvalidUrl() {
+        val json = JSONObject(
+            """
+            {"durl": [
+              {"url": "https://upos-sz-mirrorcos.bilivideo.com/1.mp4"},
+              {"url": "https://example.org/2.mp4"}
+            ]}
+            """.trimIndent(),
+        )
+        assertNull(decodeDurl(json))
+    }
+
 }

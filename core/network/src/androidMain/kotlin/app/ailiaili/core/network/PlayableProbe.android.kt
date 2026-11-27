@@ -45,3 +45,5 @@ internal actual fun unsupportedStreamQns(streams: List<StreamProbe>): Set<Int> {
     }
     return unsupported
 }
+
+internal actual val usesLibVlc: Boolean = false

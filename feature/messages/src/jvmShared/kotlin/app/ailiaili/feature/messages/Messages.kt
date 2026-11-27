@@ -1,6 +1,8 @@
 package app.ailiaili.feature.messages
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,14 +32,12 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.IconButton
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -52,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,16 +67,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.ailiaili.core.data.AppGraph
-import app.ailiaili.core.designsystem.BiliBackHeader
+import app.ailiaili.core.designsystem.AliStageBody
+import app.ailiaili.core.designsystem.AliStageIconButton
+import app.ailiaili.core.designsystem.AliStageNotice
+import app.ailiaili.core.designsystem.AliStagePageHeader
+import app.ailiaili.core.designsystem.AliStageTabs
 import app.ailiaili.core.designsystem.BiliBadge
 import app.ailiaili.core.designsystem.BiliBadgeStyle
-import app.ailiaili.core.designsystem.BiliBadgeTone
-import app.ailiaili.core.designsystem.BiliEmptyState
 import app.ailiaili.core.designsystem.BiliErrorState
-import app.ailiaili.core.designsystem.BiliHeaderAction
 import app.ailiaili.core.designsystem.BiliLoadingState
 import app.ailiaili.core.designsystem.LoadBox
-import app.ailiaili.core.designsystem.appViewModel
 import app.ailiaili.core.designsystem.smoothWheelScroll
 import app.ailiaili.core.model.MsgItem
 import app.ailiaili.core.model.MsgSession
@@ -86,8 +87,9 @@ class InboxViewModel : ViewModel() {
     var items by mutableStateOf<List<MsgSession>>(emptyList())
     var loading by mutableStateOf(true)
     var error by mutableStateOf<String?>(null)
-    init { reload() }
+    init { if (AppGraph.repo.session.value.loggedIn) reload() }
     fun reload() {
+        if (!AppGraph.repo.session.value.loggedIn) return
         loading = true
         error = null
         viewModelScope.launch {
@@ -181,84 +183,91 @@ fun MessagesRoute(
     LaunchedEffect(Unit) {
         if (session.loggedIn && vm.items.isNotEmpty()) vm.reload()
     }
+    var unreadOnly by rememberSaveable { mutableStateOf(false) }
+    var opened by remember { mutableStateOf<MsgSession?>(null) }
+    val shown = remember(vm.items, unreadOnly) { if (unreadOnly) vm.items.filter { it.unread > 0 } else vm.items }
     Scaffold(
         topBar = {
-            BiliBackHeader("消息", onBack) {
+            AliStagePageHeader("消息", onBack = onBack) {
                 if (session.loggedIn) {
-                    BiliHeaderAction(Icons.Filled.Refresh, "刷新", vm::reload, enabled = !vm.loading)
+                    TextButton(onClick = { app.ailiaili.core.data.openUrl("https://message.bilibili.com/#/reply") }) {
+                        Text("站内通知")
+                    }
+                    AliStageIconButton(Icons.Filled.Refresh, "刷新私信", vm::reload, enabled = !vm.loading)
                 }
             }
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            if (!session.loggedIn) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    BiliEmptyState(
-                        title = "登录后查看私信",
-                        message = "和 UP 主、好友的对话都会出现在这里",
-                        icon = Icons.Filled.Person,
-                        action = {
-                            Button(onClick = onLogin, modifier = Modifier.padding(top = 6.dp)) {
-                                Text("登录哔哩哔哩")
-                            }
-                        },
+        if (!session.loggedIn) {
+            AliStageNotice(
+                "私信", "登录后查看与 UP 主和好友的对话。", Icons.Filled.Email,
+                modifier = Modifier.padding(padding),
+                actionLabel = "登录哔哩哔哩", onAction = onLogin,
+            )
+        } else {
+            val wide = app.ailiaili.core.designsystem.LocalWindowForm.current.width >= 840.dp
+            val inbox: @Composable (Modifier) -> Unit = { modifier ->
+                Column(modifier.fillMaxSize()) {
+                    AliStageTabs(
+                        labels = listOf("全部私信", "未读"),
+                        selected = if (unreadOnly) 1 else 0,
+                        onSelect = { unreadOnly = it == 1 },
+                        modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().padding(horizontal = 6.dp),
                     )
-                }
-                return@Column
-            }
-            val windowWidth = app.ailiaili.core.designsystem.LocalWindowForm.current.width
-            val wide = windowWidth.value >= 840f
-            var opened by remember { mutableStateOf<MsgSession?>(null) }
-            LoadBox(vm.loading, vm.error, vm.items.isEmpty(), "没有私信", vm::reload) {
-                if (wide) {
-                    // 微信式双栏：左侧会话列表，右侧直接聊天，不再整页跳转。
-                    Row(Modifier.fillMaxSize()) {
-                        val inboxWideState = androidx.compose.foundation.lazy.rememberLazyListState()
-                        LazyColumn(
-                            state = inboxWideState,
-                            modifier = Modifier.width(300.dp).fillMaxSize()
-                                .smoothWheelScroll(inboxWideState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
-                            items(vm.items, key = { it.talkerId }) { session ->
-                                SessionRow(
-                                    session,
-                                    { opened = session },
-                                    Modifier.animateItem(),
-                                    selected = opened?.talkerId == session.talkerId,
-                                )
-                            }
-                        }
-                        androidx.compose.material3.VerticalDivider()
-                        Box(Modifier.weight(1f).fillMaxSize()) {
-                            val picked = opened
-                            if (picked == null) {
-                                BiliEmptyState(
-                                    title = "选择一个会话",
-                                    message = "左侧点开就能聊",
-                                    icon = Icons.Filled.Email,
-                                    modifier = Modifier.align(Alignment.Center),
-                                )
-                            } else {
-                                androidx.compose.runtime.key(picked.talkerId) {
-                                    ChatRoute(picked.talkerId, picked.name, onBack = { opened = null })
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    val inboxState = androidx.compose.foundation.lazy.rememberLazyListState()
-                    LazyColumn(
-                        state = inboxState,
-                        modifier = Modifier.smoothWheelScroll(inboxState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    LoadBox(
+                        vm.loading, vm.error.takeIf { vm.items.isEmpty() }, shown.isEmpty(),
+                        if (unreadOnly) "没有未读私信" else "没有私信",
+                        vm::reload,
                     ) {
-                        items(vm.items, key = { it.talkerId }) { session ->
-                            SessionRow(session, { onOpen(session) }, Modifier.animateItem())
+                        val inboxState = rememberLazyListState()
+                        LazyColumn(
+                            state = inboxState,
+                            modifier = Modifier.fillMaxSize()
+                                .smoothWheelScroll(inboxState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
+                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            items(shown, key = { it.talkerId }) { item ->
+                                SessionRow(
+                                    item,
+                                    onClick = { if (wide) opened = item else onOpen(item) },
+                                    modifier = Modifier.animateItem(),
+                                    selected = wide && opened?.talkerId == item.talkerId,
+                                )
+                            }
                         }
                     }
+                }
+            }
+            if (wide) {
+                Row(
+                    Modifier.fillMaxSize().padding(padding).padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val shape = RoundedCornerShape(16.dp)
+                    inbox(Modifier.width(312.dp).clip(shape).background(MaterialTheme.colorScheme.surfaceContainerLow))
+                    Box(
+                        Modifier.weight(1f).fillMaxSize().clip(shape)
+                            .background(MaterialTheme.colorScheme.surfaceContainerLowest),
+                    ) {
+                        val picked = opened
+                        if (picked == null) {
+                            AliStageNotice("选择一个会话", null, Icons.Filled.Email)
+                        } else {
+                            androidx.compose.runtime.key(picked.talkerId) {
+                                ChatRoute(
+                                    picked.talkerId,
+                                    picked.name,
+                                    onBack = { opened = null; vm.reload() },
+                                    face = picked.face,
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                AliStageBody(Modifier.padding(padding), maxWidth = 700.dp) {
+                    inbox(Modifier)
                 }
             }
         }
@@ -273,16 +282,17 @@ private fun SessionRow(
     selected: Boolean = false,
 ) {
     val unread = session.unread > 0
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(12.dp)
     val name = session.name.ifBlank { "UID ${session.talkerId}" }
     Row(
         modifier
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium)
-            .background(
-                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent,
-            )
+            .clip(shape)
+            .background(if (selected) colors.primaryContainer else colors.surfaceContainerLow)
+            .border(1.dp, if (selected) colors.primary.copy(alpha = .48f) else colors.outlineVariant.copy(alpha = .54f), shape)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -320,7 +330,6 @@ private fun SessionRow(
                     BiliBadge(
                         text = if (session.unread > 99) "99+" else "${session.unread}",
                         modifier = Modifier.padding(start = 8.dp),
-                        tone = BiliBadgeTone.Accent,
                         style = BiliBadgeStyle.Solid,
                     )
                 }
@@ -359,7 +368,7 @@ private fun Avatar(face: String, name: String, size: Dp) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatRoute(talkerId: Long, name: String, onBack: () -> Unit) {
+fun ChatRoute(talkerId: Long, name: String, onBack: () -> Unit, face: String = "") {
     val vm = app.ailiaili.core.designsystem.accountViewModel(key = "chat-$talkerId") { ChatViewModel(talkerId) }
     app.ailiaili.core.designsystem.RegisterPageRefresh(vm::reload)
     val listState = rememberLazyListState()
@@ -383,11 +392,17 @@ fun ChatRoute(talkerId: Long, name: String, onBack: () -> Unit) {
         )
     }
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
         topBar = {
-            BiliBackHeader(name.ifBlank { "私信" }, onBack)
+            AliStagePageHeader(
+                name.ifBlank { "私信" }, onBack = onBack,
+                subtitle = if (name.isBlank()) null else ({ Text("私信") }),
+            ) {
+                Avatar(face, name, 36.dp)
+            }
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+        AliStageBody(Modifier.padding(padding).imePadding(), maxWidth = 760.dp) {
             Box(Modifier.weight(1f)) {
                 if (vm.loading && vm.items.isEmpty()) {
                     BiliLoadingState(
@@ -401,18 +416,17 @@ fun ChatRoute(talkerId: Long, name: String, onBack: () -> Unit) {
                         modifier = Modifier.align(Alignment.Center),
                     )
                 } else if (vm.items.isEmpty()) {
-                    BiliEmptyState(
+                    AliStageNotice(
                         title = "还没有聊天记录",
-                        message = "打个招呼吧",
+                        message = "发条消息打个招呼。",
                         icon = Icons.Filled.Email,
-                        modifier = Modifier.align(Alignment.Center),
                     )
                 } else {
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize()
                             .smoothWheelScroll(listState, app.ailiaili.core.designsystem.LocalWheelSpeed.current),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         itemsIndexed(vm.items, key = { _, msg -> msg.seqno }) { index, msg ->
@@ -517,9 +531,10 @@ private fun MessageBubble(
         } else {
             Surface(
                 modifier = Modifier.widthIn(max = 300.dp),
-                color = if (msg.mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
-                contentColor = if (msg.mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                color = if (msg.mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+                contentColor = if (msg.mine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                 shape = shape,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .58f)),
             ) {
                 EmoteText(
                     text = msg.text.ifBlank { "[消息]" },
@@ -592,30 +607,21 @@ private fun ChatInputBar(
     uploading: Boolean,
     onSendImage: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxWidth()) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .64f))
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                IconButton(onClick = onToggleEmotes) {
-                    Icon(
-                        Icons.Filled.EmojiEmotions,
-                        contentDescription = "表情",
-                        tint = if (emoteOpen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = onSendImage, enabled = !uploading) {
-                    if (uploading) {
+                AliStageIconButton(Icons.Filled.EmojiEmotions, "表情", onToggleEmotes, emphasized = emoteOpen)
+                if (uploading) {
+                    Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            Icons.Filled.Image,
-                            contentDescription = "发送图片",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
+                } else {
+                    AliStageIconButton(Icons.Filled.Image, "发送图片", onSendImage)
                 }
                 TextField(
                     value = draft,

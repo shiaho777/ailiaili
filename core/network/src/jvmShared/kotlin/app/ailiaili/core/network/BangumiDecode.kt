@@ -26,4 +26,5 @@ fun parseBangumiDetail(seasonId: Long, result: JSONObject): BangumiDetail = Bang
     cover = normalizeUrl(result.str("cover")),
     evaluate = result.str("evaluate"),
     episodes = result.arr("episodes")?.objects().orEmpty().mapNotNull(::parseBangumiEpisode),
+    followType = if (result.int("type") in setOf(0, 1, 4)) 1 else 2,
 )

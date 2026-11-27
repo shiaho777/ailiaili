@@ -58,35 +58,4 @@ class SearchKindTest {
         assertNull(searchPageError(blocked = false))
         assertEquals("搜索被风控拦截，过一会儿再试", searchPageError(blocked = true))
     }
-
-    @Test
-    fun kindSwitchShouldLoadOnlyWhenKeywordPresent() {
-        assertFalse(searchKindSwitchShouldLoad(""))
-        assertFalse(searchKindSwitchShouldLoad("   "))
-        assertTrue(searchKindSwitchShouldLoad("foo"))
-    }
-
-    @Test
-    fun kindSwitchBlankKeywordAfterSearchReturnsIdleAndBumpsGeneration() {
-        val out = searchKindSwitch(keyword = "", loadGen = 4, searched = true)
-        assertEquals(5, out.loadGen)
-        assertFalse(out.loading)
-        assertFalse(out.searched)
-    }
-
-    @Test
-    fun kindSwitchWithQueryReloadsAndBumpsGeneration() {
-        val out = searchKindSwitch(keyword = "foo", loadGen = 2, searched = true)
-        assertEquals(3, out.loadGen)
-        assertTrue(out.loading)
-        assertTrue(out.searched)
-    }
-
-    @Test
-    fun kindSwitchWithoutPriorSearchStaysIdle() {
-        val out = searchKindSwitch(keyword = "foo", loadGen = 0, searched = false)
-        assertEquals(1, out.loadGen)
-        assertFalse(out.loading)
-        assertFalse(out.searched)
-    }
 }
